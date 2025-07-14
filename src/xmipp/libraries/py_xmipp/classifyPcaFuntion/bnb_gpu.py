@@ -500,8 +500,8 @@ class BnBgpu:
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth(clk, sampling)
-            clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
-            # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
+            # clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
+            clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
             # clk = self.unsharp_mask_norm(clk)
     
 
@@ -682,8 +682,8 @@ class BnBgpu:
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth(clk, sampling) 
-            clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
-            # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
+            # clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
+            clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
             # clk = self.unsharp_mask_norm(clk)
             # clk = self.gaussian_lowpass_filter_2D(clk, maxRes, sampling)
         
@@ -1714,8 +1714,8 @@ class BnBgpu:
         averages: torch.Tensor,            # [B, H, W]
         resolutions: torch.Tensor,         # [B] resoluciones FRC por clase
         pixel_size: float,                 # Å/pixel
-        low_res_angstrom: float = 20.0,    # corte para bajas frecuencias a atenuar
-        order: int = 4,                    # orden del filtro
+        low_res_angstrom: float = 15.0,    # corte para bajas frecuencias a atenuar
+        order: int = 2,                    # orden del filtro
         blend_factor: float = 0.5,         # mezcla con original
         normalize: bool = True             # conservar contraste
     ) -> torch.Tensor:
