@@ -502,7 +502,7 @@ class BnBgpu:
             # clk = self.enhance_averages_butterworth(clk, sampling)
             clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
-            # clk = self.unsharp_mask_norm(clk)
+            clk = self.unsharp_mask_norm(clk)
     
 
             # clk = self.unsharp_mask_adaptive_gaussian(clk)
@@ -1152,7 +1152,7 @@ class BnBgpu:
         return masks
     
     
-    def unsharp_mask_norm(self, imgs, kernel_size=5, strength=1):
+    def unsharp_mask_norm(self, imgs, kernel_size=5, strength=2):
         N, H, W = imgs.shape
         
         mean0 = imgs.mean(dim=(1, 2), keepdim=True)
