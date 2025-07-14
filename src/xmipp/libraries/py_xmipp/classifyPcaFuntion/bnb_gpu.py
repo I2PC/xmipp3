@@ -493,16 +493,16 @@ class BnBgpu:
         # if iter > 10: 
         if iter > 7:
             res_classes = self.frc_resolution_tensor(newCL, sampling)
-            # print(res_classes)
-            bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
+            print(res_classes)
+            # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             # print(bfactor)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
-            clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
+            # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth(clk, sampling)
-            # clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
+            clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
-            clk = self.unsharp_mask_norm(clk)
+            # clk = self.unsharp_mask_norm(clk)
     
 
             # clk = self.unsharp_mask_adaptive_gaussian(clk)
@@ -677,12 +677,12 @@ class BnBgpu:
             clk = self.averages(data, newCL, classes)
             
             res_classes = self.frc_resolution_tensor(newCL, sampling)
-            bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
+            # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
-            clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
+            # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth(clk, sampling) 
-            # clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
+            clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
             clk = self.unsharp_mask_norm(clk)
             # clk = self.gaussian_lowpass_filter_2D(clk, maxRes, sampling)
@@ -1598,7 +1598,7 @@ class BnBgpu:
     
         # Prepara B y límites
         B_factors = torch.nan_to_num(B_factors, nan=0.0, posinf=0.0, neginf=0.0)
-        B_exp = B_factors.unsqueeze(1).unsqueeze(2).clamp(min=-200.0, max=40.0)
+        B_exp = B_factors.unsqueeze(1).unsqueeze(2).clamp(min=-400.0, max=20.0)
     
         fft = torch.fft.fft2(averages)
     
@@ -1636,7 +1636,7 @@ class BnBgpu:
         resolutions: torch.Tensor,         # [B] resoluciones FRC por clase
         pixel_size: float,                 # Å/pixel
         low_res_angstrom: float = 20.0,    # corte para altas frecuencias
-        order: int = 3,                    # orden del filtro
+        order: int = 2,                    # orden del filtro
         blend_factor: float = 0.5,         # mezcla con original
         normalize: bool = True             # conservar contraste
     ) -> torch.Tensor:
