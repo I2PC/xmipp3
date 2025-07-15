@@ -440,8 +440,8 @@ class BnBgpu:
             
             
             if mask:
-                if iter < 15:
-                    transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
+                # if iter < 15:
+                transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
             else:
                 transforIm = transforIm * self.create_circular_mask(transforIm)
                 
@@ -525,7 +525,7 @@ class BnBgpu:
                                 intensity_percentile=50, contrast_weight=1.5, intensity_weight=1.0)
 
         
-        if iter >= 15:
+        if iter < 17:
             clk = self.auto_generate_masks(clk)    
         clk = clk * self.create_circular_mask(clk)
         
@@ -641,8 +641,8 @@ class BnBgpu:
                                                                          rotBatch, translations, centerxy)
         
         if mask:
-            if iter < 2:
-                transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
+            # if iter < 2:
+            transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
         else: 
             transforIm = transforIm * self.create_circular_mask(transforIm)
         # if mask:
@@ -697,7 +697,7 @@ class BnBgpu:
             # mask_C = self.compute_class_consistency_masks(newCL) #Apply consistency mask           
             # clk = self.apply_consistency_masks_vector(clk, mask_C)
                         
-            clk = self.auto_generate_masks(clk)
+        
             if not hasattr(self, 'grad_squared'):
                 self.grad_squared = torch.zeros_like(cl)
             clk, self.grad_squared = self.update_classes_rmsprop(cl, clk, 0.001, 0.9, 1e-8, self.grad_squared)         
@@ -1135,7 +1135,7 @@ class BnBgpu:
     def auto_generate_masks(
         self,
         averages: torch.Tensor,          # [B, H, W]
-        percentile_threshold: float = 20,  # para máscara binaria inicial
+        percentile_threshold: float = 30,  # para máscara binaria inicial
         percentile_radius: float = 90,     # para calcular el radio interno
         margin: float = 8.0,               # píxeles extra para radio externo
         transition: str = "sigmoid",        # tipo de transición: "cosine" o "sigmoid"
