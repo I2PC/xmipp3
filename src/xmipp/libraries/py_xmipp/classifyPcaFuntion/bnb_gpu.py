@@ -502,7 +502,7 @@ class BnBgpu:
             # clk = self.enhance_averages_butterworth(clk, sampling)
             clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
-            clk = self.unsharp_mask_norm(clk)
+            # clk = self.unsharp_mask_norm(clk)
     
 
             # clk = self.unsharp_mask_adaptive_gaussian(clk)
@@ -684,7 +684,7 @@ class BnBgpu:
             # clk = self.enhance_averages_butterworth(clk, sampling) 
             clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
-            clk = self.unsharp_mask_norm(clk)
+            # clk = self.unsharp_mask_norm(clk)
             # clk = self.gaussian_lowpass_filter_2D(clk, maxRes, sampling)
         
             
@@ -1637,7 +1637,7 @@ class BnBgpu:
         pixel_size: float,                 # Å/pixel
         low_res_angstrom: float = 20.0,
         order: int = 2,
-        blend_factor: float = 0.5,
+        blend_factor: float = 0.4,
         normalize: bool = True
     ) -> torch.Tensor:
         """
