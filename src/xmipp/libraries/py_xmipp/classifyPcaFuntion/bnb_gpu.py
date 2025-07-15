@@ -1140,7 +1140,7 @@ class BnBgpu:
         percentile_radius: float = 90,     # para calcular el radio interno
         margin: float = 8.0,               # píxeles extra para radio externo
         transition: str = "sigmoid",        # tipo de transición: "cosine" o "sigmoid"
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> torch.Tensor:
     
         # Paso 1: Crear máscara binaria para estimar forma
         binary_masks = self.approximate_otsu_threshold(averages, percentile=percentile_threshold)
