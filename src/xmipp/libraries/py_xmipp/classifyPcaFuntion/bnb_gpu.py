@@ -1637,7 +1637,7 @@ class BnBgpu:
         pixel_size: float,                 # Å/pixel
         low_res_angstrom: float = 20.0,
         order: int = 2,
-        blend_factor: float = 0.4,
+        blend_factor: float = 0.5,
         normalize: bool = True
     ) -> torch.Tensor:
         """
@@ -1960,7 +1960,7 @@ class BnBgpu:
                 # expBatchSize = 10000
                 expBatchSize2 = 20000
                 # numFirstBatch = 2
-                numFirstBatch = 6
+                numFirstBatch = 5
             elif dim <= 256:
                 expBatchSize = 4000 
                 expBatchSize2 = 5000
