@@ -1187,7 +1187,7 @@ class BnBgpu:
         # Paso 4: Aplicar máscara
         masked = averages * mask
 
-    return masked
+        return masked
     
     
     def create_gaussian_masks_different_sigma(self, images):
