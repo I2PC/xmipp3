@@ -1633,80 +1633,77 @@ class BnBgpu:
     def enhance_averages_butterworth_combined(
         self,
         averages: torch.Tensor,            # [B, H, W]
-        resolutions: torch.Tensor,         # [B] resoluciones FRC por clase
+        resolutions: torch.Tensor,         # [B]
         pixel_size: float,                 # Å/pixel
-        low_res_angstrom: float = 20.0,    # corte para altas frecuencias
-        order: int = 2,                    # orden del filtro
-        blend_factor: float = 0.5,         # mezcla con original
-        normalize: bool = True             # conservar contraste
+        low_res_angstrom: float = 20.0,
+        order: int = 2,
+        blend_factor: float = 0.5,
+        normalize: bool = True
     ) -> torch.Tensor:
         """
-        Realza frecuencias medias-altas y atenúa bajas frecuencias según FRC.
-    
-        Las resoluciones FRC que sean >25 Å se limitan a 25 Å para el filtrado paso bajo.
-    
-        Returns:
-            Tensor [B, H, W] filtrado.
+        Aplica paso bajo (por FRC) al original y realce sobre ese resultado,
+        combinando ambos en espacio real.
         """
-        
         device = averages.device
         B, H, W = averages.shape
         eps = 1e-8
-        
+    
+        # === Malla radial ===
         yy, xx = torch.meshgrid(
             torch.arange(H, device=device),
             torch.arange(W, device=device),
             indexing='ij'
         )
-        r = torch.sqrt((xx - W // 2)**2 + (yy - H // 2)**2)
-        r_norm = r / r.max()                          # [H, W]
-        r_norm_exp = r_norm.unsqueeze(0)              # [1, H, W]
+        r = torch.sqrt((xx - W // 2) ** 2 + (yy - H // 2) ** 2)
+        r_norm = r / r.max()
+        r_norm_exp = r_norm.unsqueeze(0)  # [1, H, W]
     
-        # 1. Filtro pasa-banda (global, igual para todos)
+        # === Frecuencias normalizadas ===
         nyquist = 1.0 / (2.0 * pixel_size)
-        low_cutoff = (1.0 / low_res_angstrom) / nyquist / 2
-        high_res_angstrom = (2 * pixel_size) / 0.95
-        high_cutoff = (1.0 / high_res_angstrom) / nyquist / 2
         MAX_CUTOFF = 0.475
-        low_cutoff = max(0.0, min(low_cutoff, MAX_CUTOFF))
-        high_cutoff = max(0.0, min(high_cutoff, MAX_CUTOFF))
     
-        low  = 1.0 / (1.0 + (r_norm / (low_cutoff + eps)) ** (2 * order))
-        high = 1.0 / (1.0 + (high_cutoff / (r_norm + eps)) ** (2 * order))
-        bp_filter = (low * high).unsqueeze(0)         # [1, H, W]
-    
-        # 2. Filtro pasa-bajo individual por clase (en base a FRC)
-        res_clamped = torch.clamp(resolutions, max=25.0)  # [B]
-        frc_cutoffs = (1.0 / res_clamped.clamp(min=1e-3)) / nyquist / 2  # [B]
+        # -- Paso bajo individual (por resolución FRC) --
+        res_clamped = torch.clamp(resolutions, max=25.0)
+        frc_cutoffs = (1.0 / res_clamped.clamp(min=1e-3)) / nyquist / 2
         frc_cutoffs = torch.clamp(frc_cutoffs, 0.0, MAX_CUTOFF).view(B, 1, 1)
         lp_filter = 1.0 / (1.0 + (r_norm_exp / (frc_cutoffs + eps)) ** (2 * order))  # [B, H, W]
     
-        # 3. Aplicar filtros en frecuencia
-        fft_avg = torch.fft.fft2(averages)                         # [B, H, W]
-        fft_shift = torch.fft.fftshift(fft_avg, dim=(-2, -1))     # centrado
+        # -- Pasa-banda global --
+        low_cutoff = (1.0 / low_res_angstrom) / nyquist / 2
+        high_cutoff = (1.0 / ((2 * pixel_size) / 0.95)) / nyquist / 2
     
-        # Primero: aplicar paso bajo según resolución FRC
-        fft_low = fft_shift * lp_filter
+        low_cutoff = min(max(0.0, low_cutoff), MAX_CUTOFF)
+        high_cutoff = min(max(0.0, high_cutoff), MAX_CUTOFF)
     
-        # Luego: aplicar realce (pasa-banda común)
-        fft_final = fft_low * bp_filter
+        low = 1.0 / (1.0 + (r_norm / (low_cutoff + eps)) ** (2 * order))
+        high = 1.0 / (1.0 + (high_cutoff / (r_norm + eps)) ** (2 * order))
+        bp_filter = (low * high).unsqueeze(0)  # [1, H, W]
     
-        # Volver al espacio real
-        fft_unshift = torch.fft.ifftshift(fft_final, dim=(-2, -1))
-        filtered = torch.fft.ifft2(fft_unshift).real               # [B, H, W]
+        # === FFT única del original ===
+        fft = torch.fft.fft2(averages)
+        fft_shift = torch.fft.fftshift(fft, dim=(-2, -1))
     
-        # 4. Normalización para mantener contraste
+        # Filtro paso bajo
+        fft_lp = fft_shift * lp_filter
+        lowpass = torch.fft.ifft2(torch.fft.ifftshift(fft_lp, dim=(-2, -1))).real
+    
+        # Filtro realce (pasa banda aplicado sobre el paso bajo en freq)
+        fft_enhanced = fft_lp * bp_filter
+        enhanced = torch.fft.ifft2(torch.fft.ifftshift(fft_enhanced, dim=(-2, -1))).real
+    
+        # === Normalización (si se desea) ===
         if normalize:
-            mean_orig = averages.mean(dim=(-2, -1), keepdim=True)
-            std_orig  = averages.std(dim=(-2, -1), keepdim=True)
-            mean_filt = filtered.mean(dim=(-2, -1), keepdim=True)
-            std_filt  = filtered.std(dim=(-2, -1), keepdim=True)
-            filtered  = (filtered - mean_filt) / (std_filt + eps) * std_orig + mean_orig
+            mean = averages.mean(dim=(-2, -1), keepdim=True)
+            std  = averages.std(dim=(-2, -1), keepdim=True)
     
-        # 5. Fusión con original (mezcla controlada)
-        output = blend_factor * averages + (1.0 - blend_factor) * filtered
+            def norm(x):
+                return (x - x.mean(dim=(-2, -1), keepdim=True)) / (x.std(dim=(-2, -1), keepdim=True) + eps) * std + mean
     
-        return output    
+            lowpass = norm(lowpass)
+            enhanced = norm(enhanced)
+    
+        # === Mezcla final ===
+        return blend_factor * lowpass + (1 - blend_factor) * enhanced 
     
     @torch.no_grad()
     def enhance_averages_attenuate_lowfrequencies(
