@@ -439,9 +439,9 @@ class BnBgpu:
                                                                              rotBatch[initBatch:endBatch], translations[initBatch:endBatch], centerxy)
             
             
-            # if mask:
-            if mask and iter < 16:
-                transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
+            if mask:
+                # transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
+                transforIm = transforIm * self.create_gaussian_masks_different_sigma(transforIm)
             else:
                 transforIm = transforIm * self.create_circular_mask(transforIm)
                 
@@ -638,9 +638,9 @@ class BnBgpu:
         transforIm, matrixIm = self.center_particles_inverse_save_matrix(data, tMatrix, 
                                                                          rotBatch, translations, centerxy)
         
-        # if mask:
-        if mask and iter < 2:
-            transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
+        if mask:
+            # transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
+            transforIm = transforIm * self.create_gaussian_masks_different_sigma(transforIm)
         else: 
             transforIm = transforIm * self.create_circular_mask(transforIm)
         # if mask:
