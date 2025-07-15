@@ -39,7 +39,8 @@
 // #define DEBUG_FREQUENCY_PROFILE
 // #define DEBUG_NOISE_CALCULATION
 // #define DEBUG_LOG_LIKELIHOOD
-// #define DEBUG_ENTROPY
+#define DEBUG_ENTROPY
+// #define DEBUG_RADIAL_AVERAGE
 // #define DEBUG_WRITE_PARICLE
 #define DEBUG_OUTPUT_FILES
 
@@ -195,7 +196,9 @@ public:
     
     void calculateRadialAverage(const MultidimArray<std::complex<double>> &particleFT, 
 								std::vector<double> &radialAvg_FT,
-                                bool normalize);
+                                bool normalize,
+                                const FileName &fnImgOut);
+                                
 
     // ----------------------- CLASS METHODS ------------------------------
     // Empty constructor

@@ -269,7 +269,8 @@ void ProgClassifyPartialOccupancy::processImage(const FileName &fnImg, const Fil
 	double ll_I = 0;
 	double ll_IsubP = 0;
 
-	logLikelihood(ll_I, ll_IsubP, fnImgOut);
+	// logLikelihood(ll_I, ll_IsubP, fnImgOut);
+	entropy(ll_I, ll_IsubP, fnImgOut);
 
 	writeParticle(rowOut, ll_I, ll_IsubP, (ll_I-ll_IsubP)); 
 }
@@ -929,7 +930,6 @@ void ProgClassifyPartialOccupancy::entropy(double &ll_I, double &ll_IsubP, const
 		std::cout << "maxY[value] " << maxY[value] << std::endl;
 		std::cout << "width " 		<< width << std::endl;
 		std::cout << "height " 		<< height << std::endl;
-		std::cout << "numberOfPx " 	<< numberOfPx << std::endl;
 		#endif
 
 		// Initialize new images for cropping
@@ -953,6 +953,10 @@ void ProgClassifyPartialOccupancy::entropy(double &ll_I, double &ll_IsubP, const
 				}
 			}
 		}
+
+		#ifdef DEBUG_ENTROPY
+		std::cout << "numberOfPx " 	<< numberOfPx << std::endl;
+		#endif
 
 		// Fix scale previous to FT
 		double scallignFactor = (Xdim * Ydim) / (numberOfPx);
@@ -992,8 +996,8 @@ void ProgClassifyPartialOccupancy::entropy(double &ll_I, double &ll_IsubP, const
 		std::vector<double> fftI_RA;
 		std::vector<double> fftIsubP_RA;
 
-		calculateRadialAverage(fftI, fftI_RA, true);
-		calculateRadialAverage(fftIsubP, fftIsubP_RA, true);
+		calculateRadialAverage(fftI, fftI_RA, false, fnImgOut);
+		calculateRadialAverage(fftIsubP, fftIsubP_RA, false, fnImgOut);
 
 		// Calculate entropy for each region
 		double entropy_I_it = 0;
@@ -1008,6 +1012,7 @@ void ProgClassifyPartialOccupancy::entropy(double &ll_I, double &ll_IsubP, const
 			// Consider only "mount Fuji" frequencies (in Halo but not in APO)
 			// if (n > 50 && n < 150)
 			// {
+				std::cout << "fftI_RA[" << n << "]" << fftI_RA[n] << "        std::log2(fftI_RA[" << n << "])" << std::log2(fftI_RA[n]) << std::endl;
 				entropy_I_it     -= fftI_RA[n]     * std::log2(fftI_RA[n]);
 				entropy_IsubP_it -= fftIsubP_RA[n] * std::log2(fftIsubP_RA[n]);
 			}
@@ -1018,8 +1023,8 @@ void ProgClassifyPartialOccupancy::entropy(double &ll_I, double &ll_IsubP, const
 		ll_IsubP += entropy_IsubP_it;
 
 		#ifdef DEBUG_ENTROPY
-		std::cout << "ll_I_it for interation "     << value << " : " << ll_I_it     << ". Number of pixels: " << numberOfPx << std::endl;
-		std::cout << "ll_IsubP_it for interation " << value << " : " << ll_IsubP_it << ". Number of pixels: " << numberOfPx << std::endl;
+		std::cout << "ll_I_it for interation "     << value << " : " << entropy_I_it     << ". Number of pixels: " << numberOfPx << std::endl;
+		std::cout << "ll_IsubP_it for interation " << value << " : " << entropy_IsubP_it << ". Number of pixels: " << numberOfPx << std::endl;
 		#endif
 	}
 
@@ -1104,12 +1109,18 @@ void ProgClassifyPartialOccupancy::calculateBoundingBox(MultidimArray<double> Pm
 
 void ProgClassifyPartialOccupancy::calculateRadialAverage(const MultidimArray<std::complex<double>> &particleFT, 
 														  std::vector<double> &radialAvgFT,
-														  bool normalize) 
+														  bool normalize,
+														  const FileName &fnImgOut) 
 {
 	std::vector<double> radialCounter_FT;
 
-	radialAvgFT.resize(Xdim, 0);
-	radialCounter_FT.resize(Xdim, 0);
+	// FT dimensions
+	int xSize = XSIZE(particleFT);
+	int ySize = YSIZE(particleFT);
+	int maxRadius = std::min(xSize, ySize);
+
+	radialAvgFT.resize(maxRadius, 0);
+	radialCounter_FT.resize(maxRadius, 0);
 
 	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(particleFreqMap)
 	{
@@ -1118,30 +1129,51 @@ void ProgClassifyPartialOccupancy::calculateRadialAverage(const MultidimArray<st
 		{
 			double value_mod  = (DIRECT_MULTIDIM_ELEM(particleFT,n) * std::conj(DIRECT_MULTIDIM_ELEM(particleFT,n))).real();		
 
-			radialAvg_FT[(int)(DIRECT_MULTIDIM_ELEM(particleFreqMap,n))]  += value_mod;
+			radialAvgFT[(int)(DIRECT_MULTIDIM_ELEM(particleFreqMap,n))]  += value_mod;
 			radialCounter_FT[(int)(DIRECT_MULTIDIM_ELEM(particleFreqMap,n))] += 1;
 		}
 	}
 
 	for(size_t i = 0; i <  radialCounter_FT.size(); i++)
 	{
-		radialAvg_FT[i] /= radialCounter_FT[i];
+		radialAvgFT[i] /= radialCounter_FT[i];
 	}
 
 	if (normalize)
 	{
 		double sumPower = 0;
 
-		for(size_t i = 0; i < radialAvg_FT.size(); i++)
+		for(size_t i = 0; i < radialAvgFT.size(); i++)
 		{
-			sumPower += radialAvg_FT[i];
+			sumPower += radialAvgFT[i];
 		}	
 
-		for(size_t i = 0; i < radialAvg_FT.size(); i++)
+		for(size_t i = 0; i < radialAvgFT.size(); i++)
 		{
-			radialAvg_FT[i] /= sumPower;
+			radialAvgFT[i] /= sumPower;
 		}
 	}
+
+	#ifdef DEBUG_RADIAL_AVERAGE	
+	// Save output metadata
+	MetaDataVec md;
+	size_t id;
+
+	for(size_t i = 0; i < radialAvg_FT.size(); i++)
+	{
+		// id = md.addObject();
+		// md.setValue(MDL_X, radialAvg_FT[i], id);
+		// md.setValue(MDL_Y, radialCounter_FT[i],  id);
+		std::cout <<"radialAvg_FT["<<i<< "]=" << radialAvg_FT[i]<< std::endl;
+	}
+
+	// size_t lastindex = fnImgOut.find_last_of(".");
+	// std::string outputMD = fnImgOut.substr(0, lastindex) + "_radialProfileFT.xmd";
+	// md.write(outputMD);
+
+	// std::cout << "Radial FT profile saved at: " << outputMD << std::endl;
+	#endif
+
 }
 
 
