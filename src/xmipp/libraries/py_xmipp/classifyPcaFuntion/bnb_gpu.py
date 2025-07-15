@@ -528,7 +528,8 @@ class BnBgpu:
         
         # if iter > 2 and iter < 15:
         if iter > 2 and iter < 12:
-            clk = self.center_by_com(clk)                  
+            for _ in range(2):
+                clk = self.center_by_com(clk)                  
         
         return(clk, tMatrix, batch_projExp_cpu)
     
