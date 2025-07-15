@@ -442,8 +442,6 @@ class BnBgpu:
             if mask:
                 if iter < 15:
                     transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
-                else:
-                    transforIm = self.auto_generate_masks(transforIm)
             else:
                 transforIm = transforIm * self.create_circular_mask(transforIm)
                 
@@ -526,7 +524,9 @@ class BnBgpu:
             clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
                                 intensity_percentile=50, contrast_weight=1.5, intensity_weight=1.0)
 
-            
+        
+        if iter >= 15:
+            clk = self.auto_generate_masks(clk)    
         clk = clk * self.create_circular_mask(clk)
         
         # if iter > 2 and iter < 15:
@@ -643,8 +643,6 @@ class BnBgpu:
         if mask:
             if iter < 2:
                 transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
-            else:
-                transforIm = self.auto_generate_masks(transforIm)
         else: 
             transforIm = transforIm * self.create_circular_mask(transforIm)
         # if mask:
@@ -699,10 +697,11 @@ class BnBgpu:
             # mask_C = self.compute_class_consistency_masks(newCL) #Apply consistency mask           
             # clk = self.apply_consistency_masks_vector(clk, mask_C)
                         
-            
+            clk = self.auto_generate_masks(clk)
             if not hasattr(self, 'grad_squared'):
                 self.grad_squared = torch.zeros_like(cl)
             clk, self.grad_squared = self.update_classes_rmsprop(cl, clk, 0.001, 0.9, 1e-8, self.grad_squared)         
+            
                 
             clk = clk * self.create_circular_mask(clk)
             # clk = clk * self.create_gaussian_masks_different_sigma(clk)
