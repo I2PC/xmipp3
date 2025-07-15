@@ -443,7 +443,7 @@ class BnBgpu:
                 if iter < 15:
                     transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
                 else:
-                    transforIm = transforIm * self.create_gaussian_masks_different_sigma(transforIm)
+                    transforIm = self.auto_generate_masks(transforIm)
             else:
                 transforIm = transforIm * self.create_circular_mask(transforIm)
                 
@@ -644,7 +644,7 @@ class BnBgpu:
             if iter < 2:
                 transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
             else:
-                transforIm = transforIm * self.create_gaussian_masks_different_sigma(transforIm)
+                transforIm = self.auto_generate_masks(transforIm)
         else: 
             transforIm = transforIm * self.create_circular_mask(transforIm)
         # if mask:
@@ -1074,19 +1074,6 @@ class BnBgpu:
             batch = batch + torch.abs(lower_values_mean)
         return batch
     
-    
-    def approximate_otsu_threshold(self, imgs, percentile=20):
-
-        N, H, W = imgs.shape
-        flat = imgs.view(N, -1)
-        k = int(flat.shape[1] * (percentile / 100.0))
-    
-        topk_vals, _ = torch.topk(flat, k=k, dim=1)
-        thresholds = topk_vals[:, -1].clamp(min=0.0).view(N, 1, 1)
-    
-        self.binary_masks = (imgs > thresholds).float()
-        return self.binary_masks
-    
     def contrast_dominant_mask(self, imgs,
                                 window=3,
                                 contrast_percentile=80,
@@ -1110,7 +1097,17 @@ class BnBgpu:
         return mask.float().squeeze(1)
     
     
+    def approximate_otsu_threshold(self, imgs, percentile=20):
+
+        N, H, W = imgs.shape
+        flat = imgs.view(N, -1)
+        k = int(flat.shape[1] * (percentile / 100.0))
     
+        topk_vals, _ = torch.topk(flat, k=k, dim=1)
+        thresholds = topk_vals[:, -1].clamp(min=0.0).view(N, 1, 1)
+    
+        self.binary_masks = (imgs > thresholds).float()
+        return self.binary_masks
     
     def compute_particle_radius(self, imgs, percentile: float = 100):
         
@@ -1134,6 +1131,63 @@ class BnBgpu:
                 self.max_distances[i] = torch.sqrt(percentile_value_sq)
     
         return self.max_distances
+    
+    
+    def auto_generate_masks(
+        self,
+        averages: torch.Tensor,          # [B, H, W]
+        percentile_threshold: float = 20,  # para máscara binaria inicial
+        percentile_radius: float = 90,     # para calcular el radio interno
+        margin: float = 8.0,               # píxeles extra para radio externo
+        transition: str = "sigmoid",        # tipo de transición: "cosine" o "sigmoid"
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+    
+        # Paso 1: Crear máscara binaria para estimar forma
+        binary_masks = self.approximate_otsu_threshold(averages, percentile=percentile_threshold)
+    
+        # Paso 2: Calcular radio interno por imagen (percentil sobre distancias)
+        B, H, W = binary_masks.shape
+        device = averages.device
+    
+        y_coords = torch.arange(H, device=device).float() - H / 2
+        x_coords = torch.arange(W, device=device).float() - W / 2
+        yy, xx = torch.meshgrid(y_coords, x_coords, indexing='ij')
+        dist_sq = xx**2 + yy**2  # shape (H, W)
+    
+        r_inner = torch.zeros(B, device=device)
+    
+        for i in range(B):
+            mask = binary_masks[i] > 0.5
+            d = dist_sq[mask]
+            if d.numel() > 0:
+                r2 = torch.quantile(d, percentile_radius / 100.0)
+                r_inner[i] = torch.sqrt(r2)
+    
+        r_outer = r_inner + margin  # [B]
+    
+        # Paso 3: Crear máscara suave tipo coseno
+        yy = yy.expand(B, -1, -1)
+        xx = xx.expand(B, -1, -1)
+        r = torch.sqrt(xx**2 + yy**2)  # [B, H, W]
+    
+        r_inner = r_inner.view(B, 1, 1)
+        r_outer = r_outer.view(B, 1, 1)
+    
+        if transition == "cosine":
+            mask = 0.5 * (1 + torch.cos(torch.pi * (r - r_inner) / (r_outer - r_inner)))
+            mask = torch.where(r <= r_inner, torch.ones_like(mask), mask)
+            mask = torch.where(r >= r_outer, torch.zeros_like(mask), mask)
+        elif transition == "sigmoid":
+            # Suavizado tipo sigmoide (más gradual)
+            width = r_outer - r_inner + 1e-6
+            mask = 1.0 / (1 + torch.exp((r - r_inner) / (width / 6)))  # suave
+        else:
+            raise ValueError("transition must be 'cosine' or 'sigmoid'")
+    
+        # Paso 4: Aplicar máscara
+        masked = averages * mask
+
+    return masked
     
     
     def create_gaussian_masks_different_sigma(self, images):
