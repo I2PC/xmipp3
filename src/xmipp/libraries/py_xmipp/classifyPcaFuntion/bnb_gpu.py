@@ -1723,12 +1723,24 @@ class BnBgpu:
         f_cutoff = (1.0 / res_cutoffs).unsqueeze(1).unsqueeze(2)  # [N,1,1]
         f_nyquist = 1.0 / (2.0 * pixel_size)
         
+        # taper = torch.ones_like(freq_r)
+        # taper[freq_r > f_cutoff] = 0
+        
+        # Transición en un rango más amplio: de 0.5*f_cutoff a f_cutoff
         taper = torch.ones_like(freq_r)
-        taper[freq_r > f_cutoff] = 0
+        f_cutoff_exp = f_cutoff.expand_as(freq_r)
+        f_low = 0.5 * f_cutoff
+        f_low_exp = f_low.expand_as(freq_r)
+    
+        mask = (freq_r > f_low_exp) & (freq_r <= f_cutoff_exp)
+        taper[mask] = 0.5 * (
+            1 + torch.cos(torch.pi * (freq_r[mask] - f_low_exp[mask]) / (f_cutoff_exp[mask] - f_low_exp[mask]))
+        )
+        taper[freq_r > f_cutoff_exp] = 0.0
             
     
         # Filtro de realce con B y taper hasta f_cutoff
-        filt = torch.exp((B_exp / 4) * (freq_r ** 2)) * taper 
+        filt = torch.exp((-B_exp / 4) * (freq_r ** 2)) * taper 
     
         fft_sharp = fft * filt
         sharp_imgs = torch.fft.ifft2(fft_sharp).real
