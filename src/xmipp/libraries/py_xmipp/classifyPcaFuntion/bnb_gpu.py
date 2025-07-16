@@ -1742,7 +1742,8 @@ class BnBgpu:
             
     
         # Filtro de realce con B y taper hasta f_cutoff
-        filt = torch.exp((B_exp / 4) * (freq_r ** 2)) * taper 
+        #Para hacer sharp hay que cambiar por (-B_exp / 4) 
+        filt = torch.exp((-B_exp / 4) * (freq_r ** 2)) * taper 
     
         fft_sharp = fft * filt
         sharp_imgs = torch.fft.ifft2(fft_sharp).real
