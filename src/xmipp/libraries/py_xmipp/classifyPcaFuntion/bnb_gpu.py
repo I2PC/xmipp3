@@ -1723,23 +1723,30 @@ class BnBgpu:
         f_cutoff = (1.0 / res_cutoffs).unsqueeze(1).unsqueeze(2)  # [N,1,1]
         f_nyquist = 1.0 / (2.0 * pixel_size)
         
-        # taper = torch.ones_like(freq_r)
-        # taper[freq_r > f_cutoff] = 0
-        
-        # Transición en un rango más amplio: de 0.5*f_cutoff a f_cutoff
 
+        #Transición coseno
+        # f_cutoff_exp = f_cutoff.expand_as(freq_r)
+        # taper = torch.zeros_like(freq_r)
+        #
+        # mask = (freq_r >= 0) & (freq_r <= f_cutoff_exp)
+        # taper[mask] = 0.75 - 0.25 * torch.cos(torch.pi * freq_r[mask] / f_cutoff_exp[mask])
+        # # taper[mask] = 0.85 - 0.15 * torch.cos(torch.pi * freq_r[mask] / f_cutoff_exp[mask])
+        # taper[freq_r > f_cutoff_exp] = 0.0
         
-        # taper = 0.5 * (1 + torch.cos(torch.pi * (freq_r - f_cutoff) / f_cutoff))
-        # taper = torch.where(freq_r <= f_cutoff, taper, torch.zeros_like(taper))
+        # Transición sigmoide
+        k = 5
+        s = 1 / (1 + torch.exp(-k * (freq_r - f_cutoff/2)))
         
-        f_cutoff_exp = f_cutoff.expand_as(freq_r)
-        taper = torch.zeros_like(freq_r)
+        # Evalúa la sigmoide en 0 y en f_cutoff
+        s0 = 1 / (1 + torch.exp(k * f_cutoff/2))     # valor en freq_r = 0
+        s1 = 1 / (1 + torch.exp(-k * f_cutoff/2))    # valor en freq_r = f_cutoff
         
-        mask = (freq_r >= 0) & (freq_r <= f_cutoff_exp)
-        taper[mask] = 0.75 - 0.25 * torch.cos(torch.pi * freq_r[mask] / f_cutoff_exp[mask])
-        # taper[mask] = 0.85 - 0.15 * torch.cos(torch.pi * freq_r[mask] / f_cutoff_exp[mask])
-        taper[freq_r > f_cutoff_exp] = 0.0
-            
+        # Normaliza a [0.5, 1] => nuevo rango
+        taper = 0.5 + 0.5 * (s - s0) / (s1 - s0)
+        
+        # Forzar taper = 0 para freq_r > f_cutoff
+        taper[freq_r > f_cutoff] = 0.0
+                    
     
         # Filtro de realce con B y taper hasta f_cutoff
         #Para hacer sharp hay que poner (-B_exp / 4) 
@@ -2075,7 +2082,7 @@ class BnBgpu:
             elif dim <= 256:
                 expBatchSize = 1000 
                 expBatchSize2 = 2000
-                numFirstBatch = 5
+                numFirstBatch = 20
                 
         elif free_memory > 14 and free_memory < 22: #test with 15Gb GPU
             if dim <= 64:
