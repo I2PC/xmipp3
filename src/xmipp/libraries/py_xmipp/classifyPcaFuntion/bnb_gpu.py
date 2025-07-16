@@ -1658,7 +1658,7 @@ class BnBgpu:
     
         # Prepara B y límites
         B_factors = torch.nan_to_num(B_factors, nan=0.0, posinf=0.0, neginf=0.0)
-        B_exp = B_factors.unsqueeze(1).unsqueeze(2).clamp(min=-400.0, max=20.0)
+        B_exp = B_factors.unsqueeze(1).unsqueeze(2).clamp(min=-800.0, max=50.0)
     
         fft = torch.fft.fft2(averages)
     
