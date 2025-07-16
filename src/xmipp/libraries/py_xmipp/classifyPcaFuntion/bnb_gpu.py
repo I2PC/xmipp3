@@ -1686,7 +1686,7 @@ class BnBgpu:
         taper[freq_r >= f_nyquist] = 0.0
     
         # Filtro con sharpening y taper
-        filt = torch.exp((-B_exp / 4) * (freq_r ** 2)) * taper
+        filt = torch.exp((B_exp / 4) * (freq_r ** 2)) * taper
     
         fft_sharp = fft * filt
         sharp_imgs = torch.fft.ifft2(fft_sharp).real
