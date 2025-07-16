@@ -1737,14 +1737,11 @@ class BnBgpu:
         f_nyquist = 1.0 / (2.0 * pixel_size)
         
 
-        #Transición coseno
-        # f_cutoff_exp = f_cutoff.expand_as(freq_r)
-        # taper = torch.zeros_like(freq_r)
-        #
-        # mask = (freq_r >= 0) & (freq_r <= f_cutoff_exp)
-        # taper[mask] = 0.75 - 0.25 * torch.cos(torch.pi * freq_r[mask] / f_cutoff_exp[mask])
-        # taper[freq_r > f_cutoff_exp] = 0.0
-        taper = create_taper(freq_r, f_cutoff, v0=0.5, vc=1.0)
+        #Transición coseno  
+        f_cutoff_exp = f_cutoff.expand_as(freq_r)     
+        taper = torch.ones_like(freq_r)
+        taper[freq_r > f_cutoff_exp] = 0.0
+        # taper = create_taper(freq_r, f_cutoff, v0=0.5, vc=1.0)
         
         # Transición sigmoide
         # k = 10  
