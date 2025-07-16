@@ -1727,20 +1727,22 @@ class BnBgpu:
         # taper[freq_r > f_cutoff] = 0
         
         # Transición en un rango más amplio: de 0.5*f_cutoff a f_cutoff
-        taper = torch.ones_like(freq_r)
+
+        
+        # taper = 0.5 * (1 + torch.cos(torch.pi * (freq_r - f_cutoff) / f_cutoff))
+        # taper = torch.where(freq_r <= f_cutoff, taper, torch.zeros_like(taper))
+        
         f_cutoff_exp = f_cutoff.expand_as(freq_r)
-        f_low = 0.5 * f_cutoff
-        f_low_exp = f_low.expand_as(freq_r)
-    
-        mask = (freq_r > f_low_exp) & (freq_r <= f_cutoff_exp)
-        taper[mask] = 0.5 * (
-            1 + torch.cos(torch.pi * (freq_r[mask] - f_low_exp[mask]) / (f_cutoff_exp[mask] - f_low_exp[mask]))
-        )
+        taper = torch.zeros_like(freq_r)
+        
+        mask = (freq_r >= 0) & (freq_r <= f_cutoff_exp)
+        # taper[mask] = 0.75 - 0.25 * torch.cos(torch.pi * freq_r[mask] / f_cutoff_exp[mask])
+        taper[mask] = 0.85 - 0.15 * torch.cos(torch.pi * freq_r[mask] / f_cutoff_exp[mask])
         taper[freq_r > f_cutoff_exp] = 0.0
             
     
         # Filtro de realce con B y taper hasta f_cutoff
-        filt = torch.exp((-B_exp / 4) * (freq_r ** 2)) * taper 
+        filt = torch.exp((B_exp / 4) * (freq_r ** 2)) * taper 
     
         fft_sharp = fft * filt
         sharp_imgs = torch.fft.ifft2(fft_sharp).real
