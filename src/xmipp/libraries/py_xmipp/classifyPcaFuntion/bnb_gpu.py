@@ -1701,6 +1701,19 @@ class BnBgpu:
     def sharpen_averages_batch(self, averages, pixel_size, B_factors, res_cutoffs, eps=1e-6):
         N, H, W = averages.shape
         device = averages.device
+        
+        def create_taper(freq_r, f_cutoff, v0=0.3, vc=1.0):
+            f_cutoff_exp = f_cutoff.expand_as(freq_r)
+            taper = torch.zeros_like(freq_r)
+        
+            a = 0.5 * (v0 + vc)
+            b = 0.5 * (v0 - vc)
+        
+            mask = (freq_r >= 0) & (freq_r <= f_cutoff_exp)
+            taper[mask] = a + b * torch.cos(torch.pi * freq_r[mask] / f_cutoff_exp[mask])
+            taper[freq_r > f_cutoff_exp] = 0.0
+        
+            return taper
     
         # Backup estadístico
         mean_orig = averages.mean(dim=(-2, -1), keepdim=True)
@@ -1730,22 +1743,21 @@ class BnBgpu:
         #
         # mask = (freq_r >= 0) & (freq_r <= f_cutoff_exp)
         # taper[mask] = 0.75 - 0.25 * torch.cos(torch.pi * freq_r[mask] / f_cutoff_exp[mask])
-        # # taper[mask] = 0.85 - 0.15 * torch.cos(torch.pi * freq_r[mask] / f_cutoff_exp[mask])
         # taper[freq_r > f_cutoff_exp] = 0.0
+        taper = create_taper(freq_r, f_cutoff, v0=0.3, vc=0.0)
         
         # Transición sigmoide
-        k = 10
-        s = 1 / (1 + torch.exp(-k * (freq_r - f_cutoff/2)))
-        
-        # Evalúa la sigmoide en 0 y en f_cutoff
-        s0 = 1 / (1 + torch.exp(k * f_cutoff/2))     # valor en freq_r = 0
-        s1 = 1 / (1 + torch.exp(-k * f_cutoff/2))    # valor en freq_r = f_cutoff
-        
-        # Normaliza a [0.5, 1] => nuevo rango
-        taper = 0.5 + 0.5 * (s - s0) / (s1 - s0)
-        
-        # Forzar taper = 0 para freq_r > f_cutoff
-        taper[freq_r > f_cutoff] = 0.0
+        # k = 10  
+        # f_center = f_cutoff / 2  
+        # y_min = 0.3  
+        #
+        # s = 1 / (1 + torch.exp(-k * (freq_r - f_center)))
+        #
+        # s0 = 1 / (1 + torch.exp(k * f_center))             # valor en freq_r = 0
+        # s1 = 1 / (1 + torch.exp(-k * (f_cutoff - f_center)))  # valor en freq_r = f_cutoff
+        #
+        # taper = y_min + (1.0 - y_min) * (s - s0) / (s1 - s0)
+        # taper[freq_r > f_cutoff] = 0.0
                     
     
         # Filtro de realce con B y taper hasta f_cutoff
