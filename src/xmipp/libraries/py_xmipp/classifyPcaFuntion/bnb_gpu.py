@@ -1652,38 +1652,44 @@ class BnBgpu:
         N, H, W = averages.shape
         device = averages.device
     
-        # Backup estadístico
+        # Backup estadístico de las imágenes originales
         mean_orig = averages.mean(dim=(-2, -1), keepdim=True)
         std_orig = averages.std(dim=(-2, -1), keepdim=True)
     
-        # B-factors preparados
+        # Prepara B y límites
         B_factors = torch.nan_to_num(B_factors, nan=0.0, posinf=0.0, neginf=0.0)
-        B_exp = B_factors.unsqueeze(1).unsqueeze(2).clamp(min=-600.0, max=50.0)
+        B_exp = B_factors.unsqueeze(1).unsqueeze(2).clamp(min=-800.0, max=50.0)
     
-        # FFT
         fft = torch.fft.fft2(averages)
     
-        # Malla de frecuencias
         fy = torch.fft.fftfreq(H, d=pixel_size).to(device)
         fx = torch.fft.fftfreq(W, d=pixel_size).to(device)
         gy, gx = torch.meshgrid(fy, fx, indexing='ij')
         freq_r = torch.sqrt(gx**2 + gy**2).unsqueeze(0).expand(N, -1, -1)
     
-        # Frecuencia de corte y Nyquist
+        # Frecuencias de corte y Nyquist
         f_cutoff = (1.0 / res_cutoffs).unsqueeze(1).unsqueeze(2)  # [N,1,1]
-        f_nyquist = 1.0 / (2.0 * pixel_size)
+        f_nyquist = 1.0 / (2.0 * pixel_size)  # escalar
     
-        # Taper suave: solo aplica sharpening por debajo del cutoff (hasta f_cutoff)
-        taper = 0.5 * (1 + torch.cos(torch.pi * (freq_r - f_cutoff) / f_cutoff))
-        taper = torch.where(freq_r <= f_cutoff, taper, torch.zeros_like(taper))
+        # Taper coseno suave:
+        # 1 para freq_r <= f_cutoff
+        # decae suavemente a 0 para freq_r entre f_cutoff y f_nyquist
+        taper = torch.ones_like(freq_r)
+        mask_transition = (freq_r > f_cutoff) & (freq_r < f_nyquist)
+        taper[mask_transition] = 0.5 * (
+            1 + torch.cos(
+                torch.pi * (freq_r[mask_transition] - f_cutoff[mask_transition]) / (f_nyquist - f_cutoff[mask_transition])
+            )
+        )
+        taper[freq_r >= f_nyquist] = 0.0
     
-        # Filtro de realce con B y taper hasta f_cutoff
-        filt = torch.exp((-B_exp / 4.0) * (freq_r ** 2)) * taper
+        # Filtro con sharpening y taper
+        filt = torch.exp((B_exp / 4) * (freq_r ** 2)) * taper
     
         fft_sharp = fft * filt
         sharp_imgs = torch.fft.ifft2(fft_sharp).real
     
-        # Restaurar nivel de grises
+        # Normalización final
         mean_filt = sharp_imgs.mean(dim=(-2, -1), keepdim=True)
         std_filt = sharp_imgs.std(dim=(-2, -1), keepdim=True)
         sharp_imgs = (sharp_imgs - mean_filt) / (std_filt + eps) * std_orig + mean_orig
