@@ -196,8 +196,7 @@ public:
     
     void calculateRadialAverage(const MultidimArray<std::complex<double>> &particleFT, 
 								std::vector<double> &radialAvg_FT,
-                                bool normalize,
-                                const FileName &fnImgOut);
+                                bool normalize);
                                 
 
     // ----------------------- CLASS METHODS ------------------------------

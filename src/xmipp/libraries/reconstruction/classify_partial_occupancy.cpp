@@ -996,36 +996,39 @@ void ProgClassifyPartialOccupancy::entropy(double &ll_I, double &ll_IsubP, const
 		std::vector<double> fftI_RA;
 		std::vector<double> fftIsubP_RA;
 
-		calculateRadialAverage(fftI, fftI_RA, false, fnImgOut);
-		calculateRadialAverage(fftIsubP, fftIsubP_RA, false, fnImgOut);
+		fftI_RA.resize((Xdim/2) + 1, 0);	// assume squared paticles 
+		fftIsubP_RA.resize((Xdim/2) + 1, 0);
 
-		// Calculate entropy for each region
-		double entropy_I_it = 0;
-		double entropy_IsubP_it = 0;
+		calculateRadialAverage(fftI, fftI_RA, false);
+		calculateRadialAverage(fftIsubP, fftIsubP_RA, false);
 
-		for(size_t n = 0; n < fftI_RA.size(); n++)
-		{		
-			// Consider all frequencies
-			if (true)
-			{
+		// // Calculate entropy for each region
+		// double entropy_I_it = 0;
+		// double entropy_IsubP_it = 0;
 
-			// Consider only "mount Fuji" frequencies (in Halo but not in APO)
-			// if (n > 50 && n < 150)
-			// {
-				std::cout << "fftI_RA[" << n << "]" << fftI_RA[n] << "        std::log2(fftI_RA[" << n << "])" << std::log2(fftI_RA[n]) << std::endl;
-				entropy_I_it     -= fftI_RA[n]     * std::log2(fftI_RA[n]);
-				entropy_IsubP_it -= fftIsubP_RA[n] * std::log2(fftIsubP_RA[n]);
-			}
-		}
+		// for(size_t n = 0; n < fftI_RA.size(); n++)
+		// {		
+		// 	// Consider all frequencies
+		// 	if (true)
+		// 	{
 
-		// Do not noralize
-		ll_I	 += entropy_I_it;
-		ll_IsubP += entropy_IsubP_it;
+		// 	// Consider only "mount Fuji" frequencies (in Halo but not in APO)
+		// 	// if (n > 50 && n < 150)
+		// 	// {
+		// 		std::cout << "fftI_RA[" << n << "]" << fftI_RA[n] << "        std::log2(fftI_RA[" << n << "])" << std::log2(fftI_RA[n]) << std::endl;
+		// 		entropy_I_it     -= fftI_RA[n]     * std::log2(fftI_RA[n]);
+		// 		entropy_IsubP_it -= fftIsubP_RA[n] * std::log2(fftIsubP_RA[n]);
+		// 	}
+		// }
 
-		#ifdef DEBUG_ENTROPY
-		std::cout << "ll_I_it for interation "     << value << " : " << entropy_I_it     << ". Number of pixels: " << numberOfPx << std::endl;
-		std::cout << "ll_IsubP_it for interation " << value << " : " << entropy_IsubP_it << ". Number of pixels: " << numberOfPx << std::endl;
-		#endif
+		// // Do not noralize
+		// ll_I	 += entropy_I_it;
+		// ll_IsubP += entropy_IsubP_it;
+
+		// #ifdef DEBUG_ENTROPY
+		// std::cout << "ll_I_it for interation "     << value << " : " << entropy_I_it     << ". Number of pixels: " << numberOfPx << std::endl;
+		// std::cout << "ll_IsubP_it for interation " << value << " : " << entropy_IsubP_it << ". Number of pixels: " << numberOfPx << std::endl;
+		// #endif
 	}
 
 	std::cout << "Final ll_I: " << ll_I << std::endl;
@@ -1109,18 +1112,10 @@ void ProgClassifyPartialOccupancy::calculateBoundingBox(MultidimArray<double> Pm
 
 void ProgClassifyPartialOccupancy::calculateRadialAverage(const MultidimArray<std::complex<double>> &particleFT, 
 														  std::vector<double> &radialAvgFT,
-														  bool normalize,
-														  const FileName &fnImgOut) 
+														  bool normalize) 
 {
 	std::vector<double> radialCounter_FT;
-
-	// FT dimensions
-	int xSize = XSIZE(particleFT);
-	int ySize = YSIZE(particleFT);
-	int maxRadius = std::min(xSize, ySize);
-
-	radialAvgFT.resize(maxRadius, 0);
-	radialCounter_FT.resize(maxRadius, 0);
+	radialCounter_FT.resize(radialAvgFT.size(), 0);
 
 	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(particleFreqMap)
 	{
@@ -1155,25 +1150,11 @@ void ProgClassifyPartialOccupancy::calculateRadialAverage(const MultidimArray<st
 	}
 
 	#ifdef DEBUG_RADIAL_AVERAGE	
-	// Save output metadata
-	MetaDataVec md;
-	size_t id;
-
 	for(size_t i = 0; i < radialAvg_FT.size(); i++)
 	{
-		// id = md.addObject();
-		// md.setValue(MDL_X, radialAvg_FT[i], id);
-		// md.setValue(MDL_Y, radialCounter_FT[i],  id);
 		std::cout <<"radialAvg_FT["<<i<< "]=" << radialAvg_FT[i]<< std::endl;
 	}
-
-	// size_t lastindex = fnImgOut.find_last_of(".");
-	// std::string outputMD = fnImgOut.substr(0, lastindex) + "_radialProfileFT.xmd";
-	// md.write(outputMD);
-
-	// std::cout << "Radial FT profile saved at: " << outputMD << std::endl;
 	#endif
-
 }
 
 
