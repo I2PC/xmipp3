@@ -132,16 +132,11 @@ void ProgFSCoh::fourierShellCoherence(MetaDataVec mapPoolMD)
         FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V_ft)
         {
             DIRECT_MULTIDIM_ELEM(FSCoh_map,  n) +=  DIRECT_MULTIDIM_ELEM(V_ft,n);
-            DIRECT_MULTIDIM_ELEM(FSCoh_map2, n) += (DIRECT_MULTIDIM_ELEM(V_ft,n) * std::conj(DIRECT_MULTIDIM_ELEM(V_ft,n))).real();
+            DIRECT_MULTIDIM_ELEM(FSCoh_map2, n) += std::norm(DIRECT_MULTIDIM_ELEM(V_ft,n));
         }
     }
 
 	std::cout << "  Calculating FSCoh... " << std::endl;
-
-    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(FSCoh_map_mod2)
-    {
-        DIRECT_MULTIDIM_ELEM(FSCoh_map_mod2, n) = (DIRECT_MULTIDIM_ELEM(FSCoh_map,n) * std::conj(DIRECT_MULTIDIM_ELEM(FSCoh_map,n))).real();
-    }
 
     // Coherence per fequency
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(FSCoh_map)
@@ -149,13 +144,14 @@ void ProgFSCoh::fourierShellCoherence(MetaDataVec mapPoolMD)
         int freqIdx = (int)(DIRECT_MULTIDIM_ELEM(freqMap,n));
 
         // Consider only up to Nyquist (remove corners from analysis)
-        if (freqIdx < NZYXSIZE(FSCoh))
-        {
-            DIRECT_MULTIDIM_ELEM(FSCoh_num,     freqIdx) += DIRECT_MULTIDIM_ELEM(FSCoh_map_mod2,n);
+        // if (freqIdx < NZYXSIZE(FSCoh)) ***
+        if (freqIdx < 238)
+		{
+            DIRECT_MULTIDIM_ELEM(FSCoh_num,     freqIdx) += std::norm(DIRECT_MULTIDIM_ELEM(FSCoh_map,n));
             DIRECT_MULTIDIM_ELEM(FSCoh_den,     freqIdx) += DIRECT_MULTIDIM_ELEM(FSCoh_map2,n);
 
 			#ifdef DEBUG_OUTPUT_FILES
-			DIRECT_MULTIDIM_ELEM(FSCoh_map2,    n      ) += DIRECT_MULTIDIM_ELEM(FSCoh_map_mod2,n) / (Ndim * DIRECT_MULTIDIM_ELEM(FSCoh_map2,n));
+			DIRECT_MULTIDIM_ELEM(FSCoh_map2,    n      ) += std::norm(DIRECT_MULTIDIM_ELEM(FSCoh_map,n)) / (Ndim * DIRECT_MULTIDIM_ELEM(FSCoh_map2,n));
 			#endif
         }
 	}
@@ -176,16 +172,7 @@ void ProgFSCoh::fourierShellCoherence(MetaDataVec mapPoolMD)
 	{
         double value;
 
-		// Fix unstability at f=0
-		if (n>0)
-		{
-			value = DIRECT_MULTIDIM_ELEM(FSCoh_num,n) / (Ndim * DIRECT_MULTIDIM_ELEM(FSCoh_den,n));
-		}
-		else
-		{
-			value = 1;
-		}
-
+		value = DIRECT_MULTIDIM_ELEM(FSCoh_num,n) / (Ndim * DIRECT_MULTIDIM_ELEM(FSCoh_den,n));
 		DIRECT_MULTIDIM_ELEM(FSCoh,n) = value;
 
 		id = md.addObject();
@@ -241,7 +228,6 @@ void ProgFSCoh::composefreqMap()
     FSCoh_den.initZeros(std::min(Xdim_ft, std::min(Ydim_ft, Zdim_ft)));
     FSCoh_map2.initZeros(Zdim_ft, Ydim_ft, Xdim_ft);
     FSCoh_map.initZeros(Zdim_ft, Ydim_ft, Xdim_ft);
-    FSCoh_map_mod2.initZeros(Zdim_ft, Ydim_ft, Xdim_ft);
 
 	if (Zdim_ft == 1)
 	{
