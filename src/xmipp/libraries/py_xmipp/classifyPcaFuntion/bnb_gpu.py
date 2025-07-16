@@ -1652,37 +1652,38 @@ class BnBgpu:
         N, H, W = averages.shape
         device = averages.device
     
-        # Backup estadístico de las imágenes originales
+        # Backup estadístico
         mean_orig = averages.mean(dim=(-2, -1), keepdim=True)
         std_orig = averages.std(dim=(-2, -1), keepdim=True)
     
-        # Prepara B y límites
+        # B-factors preparados
         B_factors = torch.nan_to_num(B_factors, nan=0.0, posinf=0.0, neginf=0.0)
-        B_exp = B_factors.unsqueeze(1).unsqueeze(2).clamp(min=-800.0, max=50.0)
+        B_exp = B_factors.unsqueeze(1).unsqueeze(2).clamp(min=-600.0, max=50.0)
     
+        # FFT
         fft = torch.fft.fft2(averages)
     
+        # Malla de frecuencias
         fy = torch.fft.fftfreq(H, d=pixel_size).to(device)
         fx = torch.fft.fftfreq(W, d=pixel_size).to(device)
         gy, gx = torch.meshgrid(fy, fx, indexing='ij')
         freq_r = torch.sqrt(gx**2 + gy**2).unsqueeze(0).expand(N, -1, -1)
     
-        # Frecuencias de corte y Nyquist
+        # Frecuencia de corte y Nyquist
         f_cutoff = (1.0 / res_cutoffs).unsqueeze(1).unsqueeze(2)  # [N,1,1]
-        f_nyquist = 1.0 / (2.0 * pixel_size)  # escalar
+        f_nyquist = 1.0 / (2.0 * pixel_size)
     
-        # Taper coseno suave
-        taper = 0.5 * (1 + torch.cos(torch.pi * (freq_r - f_cutoff) / (f_nyquist - f_cutoff)))
-        taper = torch.where(freq_r <= f_cutoff, torch.ones_like(taper), taper)
-        taper = torch.where(freq_r >= f_nyquist, torch.zeros_like(taper), taper)
+        # Taper suave: solo aplica sharpening por debajo del cutoff (hasta f_cutoff)
+        taper = 0.5 * (1 + torch.cos(torch.pi * (freq_r - f_cutoff) / f_cutoff))
+        taper = torch.where(freq_r <= f_cutoff, taper, torch.zeros_like(taper))
     
-        # Filtro con sharpening y taper
-        filt = torch.exp((2 * B_exp / 4) * (freq_r ** 2)) * taper
+        # Filtro de realce con B y taper hasta f_cutoff
+        filt = torch.exp((-B_exp / 4.0) * (freq_r ** 2)) * taper
     
         fft_sharp = fft * filt
         sharp_imgs = torch.fft.ifft2(fft_sharp).real
     
-        # Normalización final
+        # Restaurar nivel de grises
         mean_filt = sharp_imgs.mean(dim=(-2, -1), keepdim=True)
         std_filt = sharp_imgs.std(dim=(-2, -1), keepdim=True)
         sharp_imgs = (sharp_imgs - mean_filt) / (std_filt + eps) * std_orig + mean_orig
