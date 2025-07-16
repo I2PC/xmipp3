@@ -498,7 +498,7 @@ class BnBgpu:
             bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             print(bfactor)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
-            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
+            # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.enhance_averages_butterworth(clk, sampling)
             # clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
@@ -514,11 +514,10 @@ class BnBgpu:
         
 
         # if iter in [13, 16]:
-        
-        # if iter in [10, 13]:
-        #     # clk = clk * self.approximate_otsu_threshold(clk, percentile=10)
-        #     clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
-        #                         intensity_percentile=50, contrast_weight=1.5, intensity_weight=1.0)
+        if iter in [10, 13]:
+            # clk = clk * self.approximate_otsu_threshold(clk, percentile=10)
+            clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
+                                intensity_percentile=50, contrast_weight=1.5, intensity_weight=1.0)
         # if 3 < iter < 10 and iter % 2 == 0:
         if 3 < iter < 7 and iter % 2 == 0:
             # clk = clk * self.approximate_otsu_threshold(clk, percentile=10)
@@ -685,7 +684,7 @@ class BnBgpu:
             res_classes = self.frc_resolution_tensor(newCL, sampling)
             bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
-            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
+            # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.enhance_averages_butterworth(clk, sampling) 
             # clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
