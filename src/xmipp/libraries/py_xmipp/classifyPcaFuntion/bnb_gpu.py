@@ -1736,13 +1736,13 @@ class BnBgpu:
         taper = torch.zeros_like(freq_r)
         
         mask = (freq_r >= 0) & (freq_r <= f_cutoff_exp)
-        # taper[mask] = 0.75 - 0.25 * torch.cos(torch.pi * freq_r[mask] / f_cutoff_exp[mask])
-        taper[mask] = 0.85 - 0.15 * torch.cos(torch.pi * freq_r[mask] / f_cutoff_exp[mask])
+        taper[mask] = 0.75 - 0.25 * torch.cos(torch.pi * freq_r[mask] / f_cutoff_exp[mask])
+        # taper[mask] = 0.85 - 0.15 * torch.cos(torch.pi * freq_r[mask] / f_cutoff_exp[mask])
         taper[freq_r > f_cutoff_exp] = 0.0
             
     
         # Filtro de realce con B y taper hasta f_cutoff
-        #Para hacer sharp hay que cambiar por (-B_exp / 4) 
+        #Para hacer sharp hay que poner (-B_exp / 4) 
         filt = torch.exp((-B_exp / 4) * (freq_r ** 2)) * taper 
     
         fft_sharp = fft * filt
