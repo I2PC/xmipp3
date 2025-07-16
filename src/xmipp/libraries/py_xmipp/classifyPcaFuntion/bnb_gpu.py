@@ -1734,7 +1734,7 @@ class BnBgpu:
         # taper[freq_r > f_cutoff_exp] = 0.0
         
         # Transición sigmoide
-        k = 5
+        k = 10
         s = 1 / (1 + torch.exp(-k * (freq_r - f_cutoff/2)))
         
         # Evalúa la sigmoide en 0 y en f_cutoff
