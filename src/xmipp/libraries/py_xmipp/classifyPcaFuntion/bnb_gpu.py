@@ -1702,7 +1702,7 @@ class BnBgpu:
         N, H, W = averages.shape
         device = averages.device
         
-        def create_taper(freq_r, f_cutoff, v0=0.3, vc=1.0):
+        def create_taper(freq_r, f_cutoff, v0=0.4, vc=1.0):
             f_cutoff_exp = f_cutoff.expand_as(freq_r)
             taper = torch.zeros_like(freq_r)
         
@@ -1721,7 +1721,7 @@ class BnBgpu:
     
         # B-factors preparados
         B_factors = torch.nan_to_num(B_factors, nan=0.0, posinf=0.0, neginf=0.0)
-        B_exp = B_factors.unsqueeze(1).unsqueeze(2).clamp(min=-300.0, max=0.0)
+        B_exp = B_factors.unsqueeze(1).unsqueeze(2).clamp(min=-300.0, max=50.0)
     
         # FFT
         fft = torch.fft.fft2(averages)
@@ -1744,7 +1744,7 @@ class BnBgpu:
         # mask = (freq_r >= 0) & (freq_r <= f_cutoff_exp)
         # taper[mask] = 0.75 - 0.25 * torch.cos(torch.pi * freq_r[mask] / f_cutoff_exp[mask])
         # taper[freq_r > f_cutoff_exp] = 0.0
-        taper = create_taper(freq_r, f_cutoff, v0=0.3, vc=0.0)
+        taper = create_taper(freq_r, f_cutoff, v0=0.4, vc=1.0)
         
         # Transición sigmoide
         # k = 10  
