@@ -498,8 +498,8 @@ class BnBgpu:
             bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             print(bfactor)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
-            clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
+            clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.enhance_averages_butterworth(clk, sampling)
             # clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
@@ -684,8 +684,8 @@ class BnBgpu:
             res_classes = self.frc_resolution_tensor(newCL, sampling)
             bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
-            clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
+            clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.enhance_averages_butterworth(clk, sampling) 
             # clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
@@ -1648,7 +1648,7 @@ class BnBgpu:
         return b_factors
 
     
-    def sharpen_averages_batch(self, averages, pixel_size, B_factors, res_cutoffs, eps=1e-6):
+    def sharpen_averages_batch2(self, averages, pixel_size, B_factors, res_cutoffs, eps=1e-6):
         N, H, W = averages.shape
         device = averages.device
     
@@ -1697,6 +1697,49 @@ class BnBgpu:
         sharp_imgs = (sharp_imgs - mean_filt) / (std_filt + eps) * std_orig + mean_orig
     
         return sharp_imgs
+    
+    def sharpen_averages_batch(self, averages, pixel_size, B_factors, res_cutoffs, eps=1e-6):
+        N, H, W = averages.shape
+        device = averages.device
+    
+        # Backup estadístico
+        mean_orig = averages.mean(dim=(-2, -1), keepdim=True)
+        std_orig = averages.std(dim=(-2, -1), keepdim=True)
+    
+        # B-factors preparados
+        B_factors = torch.nan_to_num(B_factors, nan=0.0, posinf=0.0, neginf=0.0)
+        B_exp = B_factors.unsqueeze(1).unsqueeze(2).clamp(min=-300.0, max=0.0)
+    
+        # FFT
+        fft = torch.fft.fft2(averages)
+    
+        # Malla de frecuencias
+        fy = torch.fft.fftfreq(H, d=pixel_size).to(device)
+        fx = torch.fft.fftfreq(W, d=pixel_size).to(device)
+        gy, gx = torch.meshgrid(fy, fx, indexing='ij')
+        freq_r = torch.sqrt(gx**2 + gy**2).unsqueeze(0).expand(N, -1, -1)
+    
+        # Frecuencia de corte y Nyquist
+        f_cutoff = (1.0 / res_cutoffs).unsqueeze(1).unsqueeze(2)  # [N,1,1]
+        f_nyquist = 1.0 / (2.0 * pixel_size)
+        
+        taper = torch.ones_like(freq_r)
+        taper[freq_r > f_cutoff] = 0
+            
+    
+        # Filtro de realce con B y taper hasta f_cutoff
+        filt = torch.exp((B_exp / 4) * (freq_r ** 2)) * taper 
+    
+        fft_sharp = fft * filt
+        sharp_imgs = torch.fft.ifft2(fft_sharp).real
+    
+        # Restaurar nivel de grises
+        mean_filt = sharp_imgs.mean(dim=(-2, -1), keepdim=True)
+        std_filt = sharp_imgs.std(dim=(-2, -1), keepdim=True)
+        sharp_imgs = (sharp_imgs - mean_filt) / (std_filt + eps) * std_orig + mean_orig
+    
+        return sharp_imgs
+    
     
     @torch.no_grad()
     def enhance_averages_butterworth_combined(
