@@ -1671,20 +1671,22 @@ class BnBgpu:
         f_cutoff = (1.0 / res_cutoffs).unsqueeze(1).unsqueeze(2)  # [N,1,1]
         f_nyquist = 1.0 / (2.0 * pixel_size)  # escalar
     
+        # Expande f_cutoff para que tenga la misma forma que freq_r
+        f_cutoff_exp = f_cutoff.expand_as(freq_r)
+    
         # Taper coseno suave:
-        # 1 para freq_r <= f_cutoff
-        # decae suavemente a 0 para freq_r entre f_cutoff y f_nyquist
         taper = torch.ones_like(freq_r)
-        mask_transition = (freq_r > f_cutoff) & (freq_r < f_nyquist)
+    
+        mask_transition = (freq_r > f_cutoff_exp) & (freq_r < f_nyquist)
         taper[mask_transition] = 0.5 * (
             1 + torch.cos(
-                torch.pi * (freq_r[mask_transition] - f_cutoff[mask_transition]) / (f_nyquist - f_cutoff[mask_transition])
+                torch.pi * (freq_r[mask_transition] - f_cutoff_exp[mask_transition]) / (f_nyquist - f_cutoff_exp[mask_transition])
             )
         )
         taper[freq_r >= f_nyquist] = 0.0
     
         # Filtro con sharpening y taper
-        filt = torch.exp((B_exp / 4) * (freq_r ** 2)) * taper
+        filt = torch.exp((-B_exp / 4) * (freq_r ** 2)) * taper
     
         fft_sharp = fft * filt
         sharp_imgs = torch.fft.ifft2(fft_sharp).real
