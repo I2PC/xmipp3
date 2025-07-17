@@ -1694,6 +1694,7 @@ class BnBgpu:
     
         return sharp_imgs
     
+    @torch.no_grad()
     def sharpen_averages_batch(self, averages, pixel_size, B_factors, res_cutoffs, eps=1e-6):
         N, H, W = averages.shape
         device = averages.device
