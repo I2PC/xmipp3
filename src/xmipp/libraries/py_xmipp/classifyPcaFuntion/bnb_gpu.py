@@ -1526,7 +1526,7 @@ class BnBgpu:
         
         """Devuelve tensor [n_classes] con la resolución FRC por clase (Å)."""
         n_classes = len(newCL)
-        h, w = newCL[0][0].shape
+        h, w = next((imgs.shape[-2], imgs.shape[-1]) for imgs in newCL if imgs.numel() > 0)
         device    = newCL[0].device
         res_out   = torch.full((n_classes,), float('nan'), device=device)
         
@@ -1537,9 +1537,10 @@ class BnBgpu:
         Rmax  = min(h, w) // 2
         r.clamp_(0, Rmax-1)
         r_flat = r.view(-1)
+        freqs   = torch.linspace(0, 0.5/pixel_size, Rmax, device=device)
     
         for c, imgs in enumerate(newCL):
-            n, h, w = imgs.shape
+            n = imgs.shape[0]
             if n < 2:
                 continue  # no se puede partir en mitades
     
@@ -1560,19 +1561,14 @@ class BnBgpu:
             frc_d1  = torch.zeros(Rmax, device=device).scatter_add_(0, r_flat, p1.view(-1))
             frc_d2  = torch.zeros(Rmax, device=device).scatter_add_(0, r_flat, p2.view(-1))
             frc     = frc_num / (torch.sqrt(frc_d1*frc_d2) + 1e-12)
-    
-            freqs   = torch.linspace(0, 0.5/pixel_size, Rmax, device=device)
+            
             idx     = torch.where(frc < frc_threshold)[0]
     
-            if len(idx) and idx[0] > 0:                # evita f_cut=0
-                f_cut        = freqs[idx[0]]
-                res_out[c]   = 1.0 / f_cut
+            if len(idx) and idx[0] > 0:
+                res_out[c]   = 1.0 / freqs[idx[0]]
     
         # ---------- sustituye NaN e Inf una sola vez ------------
-        res_out = torch.nan_to_num(res_out,
-                                   nan   = fallback_res,
-                                   posinf= fallback_res,
-                                   neginf= fallback_res)
+        res_out = torch.nan_to_num(res_out, nan=fallback_res, posinf=fallback_res, neginf=fallback_res)
         return res_out  
 
     
