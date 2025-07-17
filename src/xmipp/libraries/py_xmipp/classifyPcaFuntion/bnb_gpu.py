@@ -989,7 +989,7 @@ class BnBgpu:
     @torch.no_grad()
     def gaussian_lowpass_filter_2D_adaptive(self, imgs, res_angstrom, pixel_size,
                                             floor_res=25.0, clamp_exp=80.0,
-                                            hard_cut=False, nyquist_margin=0.95, normalize = False):
+                                            hard_cut=False, nyquist_margin=0.95, normalize = True):
         B, H, W = imgs.shape
         device, eps = imgs.device, 1e-8
     
@@ -1731,7 +1731,7 @@ class BnBgpu:
         return sharp_imgs
     
     @torch.no_grad()
-    def sharpen_averages_batch(self, averages, pixel_size, B_factors, res_cutoffs, eps=1e-6, normalize: bool = False):
+    def sharpen_averages_batch(self, averages, pixel_size, B_factors, res_cutoffs, eps=1e-6, normalize: bool = True):
         N, H, W = averages.shape
         device = averages.device
         
