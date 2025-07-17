@@ -503,7 +503,7 @@ class BnBgpu:
             # clk = self.enhance_averages_butterworth(clk, sampling)
             # clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
-            # clk = self.unsharp_mask_norm(clk)
+            clk = self.unsharp_mask_norm(clk)
     
 
             # clk = self.unsharp_mask_adaptive_gaussian(clk)
@@ -515,14 +515,14 @@ class BnBgpu:
 
         # if iter in [13, 16]:
         if iter in [10, 13]:
-            clk = clk * self.approximate_otsu_threshold(clk, percentile=5)
-            # clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
-            #                     intensity_percentile=50, contrast_weight=1.5, intensity_weight=1.0)
+            # clk = clk * self.approximate_otsu_threshold(clk, percentile=10)
+            clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
+                                intensity_percentile=50, contrast_weight=1.5, intensity_weight=1.0)
         # if 3 < iter < 10 and iter % 2 == 0:
         if 3 < iter < 7 and iter % 2 == 0:
-            clk = clk * self.approximate_otsu_threshold(clk, percentile=5)
-            # clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
-            #                     intensity_percentile=50, contrast_weight=1.5, intensity_weight=1.0)
+            # clk = clk * self.approximate_otsu_threshold(clk, percentile=10)
+            clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
+                                intensity_percentile=50, contrast_weight=1.5, intensity_weight=1.0)
 
         
         # if iter < 17:
@@ -689,7 +689,7 @@ class BnBgpu:
             # clk = self.enhance_averages_butterworth(clk, sampling) 
             # clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
-            # clk = self.unsharp_mask_norm(clk)
+            clk = self.unsharp_mask_norm(clk)
             # clk = self.gaussian_lowpass_filter_2D(clk, maxRes, sampling)
         
             
@@ -1143,7 +1143,6 @@ class BnBgpu:
         self.binary_masks = (imgs > thresholds).float()
         return self.binary_masks
     
-    
     def compute_particle_radius(self, imgs, percentile: float = 100):
         
         masks= self.approximate_otsu_threshold(imgs)
@@ -1248,7 +1247,7 @@ class BnBgpu:
         return masks
     
     
-    def unsharp_mask_norm(self, imgs, kernel_size=3, strength=1.0):
+    def unsharp_mask_norm(self, imgs, kernel_size=5, strength=1.0):
         N, H, W = imgs.shape
         
         mean0 = imgs.mean(dim=(1, 2), keepdim=True)
@@ -1736,7 +1735,7 @@ class BnBgpu:
         N, H, W = averages.shape
         device = averages.device
         
-        def create_taper(freq_r, f_cutoff, v0=0.4, vc=1.0):
+        def create_taper(freq_r, f_cutoff, v0=0.5, vc=1.0):
             f_cutoff_exp = f_cutoff.expand_as(freq_r)
             taper = torch.zeros_like(freq_r)
         
@@ -1767,7 +1766,7 @@ class BnBgpu:
         
 
         #Transición coseno  
-        taper = create_taper(freq_r, f_cutoff, v0=0.4, vc=1.0)
+        taper = create_taper(freq_r, f_cutoff, v0=0.5, vc=1.0)
         
         # Transición sigmoide
         # k = 10  
