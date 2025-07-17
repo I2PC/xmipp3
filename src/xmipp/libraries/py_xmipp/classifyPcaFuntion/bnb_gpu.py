@@ -528,12 +528,11 @@ class BnBgpu:
         # if iter < 17:
         #     clk = self.auto_generate_masks(clk)    
         clk = clk * self.create_circular_mask(clk)
-         
-        # if iter > 2 and iter < 15:
         
-        # if iter > 2 and iter < 12:
-        #     for _ in range(2):
-        #         clk = self.center_by_com(clk)                  
+        # if iter > 2 and iter < 15:
+        if iter > 2 and iter < 12:
+            for _ in range(2):
+                clk = self.center_by_com(clk)                  
         
         return(clk, tMatrix, batch_projExp_cpu)
     
@@ -990,11 +989,11 @@ class BnBgpu:
     @torch.no_grad()
     def gaussian_lowpass_filter_2D_adaptive(self, imgs, res_angstrom, pixel_size,
                                             floor_res=25.0, clamp_exp=80.0,
-                                            hard_cut=False, nyquist_margin=0.95):
+                                            hard_cut=False, nyquist_margin=0.95, normalize = False):
         B, H, W = imgs.shape
         device, eps = imgs.device, 1e-8
     
-        # === 1. Limitar resolución efectiva según Nyquist
+        # === Limitar resolución efectiva según Nyquist
         nyquist_res = 2.0 * pixel_size           
         safe_res = nyquist_res / nyquist_margin  
     
@@ -1003,17 +1002,13 @@ class BnBgpu:
         res_eff = torch.minimum(res_eff, torch.full_like(res_eff, floor_res))
         res_eff = torch.clamp(res_eff, min=safe_res)  # Prevenimos aliasing
     
-        # === 2. Estadísticas originales
-        mean0 = imgs.mean(dim=(1,2), keepdim=True)
-        std0  = imgs.std (dim=(1,2), keepdim=True)
-    
-        # === 3. Coordenadas de frecuencia
+        # === Coordenadas de frecuencia
         fy, fx = (torch.fft.fftfreq(H, d=pixel_size, device=device),
                   torch.fft.fftfreq(W, d=pixel_size, device=device))
         gy, gx = torch.meshgrid(fy, fx, indexing='ij')
         freq2  = (gx**2 + gy**2).unsqueeze(0)  # [1, H, W]
     
-        # === 4. Filtro Gaussiano adaptativo
+        # === Filtro Gaussiano adaptativo
         ln2    = torch.log(torch.tensor(2.0, device=device))
         D0     = (1.0 / res_eff).view(B,1,1)                            
         sigma2 = (D0 / torch.sqrt(2*ln2))**2             
@@ -1024,17 +1019,21 @@ class BnBgpu:
         if hard_cut:
             filt = torch.where(freq2 > D0**2, 0.0, filt)
     
-        # === 5. Aplicar filtro y transformar inversa
+        # === Aplicar filtro y transformar inversa
         img_filt = torch.fft.ifft2(torch.fft.fft2(imgs) * filt).real
         img_filt = torch.nan_to_num(img_filt)
     
-        # === 6. Restaurar contraste original
-        mean_f = img_filt.mean(dim=(1,2), keepdim=True)
-        std_f  = img_filt.std (dim=(1,2), keepdim=True)
-        valid  = std_f > 1e-6
-        img_filt = torch.where(valid,
-                               (img_filt - mean_f)/(std_f+eps)*std0 + mean0,
-                               imgs)
+        # === Restaurar contraste original
+        if normalize:
+            mean0 = imgs.mean(dim=(1,2), keepdim=True)
+            std0  = imgs.std (dim=(1,2), keepdim=True)
+            
+            mean_f = img_filt.mean(dim=(1,2), keepdim=True)
+            std_f  = img_filt.std (dim=(1,2), keepdim=True)
+            valid  = std_f > 1e-6
+            img_filt = torch.where(valid,
+                                   (img_filt - mean_f)/(std_f+eps)*std0 + mean0,
+                                   imgs)
     
         return img_filt
 
@@ -1608,6 +1607,7 @@ class BnBgpu:
         return res_out  
 
     
+    @torch.no_grad()
     def estimate_bfactor_batch(self, averages, pixel_size, res_cutoff, freq_min=0.05, min_points=5):
         N, H, W = averages.shape
         device = averages.device
@@ -1731,7 +1731,7 @@ class BnBgpu:
         return sharp_imgs
     
     @torch.no_grad()
-    def sharpen_averages_batch(self, averages, pixel_size, B_factors, res_cutoffs, eps=1e-6):
+    def sharpen_averages_batch(self, averages, pixel_size, B_factors, res_cutoffs, eps=1e-6, normalize: bool = False):
         N, H, W = averages.shape
         device = averages.device
         
@@ -1747,9 +1747,6 @@ class BnBgpu:
             taper[freq_r > f_cutoff_exp] = 0.0
         
             return taper
-    
-        mean_orig = averages.mean(dim=(-2, -1), keepdim=True)
-        std_orig = averages.std(dim=(-2, -1), keepdim=True)
     
         B_factors = torch.nan_to_num(B_factors, nan=0.0, posinf=0.0, neginf=0.0)
         B_exp = B_factors.unsqueeze(1).unsqueeze(2).clamp(min=-400.0, max=0.0)
@@ -1791,11 +1788,14 @@ class BnBgpu:
     
         fft_sharp = fft * filt
         sharp_imgs = torch.fft.ifft2(fft_sharp).real
-    
-        # Restaurar nivel de grises
-        mean_filt = sharp_imgs.mean(dim=(-2, -1), keepdim=True)
-        std_filt = sharp_imgs.std(dim=(-2, -1), keepdim=True)
-        sharp_imgs = (sharp_imgs - mean_filt) / (std_filt + eps) * std_orig + mean_orig
+        
+        if normalize:
+            mean_orig = averages.mean(dim=(-2, -1), keepdim=True)
+            std_orig = averages.std(dim=(-2, -1), keepdim=True)
+            # Restaurar nivel de grises
+            mean_filt = sharp_imgs.mean(dim=(-2, -1), keepdim=True)
+            std_filt = sharp_imgs.std(dim=(-2, -1), keepdim=True)
+            sharp_imgs = (sharp_imgs - mean_filt) / (std_filt + eps) * std_orig + mean_orig
     
         return sharp_imgs
     
