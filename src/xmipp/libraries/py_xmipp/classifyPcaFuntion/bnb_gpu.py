@@ -498,7 +498,7 @@ class BnBgpu:
             bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             print(bfactor)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
-            # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.enhance_averages_butterworth(clk, sampling)
             # clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
@@ -684,7 +684,7 @@ class BnBgpu:
             res_classes = self.frc_resolution_tensor(newCL, sampling)
             bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
-            # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.enhance_averages_butterworth(clk, sampling) 
             # clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
@@ -1738,10 +1738,7 @@ class BnBgpu:
         
 
         #Transición coseno  
-        # f_cutoff_exp = f_cutoff.expand_as(freq_r)     
-        # taper = torch.ones_like(freq_r)
-        # taper[freq_r > f_cutoff_exp] = 0.0
-        taper = create_taper(freq_r, f_cutoff, v0=0.85, vc=1.0)
+        taper = create_taper(freq_r, f_cutoff, v0=0.4, vc=1.0)
         
         # Transición sigmoide
         # k = 10  
