@@ -528,7 +528,7 @@ class BnBgpu:
         # if iter < 17:
         #     clk = self.auto_generate_masks(clk)    
         clk = clk * self.create_circular_mask(clk)
-        
+         
         # if iter > 2 and iter < 15:
         
         # if iter > 2 and iter < 12:
