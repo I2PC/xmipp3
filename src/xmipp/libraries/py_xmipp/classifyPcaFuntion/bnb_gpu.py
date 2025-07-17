@@ -515,12 +515,12 @@ class BnBgpu:
 
         # if iter in [13, 16]:
         if iter in [10, 13]:
-            clk = clk * self.approximate_otsu_threshold(clk, percentile=10)
+            clk = clk * self.approximate_otsu_threshold(clk, percentile=5)
             # clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
             #                     intensity_percentile=50, contrast_weight=1.5, intensity_weight=1.0)
         # if 3 < iter < 10 and iter % 2 == 0:
         if 3 < iter < 7 and iter % 2 == 0:
-            clk = clk * self.approximate_otsu_threshold(clk, percentile=10)
+            clk = clk * self.approximate_otsu_threshold(clk, percentile=5)
             # clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
             #                     intensity_percentile=50, contrast_weight=1.5, intensity_weight=1.0)
 
@@ -1142,6 +1142,7 @@ class BnBgpu:
     
         self.binary_masks = (imgs > thresholds).float()
         return self.binary_masks
+    
     
     def compute_particle_radius(self, imgs, percentile: float = 100):
         
