@@ -976,36 +976,21 @@ void ProgClassifyPartialOccupancy::entropy(double &ll_I, double &ll_IsubP, const
 			}
 		}
 
-		std::cout << XSIZE(centeredLigand) << std::endl;
-		std::cout << YSIZE(centeredLigand) << std::endl;
-		std::cout << XSIZE(centeredLigandSubP) << std::endl;
-		std::cout << YSIZE(centeredLigandSubP) << std::endl;
-
-		std::cout << "------------------------a" << std::endl;
-
 		#ifdef DEBUG_OUTPUT_FILES
 		size_t lastindex = fnImgOut.find_last_of(".");
-		std::cout << "------------------------a.1" << std::endl;
 
 		std::string debugFileFn = fnImgOut.substr(0, lastindex) + "_centeredLigand_" + std::to_string(value) + ".mrcs";
-		std::cout << "------------------------a.2" << std::endl;
-		std::cout << "Saving centered ligand particle at: " << debugFileFn << std::endl;
 		saveImage() = centeredLigand;
-		std::cout << "------------------------a.3" << std::endl;
 		saveImage.write(debugFileFn);
-		std::cout << "------------------------b" << std::endl;
 
 		debugFileFn = fnImgOut.substr(0, lastindex) + "_centeredLigandSubP_" + std::to_string(value) + ".mrcs";
-		std::cout << "Saving centered ligand projection subtracted at particle at: " << debugFileFn << std::endl;
 		saveImage() = centeredLigandSubP;
 		saveImage.write(debugFileFn);
 		#endif
-		std::cout << "------------------------c" << std::endl;
 
 		// Calculate FT for each cropping
 		transformerI.FourierTransform(centeredLigand, fftI, false);
 		transformerIsubP.FourierTransform(centeredLigandSubP, fftIsubP, false);
-		std::cout << "------------------------d" << std::endl;
 
 		// Take radial average for each FT
 		std::vector<double> fftI_RA;
