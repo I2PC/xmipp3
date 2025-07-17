@@ -877,7 +877,7 @@ class BnBgpu:
         return circular_mask
     
     
-    def center_by_com(self, batch: torch.Tensor, use_abs: bool = True, eps: float = 1e-8):
+    def center_by_com2(self, batch: torch.Tensor, use_abs: bool = True, eps: float = 1e-8):
         B, H, W = batch.shape
         device = batch.device
     
@@ -899,6 +899,42 @@ class BnBgpu:
         centered = kornia.geometry.transform.translate(batch_input, shift, mode='bilinear', padding_mode='zeros', align_corners=True)
     
         return centered.squeeze(1)
+    
+    def center_by_com(self, batch: torch.Tensor, use_abs: bool = True, eps: float = 1e-8):
+        B, H, W = batch.shape
+        device = batch.device
+    
+        # === 1. Niveles de gris originales
+        mean0 = batch.mean(dim=(1, 2), keepdim=True)
+        std0  = batch.std (dim=(1, 2), keepdim=True)
+    
+        # === 2. Centro de masa
+        weights = batch.abs() if use_abs else batch
+        weights = weights.unsqueeze(1)
+    
+        y = torch.arange(H, device=device) - H // 2
+        x = torch.arange(W, device=device) - W // 2
+        yy, xx = torch.meshgrid(y, x, indexing='ij')
+        xx = xx[None, None, ...].float()
+        yy = yy[None, None, ...].float()
+    
+        mass = weights.sum(dim=(2, 3), keepdim=True) + eps
+        x_com = (weights * xx).sum(dim=(2, 3), keepdim=True) / mass
+        y_com = (weights * yy).sum(dim=(2, 3), keepdim=True) / mass
+    
+        # === 3. Aplicar desplazamiento subpixel
+        shift = torch.cat([-x_com, -y_com], dim=1).squeeze(-1).squeeze(-1)
+        batch_input = batch.unsqueeze(1)
+        centered = kornia.geometry.transform.translate(
+            batch_input, shift, mode='bilinear', padding_mode='zeros', align_corners=True).squeeze(1)
+    
+        # === 4. Restaurar media y contraste originales
+        mean1 = centered.mean(dim=(1, 2), keepdim=True)
+        std1  = centered.std (dim=(1, 2), keepdim=True)
+    
+        centered = (centered - mean1) / (std1 + eps) * std0 + mean0
+    
+        return centered
     
     
     def apply_leaky_relu(self, images, relu = 0.5):
@@ -958,8 +994,8 @@ class BnBgpu:
         device, eps = imgs.device, 1e-8
     
         # === 1. Limitar resolución efectiva según Nyquist
-        nyquist_res = 2.0 * pixel_size           # resolución mínima permitida (Nyquist)
-        safe_res = nyquist_res / nyquist_margin  # con margen de seguridad (ej. 95%)
+        nyquist_res = 2.0 * pixel_size           
+        safe_res = nyquist_res / nyquist_margin  
     
         res_eff = torch.nan_to_num(res_angstrom, nan=floor_res,
                                    posinf=floor_res, neginf=floor_res)
@@ -967,8 +1003,8 @@ class BnBgpu:
         res_eff = torch.clamp(res_eff, min=safe_res)  # Prevenimos aliasing
     
         # === 2. Estadísticas originales
-        mean0 = imgs.mean((1,2), keepdim=True)
-        std0  = imgs.std ((1,2), keepdim=True)
+        mean0 = imgs.mean(dim=(1,2), keepdim=True)
+        std0  = imgs.std (dim=(1,2), keepdim=True)
     
         # === 3. Coordenadas de frecuencia
         fy, fx = (torch.fft.fftfreq(H, d=pixel_size, device=device),
@@ -978,9 +1014,8 @@ class BnBgpu:
     
         # === 4. Filtro Gaussiano adaptativo
         ln2    = torch.log(torch.tensor(2.0, device=device))
-        D0     = 1.0 / res_eff                            # frecuencia de corte (1/Å)
-        sigma2 = (D0 / torch.sqrt(2*ln2))**2              # varianza del Gaussiano
-        D0, sigma2 = D0.view(B,1,1), sigma2.view(B,1,1)
+        D0     = (1.0 / res_eff).view(B,1,1)                            
+        sigma2 = (D0 / torch.sqrt(2*ln2))**2             
     
         exponent = (-freq2) / (2*sigma2 + eps)
         filt     = torch.exp(exponent.clamp(max=clamp_exp))
@@ -993,8 +1028,8 @@ class BnBgpu:
         img_filt = torch.nan_to_num(img_filt)
     
         # === 6. Restaurar contraste original
-        mean_f = img_filt.mean((1,2), keepdim=True)
-        std_f  = img_filt.std ((1,2), keepdim=True)
+        mean_f = img_filt.mean(dim=(1,2), keepdim=True)
+        std_f  = img_filt.std (dim=(1,2), keepdim=True)
         valid  = std_f > 1e-6
         img_filt = torch.where(valid,
                                (img_filt - mean_f)/(std_f+eps)*std0 + mean0,
@@ -1712,11 +1747,9 @@ class BnBgpu:
         
             return taper
     
-        # Backup estadístico
         mean_orig = averages.mean(dim=(-2, -1), keepdim=True)
         std_orig = averages.std(dim=(-2, -1), keepdim=True)
     
-        # B-factors preparados
         B_factors = torch.nan_to_num(B_factors, nan=0.0, posinf=0.0, neginf=0.0)
         B_exp = B_factors.unsqueeze(1).unsqueeze(2).clamp(min=-400.0, max=0.0)
     
