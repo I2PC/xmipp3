@@ -530,9 +530,10 @@ class BnBgpu:
         clk = clk * self.create_circular_mask(clk)
         
         # if iter > 2 and iter < 15:
-        if iter > 2 and iter < 12:
-            for _ in range(2):
-                clk = self.center_by_com(clk)                  
+        
+        # if iter > 2 and iter < 12:
+        #     for _ in range(2):
+        #         clk = self.center_by_com(clk)                  
         
         return(clk, tMatrix, batch_projExp_cpu)
     
@@ -877,7 +878,7 @@ class BnBgpu:
         return circular_mask
     
     
-    def center_by_com2(self, batch: torch.Tensor, use_abs: bool = True, eps: float = 1e-8):
+    def center_by_com(self, batch: torch.Tensor, use_abs: bool = True, eps: float = 1e-8):
         B, H, W = batch.shape
         device = batch.device
     
@@ -900,7 +901,7 @@ class BnBgpu:
     
         return centered.squeeze(1)
     
-    def center_by_com(self, batch: torch.Tensor, use_abs: bool = True, eps: float = 1e-8):
+    def center_by_com2(self, batch: torch.Tensor, use_abs: bool = True, eps: float = 1e-8):
         B, H, W = batch.shape
         device = batch.device
     
