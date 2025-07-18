@@ -1246,8 +1246,8 @@ class BnBgpu:
         masks = masks / center_val
         return masks
     
-    
-    def unsharp_mask_norm(self, imgs, kernel_size=5, strength=1.0):
+    @torch.no_grad()
+    def unsharp_mask_norm(self, imgs, kernel_size=5, strength=2.0):
         N, H, W = imgs.shape
         
         mean0 = imgs.mean(dim=(1, 2), keepdim=True)
@@ -1735,7 +1735,7 @@ class BnBgpu:
         N, H, W = averages.shape
         device = averages.device
         
-        def create_taper(freq_r, f_cutoff, v0=0.5, vc=1.0):
+        def create_taper(freq_r, f_cutoff, v0=1.0, vc=1.0):
             f_cutoff_exp = f_cutoff.expand_as(freq_r)
             taper = torch.zeros_like(freq_r)
         
@@ -1749,7 +1749,7 @@ class BnBgpu:
             return taper
     
         B_factors = torch.nan_to_num(B_factors, nan=0.0, posinf=0.0, neginf=0.0)
-        B_exp = B_factors.unsqueeze(1).unsqueeze(2).clamp(min=-400.0, max=0.0)
+        B_exp = B_factors.unsqueeze(1).unsqueeze(2).clamp(min=-400.0, max=20.0)
     
         # FFT
         fft = torch.fft.fft2(averages)
@@ -1766,21 +1766,9 @@ class BnBgpu:
         
 
         #Transición coseno  
-        taper = create_taper(freq_r, f_cutoff, v0=0.5, vc=1.0)
-        
-        # Transición sigmoide
-        # k = 10  
-        # f_center = f_cutoff / 2  
-        # y_min = 0.3  
-        #
-        # s = 1 / (1 + torch.exp(-k * (freq_r - f_center)))
-        #
-        # s0 = 1 / (1 + torch.exp(k * f_center))             # valor en freq_r = 0
-        # s1 = 1 / (1 + torch.exp(-k * (f_cutoff - f_center)))  # valor en freq_r = f_cutoff
-        #
-        # taper = y_min + (1.0 - y_min) * (s - s0) / (s1 - s0)
-        # taper[freq_r > f_cutoff] = 0.0
-                    
+        # taper = create_taper(freq_r, f_cutoff, v0=1.0, vc=1.0)
+        taper = torch.ones_like(freq_r) 
+        taper[freq_r > f_cutoff_exp] = 0.0                  
     
         # Filtro de realce con B y taper hasta f_cutoff
         #Para hacer sharp hay que poner (-B_exp / 4) 
