@@ -495,10 +495,11 @@ class BnBgpu:
         if iter > 7:
             res_classes = self.frc_resolution_tensor(newCL, sampling)
             print(res_classes)
-            bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
-            print(bfactor)
+            # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
+            # print(bfactor)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
-            clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
+            clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
+            # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth(clk, sampling)
@@ -683,9 +684,10 @@ class BnBgpu:
             clk = self.averages(data, newCL, classes)
             
             res_classes = self.frc_resolution_tensor(newCL, sampling)
-            bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
+            # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
-            clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
+            # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
+            clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth(clk, sampling) 
@@ -2073,6 +2075,53 @@ class BnBgpu:
             
         # 4. Fusión con original (mezcla controlada)
         filtered = blend_factor * averages + (1.0 - blend_factor) * filtered
+    
+        return filtered
+    
+    @torch.no_grad()
+    def highpass_butterworth_soft_batch(self,
+        averages: torch.Tensor,         # [B, H, W]
+        resolutions: torch.Tensor,      # [B] en Å
+        pixel_size: float,              # tamaño del píxel en Å/pix
+        order: int = 4,                 # orden del filtro
+        a: float = 0.5,                 # mínimo valor en bajas frecuencias
+        eps: float = 1e-8,
+        normalize: bool = True
+    ) -> torch.Tensor:
+        """
+        Aplica un filtro paso alto tipo Butterworth suavizado a un batch de imágenes.
+        F(f) = a + (1 - a) / (1 + (fc / (f + eps))^(2n))
+    
+        Cada imagen se filtra con su propia resolución como frecuencia de corte.
+        """
+        B, H, W = averages.shape
+        device = averages.device
+    
+        # === Malla de frecuencias radiales ===
+        fy = torch.fft.fftfreq(H, d=pixel_size).to(device)
+        fx = torch.fft.fftfreq(W, d=pixel_size).to(device)
+        gy, gx = torch.meshgrid(fy, fx, indexing='ij')
+        freq_r = torch.sqrt(gx**2 + gy**2)  # [H, W]
+        freq_r = freq_r.unsqueeze(0).expand(B, -1, -1)  # [B, H, W]
+    
+        # === Frecuencia de corte desde resolución ===
+        f_cutoff = (1.0 / resolutions.clamp(min=1e-3)).view(B, 1, 1)  # [B, 1, 1]
+    
+        # === Filtro paso alto suavizado ===
+        filt = a + (1 - a) / (1 + (f_cutoff / (freq_r + eps)) ** (2 * order))  # [B, H, W]
+    
+        # === FFT e inversión ===
+        fft = torch.fft.fft2(averages, norm='forward')  # [B, H, W]
+        fft_filt = fft * filt
+        filtered = torch.fft.ifft2(fft_filt, norm='forward').real  # [B, H, W]
+    
+        # === Normalización opcional ===
+        if normalize:
+            mean_orig = averages.mean(dim=(-2, -1), keepdim=True)
+            std_orig = averages.std(dim=(-2, -1), keepdim=True)
+            mean_filt = filtered.mean(dim=(-2, -1), keepdim=True)
+            std_filt = filtered.std(dim=(-2, -1), keepdim=True)
+            filtered = (filtered - mean_filt) / (std_filt + eps) * std_orig + mean_orig
     
         return filtered
     
