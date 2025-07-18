@@ -498,9 +498,9 @@ class BnBgpu:
             bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             print(bfactor)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
-            # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
-            clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
-            # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
+            clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
+            # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth(clk, sampling)
             # clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
@@ -685,9 +685,9 @@ class BnBgpu:
             res_classes = self.frc_resolution_tensor(newCL, sampling)
             bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
-            # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
-            clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
-            # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
+            clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
+            # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth(clk, sampling) 
             # clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
@@ -990,7 +990,7 @@ class BnBgpu:
     
     @torch.no_grad()
     def gaussian_lowpass_filter_2D_adaptive(self, imgs, res_angstrom, pixel_size,
-                                            floor_res=25.0, clamp_exp=80.0,
+                                            floor_res=40.0, clamp_exp=80.0,
                                             hard_cut=False, nyquist_margin=0.95, normalize = True):
         B, H, W = imgs.shape
         device, eps = imgs.device, 1e-8
@@ -1022,7 +1022,7 @@ class BnBgpu:
             filt = torch.where(freq2 > D0**2, 0.0, filt)
     
         # === Aplicar filtro y transformar inversa
-        img_filt = torch.fft.ifft2(torch.fft.fft2(imgs) * filt).real
+        img_filt = torch.fft.ifft2(torch.fft.fft2(imgs, norm="forward") * filt, norm="forward").real
         img_filt = torch.nan_to_num(img_filt)
     
         # === Restaurar contraste original
@@ -1587,8 +1587,8 @@ class BnBgpu:
             avg1, avg2    = half1.mean(0), half2.mean(0)
     
             # ---------------- FRC -----------------------
-            fft1 = torch.fft.fftshift(torch.fft.fft2(avg1))
-            fft2 = torch.fft.fftshift(torch.fft.fft2(avg2))
+            fft1 = torch.fft.fftshift(torch.fft.fft2(avg1, norm="forward"))
+            fft2 = torch.fft.fftshift(torch.fft.fft2(avg2, norm="forward"))
     
             p1   = (fft1.real**2 + fft1.imag**2)
             p2   = (fft2.real**2 + fft2.imag**2)
@@ -1614,7 +1614,7 @@ class BnBgpu:
         N, H, W = averages.shape
         device = averages.device
     
-        fft = torch.fft.fftshift(torch.fft.fft2(averages), dim=(-2, -1))
+        fft = torch.fft.fftshift(torch.fft.fft2(averages, norm="forward"), dim=(-2, -1))
         amplitude = torch.abs(fft)
     
         fy = torch.fft.fftfreq(H, d=pixel_size).to(device)
@@ -1688,10 +1688,10 @@ class BnBgpu:
     
         # Limpieza de valores inválidos en B
         B_factors = torch.nan_to_num(B_factors, nan=0.0, posinf=0.0, neginf=0.0)
-        B_exp = B_factors.view(N, 1, 1).clamp(min=-400.0, max=20.0)
+        B_exp = B_factors.view(N, 1, 1).clamp(min=-400.0, max=0.0)
     
         # FFT
-        fft = torch.fft.fft2(averages)
+        fft = torch.fft.fft2(averages, norm="forward")
     
         # Malla de frecuencias
         fy = torch.fft.fftfreq(H, d=pixel_size).to(device)
@@ -1704,7 +1704,7 @@ class BnBgpu:
     
         # Aplicación del filtro
         fft_sharp = fft * filt
-        sharp_imgs = torch.fft.ifft2(fft_sharp).real
+        sharp_imgs = torch.fft.ifft2(fft_sharp, norm="forward").real
     
         # Restaurar nivel de grises
         if normalize:
@@ -1740,7 +1740,7 @@ class BnBgpu:
         B_exp = B_factors.unsqueeze(1).unsqueeze(2).clamp(min=-400.0, max=20.0)
     
         # FFT
-        fft = torch.fft.fft2(averages)
+        fft = torch.fft.fft2(averages, norm="forward")
     
         # Malla de frecuencias
         fy = torch.fft.fftfreq(H, d=pixel_size).to(device)
@@ -1761,10 +1761,10 @@ class BnBgpu:
     
         # Filtro de realce con B y taper hasta f_cutoff
         #Para hacer sharp hay que poner (-B_exp / 4) 
-        filt = torch.exp((-B_exp / 4) * (freq_r ** 2)) * taper 
+        filt = torch.exp((-B_exp / 4) * (freq_r ** 3)) * taper 
     
         fft_sharp = fft * filt
-        sharp_imgs = torch.fft.ifft2(fft_sharp).real
+        sharp_imgs = torch.fft.ifft2(fft_sharp, norm="forward").real
         
         if normalize:
             mean_orig = averages.mean(dim=(-2, -1), keepdim=True)
@@ -1905,16 +1905,16 @@ class BnBgpu:
         bp_filter = enhance_filter  # [B, H, W]
     
         # === FFT del original ===
-        fft = torch.fft.fft2(averages)
+        fft = torch.fft.fft2(averages, norm="forward")
         fft_shift = torch.fft.fftshift(fft, dim=(-2, -1))
     
         # Paso bajo
         fft_lp = fft_shift * lp_filter
-        lowpass = torch.fft.ifft2(torch.fft.ifftshift(fft_lp, dim=(-2, -1))).real
+        lowpass = torch.fft.ifft2(torch.fft.ifftshift(fft_lp, dim=(-2, -1)), norm="forward").real
     
         # Realce con filtro coseno
         fft_enhanced = fft_lp * bp_filter
-        enhanced = torch.fft.ifft2(torch.fft.ifftshift(fft_enhanced, dim=(-2, -1))).real
+        enhanced = torch.fft.ifft2(torch.fft.ifftshift(fft_enhanced, dim=(-2, -1)), norm="forward").real
     
         # === Normalización (si se desea) ===
         if normalize:
