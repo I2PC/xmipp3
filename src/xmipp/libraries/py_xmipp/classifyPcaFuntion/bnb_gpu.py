@@ -1879,7 +1879,7 @@ class BnBgpu:
         """
         Aplica paso bajo (por FRC) al original y realce sobre ese resultado,
         combinando ambos en espacio real. El filtro de realce sube con forma de coseno
-        desde 0 hasta 1 en la frecuencia de corte (basada en resolución).
+        desde 0 hasta 1 en la frecuencia de corte (basada en resolución) y se mantiene en 1 después.
         """
         device = averages.device
         B, H, W = averages.shape
@@ -1893,7 +1893,8 @@ class BnBgpu:
         )
         r = torch.sqrt((xx - W // 2) ** 2 + (yy - H // 2) ** 2)
         r_norm = r / r.max()
-        r_norm_exp = r_norm.unsqueeze(0)  # [1, H, W]
+        # r_norm_exp = r_norm.unsqueeze(0)  # [1, H, W]
+        r_norm_exp = r_norm.unsqueeze(0).expand(B, -1, -1)
     
         # === Frecuencias normalizadas ===
         nyquist = 1.0 / (2.0 * pixel_size)
@@ -1904,19 +1905,16 @@ class BnBgpu:
         frc_cutoffs = (1.0 / res_clamped.clamp(min=1e-3)) / nyquist / 2
         frc_cutoffs = torch.clamp(frc_cutoffs, 0.0, MAX_CUTOFF).view(B, 1, 1)
     
+        # Butterworth paso bajo
         lp_filter = 1.0 / (1.0 + (r_norm_exp / (frc_cutoffs + eps)) ** (2 * order))  # [B, H, W]
     
-        # --- Filtro de realce (tipo coseno creciente hasta f_cutoff) ---
-        v0, vc = 0.0, 1.0
-        a = 0.5 * (v0 + vc)
-        b = 0.5 * (vc - v0)
-    
-        enhance_filter = torch.ones_like(r_norm_exp)  # [B, H, W]
-        mask = r_norm_exp <= frc_cutoffs
-        enhance_filter[mask] = a + b * torch.cos(
-            torch.pi * (1.0 - r_norm_exp[mask] / (frc_cutoffs[mask] + eps))
-        )
-        bp_filter = enhance_filter  # ya es [B, H, W]
+        # --- Filtro de realce tipo coseno ---
+        enhance_filter = torch.where(
+                r_norm_exp <= frc_cutoffs,
+                0.5 * (1 - torch.cos(torch.pi * r_norm_exp / (frc_cutoffs + eps))),
+                torch.ones_like(r_norm_exp)
+                )
+        bp_filter = enhance_filter  # [B, H, W]
     
         # === FFT del original ===
         fft = torch.fft.fft2(averages)
@@ -1926,7 +1924,7 @@ class BnBgpu:
         fft_lp = fft_shift * lp_filter
         lowpass = torch.fft.ifft2(torch.fft.ifftshift(fft_lp, dim=(-2, -1))).real
     
-        # Realce (filtro tipo coseno aplicado sobre paso bajo)
+        # Realce con filtro coseno
         fft_enhanced = fft_lp * bp_filter
         enhanced = torch.fft.ifft2(torch.fft.ifftshift(fft_enhanced, dim=(-2, -1))).real
     
