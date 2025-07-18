@@ -1015,7 +1015,7 @@ void ProgClassifyPartialOccupancy::entropy(double &ll_I, double &ll_IsubP, const
 			// Consider only "mount Fuji" frequencies (in Halo but not in APO)
 			// if (n > 50 && n < 150)
 			// {
-				std::cout << "fftI_RA[" << n << "]" << fftI_RA[n] << "        std::log2(fftI_RA[" << n << "])" << std::log2(fftI_RA[n]) << std::endl;
+				// std::cout << "fftI_RA[" << n << "]" << fftI_RA[n] << "        std::log2(fftI_RA[" << n << "])" << std::log2(fftI_RA[n]) << std::endl;
 				entropy_I_it     -= fftI_RA[n]     * std::log2(fftI_RA[n]);
 				entropy_IsubP_it -= fftIsubP_RA[n] * std::log2(fftIsubP_RA[n]);
 			}
@@ -1025,8 +1025,8 @@ void ProgClassifyPartialOccupancy::entropy(double &ll_I, double &ll_IsubP, const
 		ll_IsubP += entropy_IsubP_it;
 
 		#ifdef DEBUG_ENTROPY
-		std::cout << "ll_I_it for interation "     << value << " : " << entropy_I_it     << ". Number of pixels: " << numberOfPx << std::endl;
-		std::cout << "ll_IsubP_it for interation " << value << " : " << entropy_IsubP_it << ". Number of pixels: " << numberOfPx << std::endl;
+		// std::cout << "ll_I_it for interation "     << value << " : " << entropy_I_it     << ". Number of pixels: " << numberOfPx << std::endl;
+		// std::cout << "ll_IsubP_it for interation " << value << " : " << entropy_IsubP_it << ". Number of pixels: " << numberOfPx << std::endl;
 		#endif
 	}
 
