@@ -495,13 +495,14 @@ class BnBgpu:
         if iter > 7:
             res_classes = self.frc_resolution_tensor(newCL, sampling)
             print(res_classes)
-            # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
-            # print(bfactor)
+            bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
+            print(bfactor)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
-            # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
+            clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth(clk, sampling)
-            clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
+            # clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
             # clk = self.unsharp_mask_norm(clk)
     
@@ -682,12 +683,13 @@ class BnBgpu:
             clk = self.averages(data, newCL, classes)
             
             res_classes = self.frc_resolution_tensor(newCL, sampling)
-            # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
+            bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
-            # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
+            clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth(clk, sampling) 
-            clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
+            # clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
             # clk = self.unsharp_mask_norm(clk)
             # clk = self.gaussian_lowpass_filter_2D(clk, maxRes, sampling)
@@ -1679,56 +1681,42 @@ class BnBgpu:
         b_factors = torch.nan_to_num(b_factors, nan=0.0, posinf=0.0, neginf=0.0)
         return b_factors
 
-    
-    def sharpen_averages_batch2(self, averages, pixel_size, B_factors, res_cutoffs, eps=1e-6):
+    @torch.no_grad()
+    def sharpen_averages_batch_nq(self, averages, pixel_size, B_factors, eps=1e-6, normalize: bool = True):
         N, H, W = averages.shape
         device = averages.device
     
-        # Backup estadístico de las imágenes originales
-        mean_orig = averages.mean(dim=(-2, -1), keepdim=True)
-        std_orig = averages.std(dim=(-2, -1), keepdim=True)
-    
-        # Prepara B y límites
+        # Limpieza de valores inválidos en B
         B_factors = torch.nan_to_num(B_factors, nan=0.0, posinf=0.0, neginf=0.0)
-        B_exp = B_factors.unsqueeze(1).unsqueeze(2).clamp(min=-800.0, max=50.0)
+        B_exp = B_factors.view(N, 1, 1).clamp(min=-400.0, max=20.0)
     
+        # FFT
         fft = torch.fft.fft2(averages)
     
+        # Malla de frecuencias
         fy = torch.fft.fftfreq(H, d=pixel_size).to(device)
         fx = torch.fft.fftfreq(W, d=pixel_size).to(device)
         gy, gx = torch.meshgrid(fy, fx, indexing='ij')
         freq_r = torch.sqrt(gx**2 + gy**2).unsqueeze(0).expand(N, -1, -1)
     
-        # Frecuencias de corte y Nyquist
-        f_cutoff = (1.0 / res_cutoffs).unsqueeze(1).unsqueeze(2)  # [N,1,1]
-        f_nyquist = 1.0 / (2.0 * pixel_size)  # escalar
+        # --- B-factor completo ---
+        filt = torch.exp((-B_exp / 4) * (freq_r ** 2))  # [N, H, W]
     
-        # Expande f_cutoff para que tenga la misma forma que freq_r
-        f_cutoff_exp = f_cutoff.expand_as(freq_r)
-    
-        # Taper coseno suave:
-        taper = torch.ones_like(freq_r)
-    
-        mask_transition = (freq_r > f_cutoff_exp) & (freq_r < f_nyquist)
-        taper[mask_transition] = 0.5 * (
-            1 + torch.cos(
-                torch.pi * (freq_r[mask_transition] - f_cutoff_exp[mask_transition]) / (f_nyquist - f_cutoff_exp[mask_transition])
-            )
-        )
-        taper[freq_r >= f_nyquist] = 0.0
-    
-        # Filtro con sharpening y taper
-        filt = torch.exp((B_exp / 4) * (freq_r ** 2)) * taper
-    
+        # Aplicación del filtro
         fft_sharp = fft * filt
         sharp_imgs = torch.fft.ifft2(fft_sharp).real
     
-        # Normalización final
-        mean_filt = sharp_imgs.mean(dim=(-2, -1), keepdim=True)
-        std_filt = sharp_imgs.std(dim=(-2, -1), keepdim=True)
-        sharp_imgs = (sharp_imgs - mean_filt) / (std_filt + eps) * std_orig + mean_orig
+        # Restaurar nivel de grises
+        if normalize:
+            mean_orig = averages.mean(dim=(-2, -1), keepdim=True)
+            std_orig = averages.std(dim=(-2, -1), keepdim=True)
+            mean_filt = sharp_imgs.mean(dim=(-2, -1), keepdim=True)
+            std_filt = sharp_imgs.std(dim=(-2, -1), keepdim=True)
+            sharp_imgs = (sharp_imgs - mean_filt) / (std_filt + eps) * std_orig + mean_orig
     
         return sharp_imgs
+ 
+
     
     @torch.no_grad()
     def sharpen_averages_batch(self, averages, pixel_size, B_factors, res_cutoffs, eps=1e-6, normalize: bool = True):
