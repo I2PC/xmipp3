@@ -2087,7 +2087,7 @@ class BnBgpu:
         a: float = 0.0,                 # mínimo valor en bajas frecuencias
         eps: float = 1e-8,
         normalize: bool = True
-    ) -> torch.Tensor:
+    ) -> torch.Tensor: 
         """
         Aplica un filtro paso alto tipo Butterworth suavizado a un batch de imágenes.
         F(f) = a + (1 - a) / (1 + (fc / (f + eps))^(2n))
