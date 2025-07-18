@@ -2084,7 +2084,7 @@ class BnBgpu:
         resolutions: torch.Tensor,      # [B] en Å
         pixel_size: float,              # tamaño del píxel en Å/pix
         order: int = 2,                 # orden del filtro
-        a: float = 0.1,                 # mínimo valor en bajas frecuencias
+        a: float = 0.2,                 # mínimo valor en bajas frecuencias
         eps: float = 1e-8,
         normalize: bool = True
     ) -> torch.Tensor: 
