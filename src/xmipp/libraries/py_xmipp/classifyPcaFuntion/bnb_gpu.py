@@ -1822,7 +1822,7 @@ class BnBgpu:
         resolutions: torch.Tensor,         # [B]
         pixel_size: float,                 # Å/pixel
         low_res_angstrom: float = 20.0,
-        order: int = 2,
+        order: int = 4,
         blend_factor: float = 0.5,
         normalize: bool = True
     ) -> torch.Tensor:
