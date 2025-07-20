@@ -498,12 +498,12 @@ class BnBgpu:
             # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             # print(bfactor)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
-            clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
+            # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
-            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
+            # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth(clk, sampling)
-            # clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
+            clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
             # clk = self.unsharp_mask_norm(clk)
     
@@ -687,11 +687,11 @@ class BnBgpu:
             # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
-            clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
+            # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
-            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
+            # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth(clk, sampling) 
-            # clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
+            clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
             # clk = self.unsharp_mask_norm(clk)
             # clk = self.gaussian_lowpass_filter_2D(clk, maxRes, sampling)
@@ -1868,7 +1868,7 @@ class BnBgpu:
     ) -> torch.Tensor:
         """
         Aplica paso bajo (por FRC) al original y realce sobre ese resultado,
-        combinando ambos en espacio real. El filtro de realce sube con forma de coseno
+        combinando ambos en espacio de Fourier. El filtro de realce sube con forma de coseno
         desde 0 hasta 1 en la frecuencia de corte (basada en resolución) y se mantiene en 1 después.
         """
         device = averages.device
@@ -1883,7 +1883,6 @@ class BnBgpu:
         )
         r = torch.sqrt((xx - W // 2) ** 2 + (yy - H // 2) ** 2)
         r_norm = r / r.max()
-        # r_norm_exp = r_norm.unsqueeze(0)  # [1, H, W]
         r_norm_exp = r_norm.unsqueeze(0).expand(B, -1, -1)
     
         # === Frecuencias normalizadas ===
@@ -1900,37 +1899,33 @@ class BnBgpu:
     
         # --- Filtro de realce tipo coseno ---
         enhance_filter = torch.where(
-                r_norm_exp <= frc_cutoffs,
-                0.5 * (1 - torch.cos(torch.pi * r_norm_exp / (frc_cutoffs + eps))),
-                torch.ones_like(r_norm_exp)
-                )
+            r_norm_exp <= frc_cutoffs,
+            0.5 * (1 - torch.cos(torch.pi * r_norm_exp / (frc_cutoffs + eps))),
+            torch.ones_like(r_norm_exp)
+        )
         bp_filter = enhance_filter  # [B, H, W]
     
         # === FFT del original ===
         fft = torch.fft.fft2(averages, norm="forward")
         fft_shift = torch.fft.fftshift(fft, dim=(-2, -1))
     
-        # Paso bajo
+        # Paso bajo y realce en Fourier
         fft_lp = fft_shift * lp_filter
-        lowpass = torch.fft.ifft2(torch.fft.ifftshift(fft_lp, dim=(-2, -1)), norm="forward").real
-    
-        # Realce con filtro coseno
         fft_enhanced = fft_lp * bp_filter
-        enhanced = torch.fft.ifft2(torch.fft.ifftshift(fft_enhanced, dim=(-2, -1)), norm="forward").real
+    
+        # === Mezcla en espacio de Fourier ===
+        fft_combined = blend_factor * fft_lp + (1 - blend_factor) * fft_enhanced
+    
+        # === IFFT final ===
+        out = torch.fft.ifft2(torch.fft.ifftshift(fft_combined, dim=(-2, -1)), norm="forward").real
     
         # === Normalización (si se desea) ===
         if normalize:
             mean = averages.mean(dim=(-2, -1), keepdim=True)
-            std  = averages.std(dim=(-2, -1), keepdim=True)
+            std = averages.std(dim=(-2, -1), keepdim=True)
+            out = (out - out.mean(dim=(-2, -1), keepdim=True)) / (out.std(dim=(-2, -1), keepdim=True) + eps) * std + mean
     
-            def norm(x):
-                return (x - x.mean(dim=(-2, -1), keepdim=True)) / (x.std(dim=(-2, -1), keepdim=True) + eps) * std + mean
-    
-            lowpass = norm(lowpass)
-            enhanced = norm(enhanced)
-    
-        # === Mezcla final ===
-        return blend_factor * lowpass + (1 - blend_factor) * enhanced
+        return out
     
     
     @torch.no_grad()
