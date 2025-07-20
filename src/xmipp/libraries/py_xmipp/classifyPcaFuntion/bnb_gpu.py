@@ -1891,20 +1891,6 @@ class BnBgpu:
         return out
         
     
-        # === Normalización (si se desea) ===
-        if normalize:
-            mean = averages.mean(dim=(-2, -1), keepdim=True)
-            std  = averages.std(dim=(-2, -1), keepdim=True)
-    
-            def norm(x):
-                return (x - x.mean(dim=(-2, -1), keepdim=True)) / (x.std(dim=(-2, -1), keepdim=True) + eps) * std + mean
-    
-            lowpass = norm(lowpass)
-            enhanced = norm(enhanced)
-    
-        # === Mezcla final ===
-        return blend_factor * lowpass + (1 - blend_factor) * enhanced 
-    
     
     @torch.no_grad()
     def enhance_averages_butterworth_combined_cos(
