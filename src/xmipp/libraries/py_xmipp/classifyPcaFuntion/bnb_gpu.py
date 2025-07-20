@@ -1865,7 +1865,7 @@ class BnBgpu:
         resolutions: torch.Tensor,         # [B]
         pixel_size: float,                 # Å/pixel
         order: int = 2,
-        blend_factor: float = 0.4,
+        blend_factor: float = 0.3,
         normalize: bool = True
     ) -> torch.Tensor:
         """
