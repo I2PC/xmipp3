@@ -1863,7 +1863,7 @@ class BnBgpu:
         resolutions: torch.Tensor,         # [B]
         pixel_size: float,                 # Å/pixel
         order: int = 2,
-        blend_factor: float = 0.5,
+        blend_factor: float = 0.4,
         normalize: bool = True
     ) -> torch.Tensor:
         """
@@ -1898,12 +1898,12 @@ class BnBgpu:
         lp_filter = 1.0 / (1.0 + (r_norm_exp / (frc_cutoffs + eps)) ** (2 * order))  # [B, H, W]
     
         # --- Filtro de realce tipo coseno ---
-        # enhance_filter = torch.where(
-        #     r_norm_exp <= frc_cutoffs,
-        #     0.5 * (1 - torch.cos(torch.pi * r_norm_exp / (frc_cutoffs + eps))),
-        #     torch.ones_like(r_norm_exp)
-        # )
-        enhance_filter = 0.5 * (1 - torch.cos(torch.pi * r_norm_exp))
+        enhance_filter = torch.where(
+            r_norm_exp <= frc_cutoffs,
+            0.5 * (1 - torch.cos(torch.pi * r_norm_exp / (frc_cutoffs + eps))),
+            torch.ones_like(r_norm_exp)
+        )
+        # enhance_filter = 0.5 * (1 - torch.cos(torch.pi * r_norm_exp))
         bp_filter = enhance_filter  # [B, H, W]
     
         # === FFT del original ===
