@@ -520,13 +520,11 @@ class BnBgpu:
             # clk = clk * self.approximate_otsu_threshold(clk, percentile=10)
             clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
                                 intensity_percentile=50, contrast_weight=1.5, intensity_weight=1.0)
-            clk = clk * self.create_gaussian_mask(clk, sigma)
         # if 3 < iter < 10 and iter % 2 == 0:
         if 3 < iter < 7 and iter % 2 == 0:
             # clk = clk * self.approximate_otsu_threshold(clk, percentile=10)
             clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
                                 intensity_percentile=50, contrast_weight=1.5, intensity_weight=1.0)
-            clk = clk * self.create_gaussian_mask(clk, sigma)
 
         
         # if iter < 17:
@@ -1114,7 +1112,7 @@ class BnBgpu:
             batch = batch + torch.abs(lower_values_mean)
         return batch
     
-    def contrast_dominant_mask(self, imgs,
+    def contrast_dominant_mask2(self, imgs,
                                 window=3,
                                 contrast_percentile=80,
                                 intensity_percentile=50,
@@ -1135,6 +1133,42 @@ class BnBgpu:
         mask = (std_local > contrast_thresh) & (imgs > intensity_thresh)
         
         return mask.float().squeeze(1)
+    
+    
+    def contrast_dominant_mask(self, imgs,
+                            window=3,
+                            contrast_percentile=80,
+                            intensity_percentile=50,
+                            contrast_weight=1.5,
+                            intensity_weight=1.0,
+                            smooth_sigma=1.0):
+        N, H, W = imgs.shape
+        imgs = imgs.float().unsqueeze(1)  # [N, 1, H, W]
+        
+        mean_local = F.avg_pool2d(imgs, window, stride=1, padding=window // 2)
+        mean_sq_local = F.avg_pool2d(imgs**2, window, stride=1, padding=window // 2)
+        std_local = torch.sqrt((mean_sq_local - mean_local**2).clamp(min=0))  # [N, 1, H, W]
+    
+        contrast_thresh = torch.quantile(std_local.view(N, -1), contrast_percentile / 100.0, dim=1).view(N, 1, 1, 1)
+        intensity_thresh = torch.quantile(imgs.view(N, -1), intensity_percentile / 100.0, dim=1).view(N, 1, 1, 1)
+    
+        mask = ((std_local > contrast_thresh) & (imgs > intensity_thresh)).float()  # [N, 1, H, W]
+    
+        # === Suavizado con gaussiana ===
+        if smooth_sigma > 0:
+            kernel_size = int(2 * round(2 * smooth_sigma) + 1)
+            padding = kernel_size // 2
+    
+            x = torch.arange(-padding, padding + 1, device=imgs.device).float()
+            gauss = torch.exp(-0.5 * (x / smooth_sigma)**2)
+            gauss = gauss / gauss.sum()
+    
+            gauss_2d = gauss[:, None] * gauss[None, :]
+            gauss_2d = gauss_2d.unsqueeze(0).unsqueeze(0)  # [1, 1, K, K]
+    
+            mask = F.conv2d(mask, gauss_2d, padding=padding, groups=1)
+    
+        return mask.squeeze(1)  # [N, H, W]
     
     
     def approximate_otsu_threshold(self, imgs, percentile=20):
@@ -1841,7 +1875,21 @@ class BnBgpu:
     
         # Filtro realce (pasa banda aplicado sobre el paso bajo en freq)
         fft_enhanced = fft_lp * bp_filter
-        enhanced = torch.fft.ifft2(torch.fft.ifftshift(fft_enhanced, dim=(-2, -1))).real
+        
+        # === Mezcla en espacio de Fourier ===
+        fft_combined = blend_factor * fft_lp + (1 - blend_factor) * fft_enhanced
+    
+        # === IFFT final ===
+        out = torch.fft.ifft2(torch.fft.ifftshift(fft_combined, dim=(-2, -1)), norm="forward").real
+    
+        # === Normalización (si se desea) ===
+        if normalize:
+            mean = averages.mean(dim=(-2, -1), keepdim=True)
+            std = averages.std(dim=(-2, -1), keepdim=True)
+            out = (out - out.mean(dim=(-2, -1), keepdim=True)) / (out.std(dim=(-2, -1), keepdim=True) + eps) * std + mean
+    
+        return out
+        
     
         # === Normalización (si se desea) ===
         if normalize:
