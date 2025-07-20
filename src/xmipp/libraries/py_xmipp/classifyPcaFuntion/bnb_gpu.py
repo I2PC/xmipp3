@@ -1816,7 +1816,7 @@ class BnBgpu:
     
     
     @torch.no_grad()
-    def enhance_averages_butterworth_combined2(
+    def enhance_averages_butterworth_combined(
         self,
         averages: torch.Tensor,            # [B, H, W]
         resolutions: torch.Tensor,         # [B]
@@ -1907,7 +1907,7 @@ class BnBgpu:
     
     
     @torch.no_grad()
-    def enhance_averages_butterworth_combined(
+    def enhance_averages_butterworth_combined_cos(
         self,
         averages: torch.Tensor,            # [B, H, W]
         resolutions: torch.Tensor,         # [B]
