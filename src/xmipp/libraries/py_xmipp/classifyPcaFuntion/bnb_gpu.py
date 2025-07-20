@@ -1871,7 +1871,7 @@ class BnBgpu:
     
         # Filtro paso bajo
         fft_lp = fft_shift * lp_filter
-        lowpass = torch.fft.ifft2(torch.fft.ifftshift(fft_lp, dim=(-2, -1))).real
+        # lowpass = torch.fft.ifft2(torch.fft.ifftshift(fft_lp, dim=(-2, -1))).real
     
         # Filtro realce (pasa banda aplicado sobre el paso bajo en freq)
         fft_enhanced = fft_lp * bp_filter
