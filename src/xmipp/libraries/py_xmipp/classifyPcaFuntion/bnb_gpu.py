@@ -1821,7 +1821,7 @@ class BnBgpu:
         averages: torch.Tensor,            # [B, H, W]
         resolutions: torch.Tensor,         # [B]
         pixel_size: float,                 # Å/pixel
-        low_res_angstrom: float = 20.0,
+        low_res_angstrom: float = 15.0,
         order: int = 4,
         blend_factor: float = 0.5,
         normalize: bool = True
