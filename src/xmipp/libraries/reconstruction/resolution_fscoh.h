@@ -36,7 +36,7 @@
 #define DEBUG_DIM
 #define DEBUG_FREQUENCY_MAP
 #define DEBUG_OUTPUT_FILES
-#define DEBUG_FOURIER_SHELL_FILTER
+// #define DEBUG_FOURIER_SHELL_FILTER
 
 /**@defgroup ProgFSCoh Calculates statistical map
    @ingroup ReconsLibrary */

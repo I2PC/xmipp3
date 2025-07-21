@@ -353,9 +353,14 @@ void ProgFSCoh::fourierShellNormalization(MultidimArray<std::complex<double>> &v
         }
 	}
 
+	MultidimArray<std::complex<double>> sumDebug;
+	sumDebug.initZeros(NZYXSIZE(FSCoh));
+
 	// Compute mean and std vectors (rehuse sum and sum^2)
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(sum)
 	{
+		DIRECT_MULTIDIM_ELEM(sumDebug, n) = DIRECT_MULTIDIM_ELEM(sum, n);
+
 		#ifdef DEBUG_FOURIER_SHELL_FILTER
 		std::cout << "sum: " << DIRECT_MULTIDIM_ELEM(sum, n) << "      std:" <<  DIRECT_MULTIDIM_ELEM(sum2, n) << std::endl;
 		#endif
@@ -369,9 +374,6 @@ void ProgFSCoh::fourierShellNormalization(MultidimArray<std::complex<double>> &v
 		#endif
 	}
 
-	Image<double> debug;
-	debug().initZeros(ZSIZE(volFT), YSIZE(volFT), XSIZE(volFT));
-
 	// Normalize map 
 	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(volFT)
 	{
@@ -380,13 +382,37 @@ void ProgFSCoh::fourierShellNormalization(MultidimArray<std::complex<double>> &v
 		if (freqIdx < NZYXSIZE(FSCoh))
 		{
 			DIRECT_MULTIDIM_ELEM(volFT, n) = (DIRECT_MULTIDIM_ELEM(volFT, n) - DIRECT_MULTIDIM_ELEM(sum, freqIdx)) / DIRECT_MULTIDIM_ELEM(sum2, freqIdx);
-			DIRECT_MULTIDIM_ELEM(debug(), n) = std::norm(DIRECT_MULTIDIM_ELEM(volFT, n));
 		}
 	}
 
 	#ifdef DEBUG_FOURIER_SHELL_FILTER
-	std::cout << "Fourier shell normalized volume saved at " << fn_V.substr(0, fn_V.find_last_of('.')) + "_filtered" + fn_V.substr(fn_V.find_last_of('.')) << std::endl;
-	debug.write(fn_V.substr(0, fn_V.find_last_of('.')) + "_filtered" + fn_V.substr(fn_V.find_last_of('.')));
+	sum.initZeros(NZYXSIZE(FSCoh));
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(volFT)
+	{
+		int freqIdx = static_cast<int>(DIRECT_MULTIDIM_ELEM(freqMap, n));
+
+       	if (freqIdx < NZYXSIZE(FSCoh))
+		{
+            DIRECT_MULTIDIM_ELEM(sum, freqIdx) += DIRECT_MULTIDIM_ELEM(volFT,n);
+        }
+	}
+
+	// Save output metadata
+	MetaDataVec md;
+	size_t id;
+
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(sum)
+	{
+		id = md.addObject();
+		md.setValue(MDL_X, std::norm(DIRECT_MULTIDIM_ELEM(sumDebug, n)), id);
+		md.setValue(MDL_Y, std::norm(DIRECT_MULTIDIM_ELEM(sum, n)),  id);
+	}
+
+	std::string outputMD =  fn_V.substr(0, fn_V.find_last_of('.')) + "_filtered.xmd";
+	md.write(outputMD);
+
+	std::cout << "Output metadata file generated at: " << outputMD << std::endl;
+
 	#endif
 }
 
