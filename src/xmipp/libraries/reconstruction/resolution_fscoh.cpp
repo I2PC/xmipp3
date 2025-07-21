@@ -27,7 +27,6 @@
  #include "core/metadata_extension.h"
  #include "core/multidim_array.h"
  #include "core/xmipp_image_base.h"
- #include "core/xmipp_fftw.h"
  #include <iostream>
  #include <string>
  #include <chrono>
@@ -92,7 +91,6 @@ void ProgFSCoh::fourierShellCoherence(MetaDataVec mapPoolMD)
 {
     std::cout << "Calculating Fourier Shell Coherence..." << std::endl;
 
-    FourierTransformer ft;
     MultidimArray<std::complex<double>> V_ft;
 
     for (const auto& row : mapPoolMD)
@@ -104,7 +102,7 @@ void ProgFSCoh::fourierShellCoherence(MetaDataVec mapPoolMD)
         #endif
 
         V.read(fn_V);
-		normalizeMap(V());
+		// normalizeMap(V());
 
         if (!dimInitialized)
         {
@@ -128,6 +126,7 @@ void ProgFSCoh::fourierShellCoherence(MetaDataVec mapPoolMD)
         }
 
         ft.FourierTransform(V(), V_ft, false);
+		fourierShellNormalization(V_ft);
 
         FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V_ft)
         {
@@ -212,7 +211,6 @@ void ProgFSCoh::composefreqMap()
 	// Calculate FT
 	MultidimArray<std::complex<double>> V_ft; // Volume FT
 
-	FourierTransformer ft;
 	ft.FourierTransform(V(), V_ft, false);
 
 	// FT dimensions
@@ -331,4 +329,60 @@ void ProgFSCoh::normalizeMap(MultidimArray<double> &vol)
     }
 }
 
+
+void ProgFSCoh::fourierShellNormalization(MultidimArray<std::complex<double>> &volFT)
+{
+    MultidimArray<std::complex<double>> sum;	// and mean vetor
+    MultidimArray<double> sum2;					// and std vector
+	MultidimArray<double> numElems;
+
+	sum.initZeros(NZYXSIZE(FSCoh));
+	sum2.initZeros(NZYXSIZE(FSCoh));
+	numElems.initZeros(NZYXSIZE(FSCoh));
+
+	// Compute sum and sum^2 
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(volFT)
+	{
+		int freqIdx = static_cast<int>(DIRECT_MULTIDIM_ELEM(freqMap, n));
+
+       	if (freqIdx < NZYXSIZE(FSCoh))
+		{
+            DIRECT_MULTIDIM_ELEM(sum,      freqIdx) += DIRECT_MULTIDIM_ELEM(volFT,n);
+            DIRECT_MULTIDIM_ELEM(sum2,     freqIdx) += std::norm(DIRECT_MULTIDIM_ELEM(volFT,n));
+            DIRECT_MULTIDIM_ELEM(numElems, freqIdx) += 1;
+        }
+	}
+
+	// Compute mean and std vectors (rehuse sum and sum^2)
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(sum)
+	{
+		std::cout << "sum: " << DIRECT_MULTIDIM_ELEM(sum, n) << "      std:" <<  DIRECT_MULTIDIM_ELEM(sum2, n) << std::endl;
+
+		std::complex<double> mean = DIRECT_MULTIDIM_ELEM(sum, n) / DIRECT_MULTIDIM_ELEM(numElems,n);
+		DIRECT_MULTIDIM_ELEM(sum,      n) = mean;
+		DIRECT_MULTIDIM_ELEM(sum2,     n) = sqrt(DIRECT_MULTIDIM_ELEM(sum2, n) / static_cast<double>(DIRECT_MULTIDIM_ELEM(numElems, n)) - std::norm(mean));
+
+		std::cout << "mean: " << DIRECT_MULTIDIM_ELEM(sum, n) << "      std:" <<  DIRECT_MULTIDIM_ELEM(sum2, n) << std::endl;
+	}
+
+	Image<double> debug;
+	debug().initZeros(ZSIZE(volFT), YSIZE(volFT), XSIZE(volFT));
+
+	// Normalize map 
+	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(volFT)
+	{
+		int freqIdx = static_cast<int>(DIRECT_MULTIDIM_ELEM(freqMap, n));
+
+		if (freqIdx < NZYXSIZE(FSCoh))
+		{
+			DIRECT_MULTIDIM_ELEM(volFT, n) = (DIRECT_MULTIDIM_ELEM(volFT, n) - DIRECT_MULTIDIM_ELEM(sum, freqIdx)) / DIRECT_MULTIDIM_ELEM(sum2, freqIdx);
+			DIRECT_MULTIDIM_ELEM(debug(), n) = std::norm(DIRECT_MULTIDIM_ELEM(volFT, n));
+		}
+	}
+
+	#ifdef DEBUG_FOURIER_SHELL_FILTER
+	std::cout << "Fourier shell normalized volume saved at " << fn_V.substr(0, fn_V.find_last_of('.')) + "_filtered" + fn_V.substr(fn_V.find_last_of('.')) << std::endl;
+	debug.write(fn_V.substr(0, fn_V.find_last_of('.')) + "_filtered" + fn_V.substr(fn_V.find_last_of('.')));
+	#endif
+}
 

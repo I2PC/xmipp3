@@ -30,11 +30,13 @@
 #include "core/xmipp_program.h"
 #include "core/xmipp_image.h"
 #include "core/xmipp_filename.h"
+ #include "core/xmipp_fftw.h"
 
 #define VERBOSE_OUTPUT
 #define DEBUG_DIM
 #define DEBUG_FREQUENCY_MAP
 #define DEBUG_OUTPUT_FILES
+#define DEBUG_FOURIER_SHELL_FILTER
 
 /**@defgroup ProgFSCoh Calculates statistical map
    @ingroup ReconsLibrary */
@@ -73,6 +75,10 @@ class ProgFSCoh: public XmippProgram
     // Filtering variables
     int indexThr;
 
+    // Fourier transformer
+    FourierTransformer ft;
+
+
 public:
 
     // ---------------------- IN/OUT METHODS -----------------------------
@@ -93,6 +99,8 @@ public:
     // ---------------------- UTILS METHODS ------------------------------
     void composefreqMap();
     void normalizeMap(MultidimArray<double> &vol);
+    void fourierShellNormalization(MultidimArray<std::complex<double>> &volFT);
+
 };
 //@}
 #endif
