@@ -1769,7 +1769,7 @@ class BnBgpu:
             b = 0.5 * (v0 - vc)
         
             mask = (freq_r >= 0) & (freq_r <= f_cutoff_exp)
-            taper[mask] = a + b * torch.cos(torch.pi * freq_r[mask] / f_cutoff_exp[mask])
+            taper[mask] = a + b * torch.cos(torch.pi * (1 - freq_r[mask] / f_cutoff_exp[mask]))
             taper[freq_r > f_cutoff_exp] = 0.0
         
             return taper
