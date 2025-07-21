@@ -356,13 +356,17 @@ void ProgFSCoh::fourierShellNormalization(MultidimArray<std::complex<double>> &v
 	// Compute mean and std vectors (rehuse sum and sum^2)
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(sum)
 	{
+		#ifdef DEBUG_FOURIER_SHELL_FILTER
 		std::cout << "sum: " << DIRECT_MULTIDIM_ELEM(sum, n) << "      std:" <<  DIRECT_MULTIDIM_ELEM(sum2, n) << std::endl;
+		#endif
 
 		std::complex<double> mean = DIRECT_MULTIDIM_ELEM(sum, n) / DIRECT_MULTIDIM_ELEM(numElems,n);
 		DIRECT_MULTIDIM_ELEM(sum,      n) = mean;
 		DIRECT_MULTIDIM_ELEM(sum2,     n) = sqrt(DIRECT_MULTIDIM_ELEM(sum2, n) / static_cast<double>(DIRECT_MULTIDIM_ELEM(numElems, n)) - std::norm(mean));
 
+		#ifdef DEBUG_FOURIER_SHELL_FILTER
 		std::cout << "mean: " << DIRECT_MULTIDIM_ELEM(sum, n) << "      std:" <<  DIRECT_MULTIDIM_ELEM(sum2, n) << std::endl;
+		#endif
 	}
 
 	Image<double> debug;
