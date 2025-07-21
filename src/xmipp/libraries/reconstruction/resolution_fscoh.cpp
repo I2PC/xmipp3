@@ -144,8 +144,7 @@ void ProgFSCoh::fourierShellCoherence(MetaDataVec mapPoolMD)
         int freqIdx = (int)(DIRECT_MULTIDIM_ELEM(freqMap,n));
 
         // Consider only up to Nyquist (remove corners from analysis)
-        // if (freqIdx < NZYXSIZE(FSCoh)) ***
-        if (freqIdx < 238)
+        if (freqIdx < NZYXSIZE(FSCoh))
 		{
             DIRECT_MULTIDIM_ELEM(FSCoh_num,     freqIdx) += std::norm(DIRECT_MULTIDIM_ELEM(FSCoh_map,n));
             DIRECT_MULTIDIM_ELEM(FSCoh_den,     freqIdx) += DIRECT_MULTIDIM_ELEM(FSCoh_map2,n);
@@ -331,3 +330,5 @@ void ProgFSCoh::normalizeMap(MultidimArray<double> &vol)
         DIRECT_MULTIDIM_ELEM(vol, n) = (DIRECT_MULTIDIM_ELEM(vol, n) - avg) / std;
     }
 }
+
+
