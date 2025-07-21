@@ -1761,7 +1761,7 @@ class BnBgpu:
         N, H, W = averages.shape
         device = averages.device
         
-        def create_taper(freq_r, f_cutoff, v0=0.0, vc=1.0):
+        def create_taper(freq_r, f_cutoff, v0=0.3, vc=1.0):
             f_cutoff_exp = f_cutoff.expand_as(freq_r)
             taper = torch.zeros_like(freq_r)
         
@@ -1792,7 +1792,7 @@ class BnBgpu:
         
 
         #Transición coseno  
-        taper = create_taper(freq_r, f_cutoff, v0=0.0, vc=1.0)
+        taper = create_taper(freq_r, f_cutoff, v0=0.3, vc=1.0)
         f_cutoff_exp = f_cutoff.expand_as(freq_r)
         # taper = torch.ones_like(freq_r) 
         # taper[freq_r > f_cutoff_exp] = 0.0  
