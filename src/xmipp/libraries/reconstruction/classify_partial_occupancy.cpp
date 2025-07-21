@@ -269,8 +269,8 @@ void ProgClassifyPartialOccupancy::processImage(const FileName &fnImg, const Fil
 	double ll_I = 0;
 	double ll_IsubP = 0;
 
-	// logLikelihood(ll_I, ll_IsubP, fnImgOut);
-	entropy(ll_I, ll_IsubP, fnImgOut);
+	logLikelihood(ll_I, ll_IsubP, fnImgOut);
+	// entropy(ll_I, ll_IsubP, fnImgOut);
 
 	writeParticle(rowOut, ll_I, ll_IsubP, (ll_I-ll_IsubP)); 
 }
