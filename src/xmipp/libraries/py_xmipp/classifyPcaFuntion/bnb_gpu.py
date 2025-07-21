@@ -503,7 +503,7 @@ class BnBgpu:
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth(clk, sampling)
-            clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
+            clk = self.enhance_averages_butterworth_combined_cos(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
             # clk = self.unsharp_mask_norm(clk)
     
@@ -691,7 +691,7 @@ class BnBgpu:
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth(clk, sampling) 
-            clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
+            clk = self.enhance_averages_butterworth_combined_cos(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
             # clk = self.unsharp_mask_norm(clk)
             # clk = self.gaussian_lowpass_filter_2D(clk, maxRes, sampling)
@@ -1821,8 +1821,8 @@ class BnBgpu:
         averages: torch.Tensor,            # [B, H, W]
         resolutions: torch.Tensor,         # [B]
         pixel_size: float,                 # Å/pixel
-        low_res_angstrom: float = 15.0,
-        order: int = 4,
+        low_res_angstrom: float = 20.0,
+        order: int = 2,
         blend_factor: float = 0.5,
         normalize: bool = True
     ) -> torch.Tensor:
@@ -1871,25 +1871,26 @@ class BnBgpu:
     
         # Filtro paso bajo
         fft_lp = fft_shift * lp_filter
-        # lowpass = torch.fft.ifft2(torch.fft.ifftshift(fft_lp, dim=(-2, -1))).real
+        lowpass = torch.fft.ifft2(torch.fft.ifftshift(fft_lp, dim=(-2, -1))).real
     
         # Filtro realce (pasa banda aplicado sobre el paso bajo en freq)
         fft_enhanced = fft_lp * bp_filter
         
-        # === Mezcla en espacio de Fourier ===
-        fft_combined = blend_factor * fft_lp + (1 - blend_factor) * fft_enhanced
-    
-        # === IFFT final ===
-        out = torch.fft.ifft2(torch.fft.ifftshift(fft_combined, dim=(-2, -1)), norm="forward").real
+        enhanced = torch.fft.ifft2(torch.fft.ifftshift(fft_enhanced, dim=(-2, -1)), norm="forward").real
     
         # === Normalización (si se desea) ===
         if normalize:
             mean = averages.mean(dim=(-2, -1), keepdim=True)
-            std = averages.std(dim=(-2, -1), keepdim=True)
-            out = (out - out.mean(dim=(-2, -1), keepdim=True)) / (out.std(dim=(-2, -1), keepdim=True) + eps) * std + mean
+            std  = averages.std(dim=(-2, -1), keepdim=True)
     
-        return out
-        
+            def norm(x):
+                return (x - x.mean(dim=(-2, -1), keepdim=True)) / (x.std(dim=(-2, -1), keepdim=True) + eps) * std + mean
+    
+            lowpass = norm(lowpass)
+            enhanced = norm(enhanced)
+    
+        # === Mezcla final ===
+        return blend_factor * lowpass + (1 - blend_factor) * enhanced
     
     
     @torch.no_grad()
@@ -1899,12 +1900,12 @@ class BnBgpu:
         resolutions: torch.Tensor,         # [B]
         pixel_size: float,                 # Å/pixel
         order: int = 2,
-        blend_factor: float = 0.3,
+        blend_factor: float = 0.5,
         normalize: bool = True
     ) -> torch.Tensor:
         """
         Aplica paso bajo (por FRC) al original y realce sobre ese resultado,
-        combinando ambos en espacio de Fourier. El filtro de realce sube con forma de coseno
+        combinando ambos en espacio real. El filtro de realce sube con forma de coseno
         desde 0 hasta 1 en la frecuencia de corte (basada en resolución) y se mantiene en 1 después.
         """
         device = averages.device
@@ -1939,7 +1940,6 @@ class BnBgpu:
             0.5 * (1 - torch.cos(torch.pi * r_norm_exp / (frc_cutoffs + eps))),
             torch.ones_like(r_norm_exp)
         )
-        # enhance_filter = 0.5 * (1 - torch.cos(torch.pi * r_norm_exp))
         bp_filter = enhance_filter  # [B, H, W]
     
         # === FFT del original ===
@@ -1950,19 +1950,23 @@ class BnBgpu:
         fft_lp = fft_shift * lp_filter
         fft_enhanced = fft_lp * bp_filter
     
-        # === Mezcla en espacio de Fourier ===
-        fft_combined = blend_factor * fft_lp + (1 - blend_factor) * fft_enhanced
-    
-        # === IFFT final ===
-        out = torch.fft.ifft2(torch.fft.ifftshift(fft_combined, dim=(-2, -1)), norm="forward").real
+        # === IFFT individuales ===
+        lowpass = torch.fft.ifft2(torch.fft.ifftshift(fft_lp, dim=(-2, -1)), norm="forward").real
+        enhanced = torch.fft.ifft2(torch.fft.ifftshift(fft_enhanced, dim=(-2, -1)), norm="forward").real
     
         # === Normalización (si se desea) ===
         if normalize:
             mean = averages.mean(dim=(-2, -1), keepdim=True)
             std = averages.std(dim=(-2, -1), keepdim=True)
-            out = (out - out.mean(dim=(-2, -1), keepdim=True)) / (out.std(dim=(-2, -1), keepdim=True) + eps) * std + mean
     
-        return out
+            def norm(x):
+                return (x - x.mean(dim=(-2, -1), keepdim=True)) / (x.std(dim=(-2, -1), keepdim=True) + eps) * std + mean
+    
+            lowpass = norm(lowpass)
+            enhanced = norm(enhanced)
+    
+        # === Mezcla final en espacio real ===
+        return blend_factor * lowpass + (1 - blend_factor) * enhanced
     
     
     @torch.no_grad()
