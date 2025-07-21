@@ -499,8 +499,8 @@ class BnBgpu:
             # print(bfactor)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
             # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
-            # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
-            clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
+            clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
+            # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth(clk, sampling)
             # clk = self.enhance_averages_butterworth_combined_cos(clk, res_classes, sampling)
@@ -686,9 +686,9 @@ class BnBgpu:
             res_classes = self.frc_resolution_tensor(newCL, sampling)
             bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
-            # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
+            clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
-            clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
+            # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth(clk, sampling) 
             # clk = self.enhance_averages_butterworth_combined_cos(clk, res_classes, sampling)
@@ -1793,15 +1793,18 @@ class BnBgpu:
 
         #Transición coseno  
         # taper = create_taper(freq_r, f_cutoff, v0=1.0, vc=1.0)
-        f_cutoff_exp = f_cutoff.expand_as(freq_r)
-        taper = torch.ones_like(freq_r) 
-        taper[freq_r > f_cutoff_exp] = 0.0                  
+        # f_cutoff_exp = f_cutoff.expand_as(freq_r)
+        # taper = torch.ones_like(freq_r) 
+        # taper[freq_r > f_cutoff_exp] = 0.0  
+        
+        taper = (freq_r <= f_cutoff_exp).float()                
     
         # Filtro de realce con B y taper hasta f_cutoff
         #Para hacer sharp hay que poner (-B_exp / 4) 
-        filt = torch.exp((-B_exp / 4) * (freq_r ** 3)) * taper 
+        filt = torch.exp((-B_exp / 4) * (freq_r ** 2)) * taper 
     
         fft_sharp = fft * filt
+        fft_sharp = torch.where(freq_r <= f_cutoff_exp, fft_sharp, fft)
         sharp_imgs = torch.fft.ifft2(fft_sharp, norm="forward").real
         
         if normalize:
