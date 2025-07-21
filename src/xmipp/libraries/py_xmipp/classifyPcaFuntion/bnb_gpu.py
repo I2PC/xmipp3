@@ -1761,7 +1761,7 @@ class BnBgpu:
         N, H, W = averages.shape
         device = averages.device
         
-        def create_taper(freq_r, f_cutoff, v0=1.0, vc=1.0):
+        def create_taper(freq_r, f_cutoff, v0=0.8, vc=1.0):
             f_cutoff_exp = f_cutoff.expand_as(freq_r)
             taper = torch.zeros_like(freq_r)
         
@@ -1792,12 +1792,12 @@ class BnBgpu:
         
 
         #Transición coseno  
-        # taper = create_taper(freq_r, f_cutoff, v0=1.0, vc=1.0)
-        f_cutoff_exp = f_cutoff.expand_as(freq_r)
+        taper = create_taper(freq_r, f_cutoff, v0=0.8, vc=1.0)
+        # f_cutoff_exp = f_cutoff.expand_as(freq_r)
         # taper = torch.ones_like(freq_r) 
         # taper[freq_r > f_cutoff_exp] = 0.0  
         
-        taper = (freq_r <= f_cutoff_exp).float()                
+        # taper = (freq_r <= f_cutoff_exp).float()                
     
         # Filtro de realce con B y taper hasta f_cutoff
         #Para hacer sharp hay que poner (-B_exp / 4) 
