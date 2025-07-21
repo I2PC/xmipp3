@@ -516,8 +516,7 @@ class BnBgpu:
         
 
         # if iter in [13, 16]:
-        # if iter in [10, 13]:
-        if iter == 10:
+        if iter in [10, 13]:
             # clk = clk * self.approximate_otsu_threshold(clk, percentile=10)
             clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
                                 intensity_percentile=50, contrast_weight=1.5, intensity_weight=1.0)
@@ -1762,7 +1761,7 @@ class BnBgpu:
         N, H, W = averages.shape
         device = averages.device
         
-        def create_taper(freq_r, f_cutoff, v0=0.8, vc=1.0):
+        def create_taper(freq_r, f_cutoff, v0=0.3, vc=1.0):
             f_cutoff_exp = f_cutoff.expand_as(freq_r)
             taper = torch.zeros_like(freq_r)
         
