@@ -269,8 +269,7 @@ void ProgClassifyPartialOccupancy::processImage(const FileName &fnImg, const Fil
 	double ll_I = 0;
 	double ll_IsubP = 0;
 
-	logLikelihood(ll_I, ll_IsubP, fnImgOut);
-	// entropy(ll_I, ll_IsubP, fnImgOut);
+	compareRegions(ll_I, ll_IsubP, fnImgOut);
 
 	writeParticle(rowOut, ll_I, ll_IsubP, (ll_I-ll_IsubP)); 
 }
@@ -707,7 +706,7 @@ void ProgClassifyPartialOccupancy::compareRegions(double &ll_I, double &ll_IsubP
 
 	calculateBoundingBox(PmaskRoiLabel, minX, minY, maxX, maxY, numLig);
 
-	// -- Calculate metric for each region
+	// Calculate metric for each region
 	MultidimArray<double> centeredLigand;
 	MultidimArray<double> centeredLigandSubP;
 	MultidimArray< std::complex<double> > fftI;
@@ -734,6 +733,7 @@ void ProgClassifyPartialOccupancy::compareRegions(double &ll_I, double &ll_IsubP
 		#ifdef DEBUG_REGIONS_COMPARISON
 		std::cout << "Analyzign ligand region " << int(value +1) << std::endl;
 		#endif
+
 		// Cropping regions
 		int width = maxX[value] - minX[value] + 1;
 		int height = maxY[value] - minY[value] + 1;
@@ -815,8 +815,8 @@ void ProgClassifyPartialOccupancy::compareRegions(double &ll_I, double &ll_IsubP
 		double ll_IsubP_it = 0;
 
 		// Calcualte metrics for both regions
-		loglikelyhood()
-		entropy(ll_I_it, ll_IsubP_it, fftI, fftIsubP)
+		logLikelihood(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
+		entropy(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
 
 		// Do not noralize
 		ll_I	 += ll_I_it;
