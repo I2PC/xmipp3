@@ -126,6 +126,7 @@ void ProgFSCoh::fourierShellCoherence(MetaDataVec mapPoolMD)
         }
 
         ft.FourierTransform(V(), V_ft, false);
+		// normalizeFTMap(V_ft);
 		fourierShellNormalization(V_ft);
 
         FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V_ft)
@@ -329,6 +330,39 @@ void ProgFSCoh::normalizeMap(MultidimArray<double> &vol)
     }
 }
 
+void ProgFSCoh::normalizeFTMap(MultidimArray<std::complex<double>> &volFT)
+{
+    // Compute avg and std
+    std::complex<double> sum;
+    double sum2;
+	int numElems; 
+
+	sum = (0,0);	// also mean
+	sum2 = 0;		// also std
+	numElems = 0;
+
+	// Compute sum and sum^2 
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(volFT)
+	{
+		int freqIdx = static_cast<int>(DIRECT_MULTIDIM_ELEM(freqMap, n));
+
+       	if (freqIdx < NZYXSIZE(FSCoh))
+		{
+            sum      += DIRECT_MULTIDIM_ELEM(volFT,n);
+            sum2     += std::norm(DIRECT_MULTIDIM_ELEM(volFT,n));
+            numElems += 1;
+        }
+	}
+
+	sum /= numElems;
+	sum2 = sqrt(sum2 / static_cast<double>(numElems)) - std::norm(sum);
+
+    // Normalize map
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(volFT)
+    {
+        DIRECT_MULTIDIM_ELEM(volFT, n) = (DIRECT_MULTIDIM_ELEM(volFT, n) - sum) / sum2;
+    }
+}
 
 void ProgFSCoh::fourierShellNormalization(MultidimArray<std::complex<double>> &volFT)
 {
@@ -361,7 +395,7 @@ void ProgFSCoh::fourierShellNormalization(MultidimArray<std::complex<double>> &v
 	{
 		DIRECT_MULTIDIM_ELEM(sumDebug, n) = DIRECT_MULTIDIM_ELEM(sum, n);
 
-		#ifdef DEBUG_FOURIER_SHELL_FILTER
+		#ifdef DEBUG_FOURIER_SHELL_NORMALIZE
 		std::cout << "sum: " << DIRECT_MULTIDIM_ELEM(sum, n) << "      std:" <<  DIRECT_MULTIDIM_ELEM(sum2, n) << std::endl;
 		#endif
 
@@ -369,7 +403,7 @@ void ProgFSCoh::fourierShellNormalization(MultidimArray<std::complex<double>> &v
 		DIRECT_MULTIDIM_ELEM(sum,      n) = mean;
 		DIRECT_MULTIDIM_ELEM(sum2,     n) = sqrt(DIRECT_MULTIDIM_ELEM(sum2, n) / static_cast<double>(DIRECT_MULTIDIM_ELEM(numElems, n)) - std::norm(mean));
 
-		#ifdef DEBUG_FOURIER_SHELL_FILTER
+		#ifdef DEBUG_FOURIER_SHELL_NORMALIZE
 		std::cout << "mean: " << DIRECT_MULTIDIM_ELEM(sum, n) << "      std:" <<  DIRECT_MULTIDIM_ELEM(sum2, n) << std::endl;
 		#endif
 	}
@@ -385,7 +419,7 @@ void ProgFSCoh::fourierShellNormalization(MultidimArray<std::complex<double>> &v
 		}
 	}
 
-	#ifdef DEBUG_FOURIER_SHELL_FILTER
+	#ifdef DEBUG_FOURIER_SHELL_NORMALIZE
 	sum.initZeros(NZYXSIZE(FSCoh));
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(volFT)
 	{

@@ -36,7 +36,7 @@
 #define DEBUG_DIM
 #define DEBUG_FREQUENCY_MAP
 #define DEBUG_OUTPUT_FILES
-// #define DEBUG_FOURIER_SHELL_FILTER
+// #define DEBUG_FOURIER_SHELL_NORMALIZE
 
 /**@defgroup ProgFSCoh Calculates statistical map
    @ingroup ReconsLibrary */
@@ -99,6 +99,7 @@ public:
     // ---------------------- UTILS METHODS ------------------------------
     void composefreqMap();
     void normalizeMap(MultidimArray<double> &vol);
+    void normalizeFTMap(MultidimArray<std::complex<double>> &volFT);
     void fourierShellNormalization(MultidimArray<std::complex<double>> &volFT);
 
 };
