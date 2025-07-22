@@ -495,14 +495,14 @@ class BnBgpu:
         if iter > 7:
             res_classes = self.frc_resolution_tensor(newCL, sampling)
             print(res_classes)
-            # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
+            bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             # print(bfactor)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
             # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
-            # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
+            clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling)
-            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)
+            # clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
             # clk = self.unsharp_mask_norm(clk)
@@ -684,13 +684,13 @@ class BnBgpu:
             clk = self.averages(data, newCL, classes)
             
             res_classes = self.frc_resolution_tensor(newCL, sampling)
-            # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
+            bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
-            # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
+            clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling) 
-            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)
+            # clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
             # clk = self.unsharp_mask_norm(clk)
@@ -1726,7 +1726,7 @@ class BnBgpu:
     
         # Limpieza de valores inválidos en B
         B_factors = torch.nan_to_num(B_factors, nan=0.0, posinf=0.0, neginf=0.0)
-        B_exp = B_factors.view(N, 1, 1).clamp(min=-400.0, max=0.0)
+        B_exp = B_factors.view(N, 1, 1).clamp(min=-400.0, max=50.0)
     
         # FFT
         fft = torch.fft.fft2(averages, norm="forward")
