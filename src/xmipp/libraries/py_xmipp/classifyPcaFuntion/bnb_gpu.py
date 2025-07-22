@@ -503,7 +503,7 @@ class BnBgpu:
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling)
-            clk = self.enhance_averages_butterworth_combined_cos(clk, res_classes, sampling)
+            clk = self.enhance_averages_butterworth_combined_FFT(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
             # clk = self.unsharp_mask_norm(clk)
     
@@ -691,7 +691,7 @@ class BnBgpu:
             # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling) 
-            clk = self.enhance_averages_butterworth_combined_cos(clk, res_classes, sampling)
+            clk = self.enhance_averages_butterworth_combined_FFT(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
             # clk = self.unsharp_mask_norm(clk)
             # clk = self.gaussian_lowpass_filter_2D(clk, maxRes, sampling)
@@ -1816,6 +1816,71 @@ class BnBgpu:
             sharp_imgs = (sharp_imgs - mean_filt) / (std_filt + eps) * std_orig + mean_orig
     
         return sharp_imgs
+    
+    
+    @torch.no_grad()
+    def enhance_averages_butterworth_combined_FFT(
+        self,
+        averages: torch.Tensor,            # [B, H, W]
+        resolutions: torch.Tensor,         # [B]
+        pixel_size: float,                 # Å/pixel
+        low_res_angstrom: float = 20.0,
+        order: int = 2,
+        blend_factor: float = 0.5,
+        normalize: bool = True
+    ) -> torch.Tensor:
+        device = averages.device
+        B, H, W = averages.shape
+        eps = 1e-8
+    
+        # === Malla radial normalizada ===
+        yy, xx = torch.meshgrid(
+            torch.arange(H, device=device),
+            torch.arange(W, device=device),
+            indexing='ij'
+        )
+        r = torch.sqrt((xx - W // 2) ** 2 + (yy - H // 2) ** 2)
+        r_norm = r / r.max()
+        r_norm_exp = r_norm.unsqueeze(0)  # [1, H, W]
+    
+        # === Frecuencia de Nyquist y normalizaciones ===
+        nyquist = 1.0 / (2.0 * pixel_size)
+        MAX_CUTOFF = 0.475
+    
+        # === Paso bajo (según FRC individual) ===
+        res_clamped = torch.clamp(resolutions, max=25.0)
+        frc_cutoffs = (1.0 / res_clamped.clamp(min=1e-3)) / nyquist / 2
+        frc_cutoffs = torch.clamp(frc_cutoffs, 0.0, MAX_CUTOFF).view(B, 1, 1)
+        lp_filter = 1.0 / (1.0 + (r_norm_exp / (frc_cutoffs + eps)) ** (2 * order))  # [B, H, W]
+    
+        # === Banda de realce global ===
+        low_cutoff = (1.0 / low_res_angstrom) / nyquist / 2
+        high_cutoff = (1.0 / ((2 * pixel_size) / 0.95)) / nyquist / 2
+        low_cutoff = min(max(0.0, low_cutoff), MAX_CUTOFF)
+        high_cutoff = min(max(0.0, high_cutoff), MAX_CUTOFF)
+    
+        low = 1.0 / (1.0 + (r_norm / (low_cutoff + eps)) ** (2 * order))
+        high = 1.0 / (1.0 + (high_cutoff / (r_norm + eps)) ** (2 * order))
+        bp_filter = (low * high).unsqueeze(0)  # [1, H, W]
+    
+        # === Filtro combinado: solo en frecuencia ===
+        combo_filter = lp_filter * (blend_factor + (1 - blend_factor) * bp_filter)
+    
+        # === Aplicar en Fourier directamente ===
+        fft = torch.fft.fft2(averages)
+        fft_shift = torch.fft.fftshift(fft, dim=(-2, -1))
+        fft_final = fft_shift * combo_filter
+        result = torch.fft.ifft2(torch.fft.ifftshift(fft_final, dim=(-2, -1)), norm="forward").real
+    
+        # === Normalización opcional ===
+        if normalize:
+            mean = averages.mean(dim=(-2, -1), keepdim=True)
+            std  = averages.std (dim=(-2, -1), keepdim=True)
+            mean_r = result.mean(dim=(-2, -1), keepdim=True)
+            std_r  = result.std (dim=(-2, -1), keepdim=True)
+            result = (result - mean_r) / (std_r + eps) * std + mean
+    
+        return result
     
     
     @torch.no_grad()
