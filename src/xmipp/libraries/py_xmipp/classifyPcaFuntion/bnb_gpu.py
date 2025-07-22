@@ -503,7 +503,7 @@ class BnBgpu:
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling)
-            clk = self.enhance_averages_butterworth_combined_FFT(clk, res_classes, sampling)
+            clk = self.enhance_averages_butterworth_combined_cos_FFT(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
             # clk = self.unsharp_mask_norm(clk)
     
@@ -691,7 +691,7 @@ class BnBgpu:
             # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling) 
-            clk = self.enhance_averages_butterworth_combined_FFT(clk, res_classes, sampling)
+            clk = self.enhance_averages_butterworth_combined_cos_FFT(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
             # clk = self.unsharp_mask_norm(clk)
             # clk = self.gaussian_lowpass_filter_2D(clk, maxRes, sampling)
@@ -1959,6 +1959,69 @@ class BnBgpu:
     
         # === Mezcla final ===
         return blend_factor * lowpass + (1 - blend_factor) * enhanced
+    
+    
+    @torch.no_grad()
+    def enhance_averages_butterworth_combined_cos_FFT(
+        self,
+        averages: torch.Tensor,            # [B, H, W]
+        resolutions: torch.Tensor,         # [B]
+        pixel_size: float,                 # Å/pixel
+        order: int = 2,
+        blend_factor: float = 0.5,
+        normalize: bool = True
+    ) -> torch.Tensor:
+        device = averages.device
+        B, H, W = averages.shape
+        eps = 1e-8
+    
+        # === Malla radial normalizada ===
+        yy, xx = torch.meshgrid(
+            torch.arange(H, device=device),
+            torch.arange(W, device=device),
+            indexing='ij'
+        )
+        r = torch.sqrt((xx - W // 2) ** 2 + (yy - H // 2) ** 2)
+        r_norm = r / r.max()
+        r_norm_exp = r_norm.unsqueeze(0).expand(B, -1, -1)
+    
+        # === Frecuencia de Nyquist y corte ===
+        nyquist = 1.0 / (2.0 * pixel_size)
+        MAX_CUTOFF = 0.475
+    
+        # Resolución -> frecuencia de corte normalizada
+        res_clamped = torch.clamp(resolutions, max=25.0)
+        frc_cutoffs = (1.0 / res_clamped.clamp(min=1e-3)) / nyquist / 2
+        frc_cutoffs = torch.clamp(frc_cutoffs, 0.0, MAX_CUTOFF).view(B, 1, 1)
+    
+        # --- Butterworth paso bajo ---
+        lp_filter = 1.0 / (1.0 + (r_norm_exp / (frc_cutoffs + eps)) ** (2 * order))  # [B, H, W]
+    
+        # --- Filtro coseno para realce ---
+        enhance_filter = torch.where(
+            r_norm_exp <= frc_cutoffs,
+            0.5 * (1 - torch.cos(torch.pi * r_norm_exp / (frc_cutoffs + eps))),
+            torch.ones_like(r_norm_exp)
+        )
+    
+        # --- Filtro combinado final en Fourier ---
+        combo_filter = lp_filter * (blend_factor + (1 - blend_factor) * enhance_filter)
+    
+        # === FFT y aplicación del filtro combinado ===
+        fft = torch.fft.fft2(averages, norm="forward")
+        fft_shift = torch.fft.fftshift(fft, dim=(-2, -1))
+        fft_filtered = fft_shift * combo_filter
+        result = torch.fft.ifft2(torch.fft.ifftshift(fft_filtered, dim=(-2, -1)), norm="forward").real
+    
+        # === Normalización opcional ===
+        if normalize:
+            mean = averages.mean(dim=(-2, -1), keepdim=True)
+            std  = averages.std(dim=(-2, -1), keepdim=True)
+            mean_r = result.mean(dim=(-2, -1), keepdim=True)
+            std_r  = result.std(dim=(-2, -1), keepdim=True)
+            result = (result - mean_r) / (std_r + eps) * std + mean
+    
+        return result
     
     
     @torch.no_grad()
