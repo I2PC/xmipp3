@@ -38,7 +38,8 @@
 #define VERBOSE_OUTPUT
 // #define DEBUG_FREQUENCY_PROFILE
 // #define DEBUG_NOISE_CALCULATION
-// #define DEBUG_LOG_LIKELIHOOD
+#define DEBUG_REGIONS_COMPARISON
+#define DEBUG_LOG_LIKELIHOOD
 #define DEBUG_ENTROPY
 // #define DEBUG_RADIAL_AVERAGE
 // #define DEBUG_WRITE_PARICLE
@@ -181,8 +182,16 @@ public:
     void unitCellExtraction();
     void frequencyCharacterization();
     void noiseEstimation();
-    void logLikelihood(double &ll_I, double &ll_IsubP, const FileName &fnImgOut);
-    void entropy(double &ll_I, double &ll_IsubP, const FileName &fnImgOut);
+    void compareRegions(double &ll_I, double &ll_IsubP, const FileName &fnImgOut);
+
+    void logLikelihood(double &ll_I_it,
+                       double &ll_IsubP_it, 
+                       MultidimArray<std::complex<double>> fftI,
+                       MultidimArray<std::complex<double>> fftIsubP);
+    void entropy(double &ll_I_it,
+                 double &ll_IsubP_it, 
+                 MultidimArray<std::complex<double>> fftI,
+                 MultidimArray<std::complex<double>> fftIsubP);
 
     // ---------------------- UTILS METHODS ------------------------------
     Image<double> binarizeMask(Projection &) const;
