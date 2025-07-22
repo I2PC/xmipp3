@@ -1827,7 +1827,7 @@ class BnBgpu:
         low_res_angstrom: float = 20.0,
         order: int = 2,
         blend_factor: float = 0.5,
-        normalize: bool = True
+        normalize: bool = False
     ) -> torch.Tensor:
         device = averages.device
         B, H, W = averages.shape
