@@ -816,7 +816,8 @@ void ProgClassifyPartialOccupancy::compareRegions(double &ll_I, double &ll_IsubP
 
 		// Calcualte metrics for both regions
 		// logLikelihood(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
-		entropy(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
+		// entropy(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
+		kullbackLeibler(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
 
 		// Do not noralize
 		ll_I	 += ll_I_it;

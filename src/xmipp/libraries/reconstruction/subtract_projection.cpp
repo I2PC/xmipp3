@@ -524,7 +524,7 @@ void ProgSubtractProjection::noiseEstimation()
 			for (size_t j = 0; j < cropSize; j++)
 			{
 
-				if (DIRECT_A2D_ELEM(Pmask(), y + i, x + j) == 0 || DIRECT_A2D_ELEM(PmaskRoi(), y + i, x + j) > 0)
+				if (DIRECT_A2D_ELEM(Pmask(), y + i, x + j) == 0 || DIRECT_A2D_ELEM(PmaskRoi(), y + i, x + j) > 0)	// FIX: si no se ha dado una ROI mask falla
 				{
 					invalidRegion = true;
 
