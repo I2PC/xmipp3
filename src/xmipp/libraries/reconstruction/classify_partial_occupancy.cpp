@@ -907,7 +907,7 @@ void ProgClassifyPartialOccupancy::kullbackLeibler(double &entropy_I_it,
 
 	calculateRadialAverage(fftI, fftI_RA, true);
 	calculateRadialAverage(fftIsubP, fftIsubP_RA, true);
-	// calculateRadialAverage(powerNoise(), powerNoise_RA, true);
+	calculatePowerNoiseRadialAverage(powerNoise_RA, true);
 
 	for(size_t n = 0; n < fftI_RA.size(); n++)
 	{		
@@ -1007,6 +1007,52 @@ void ProgClassifyPartialOccupancy::calculateRadialAverage(const MultidimArray<st
 			double value_mod  = (DIRECT_MULTIDIM_ELEM(particleFT,n) * std::conj(DIRECT_MULTIDIM_ELEM(particleFT,n))).real();		
 
 			radialAvgFT[(int)(DIRECT_MULTIDIM_ELEM(particleFreqMap,n))]  += value_mod;
+			radialCounter_FT[(int)(DIRECT_MULTIDIM_ELEM(particleFreqMap,n))] += 1;
+		}
+	}
+
+	for(size_t i = 0; i <  radialCounter_FT.size(); i++)
+	{
+		radialAvgFT[i] /= radialCounter_FT[i];
+	}
+
+	// This ensure the elements of the radial average sum 1
+	// usefull to entropy and Kullback-Leibler 
+	if (normalize)
+	{
+		double sumPower = 0;
+
+		for(size_t i = 0; i < radialAvgFT.size(); i++)
+		{
+			sumPower += radialAvgFT[i];
+		}	
+
+		for(size_t i = 0; i < radialAvgFT.size(); i++)
+		{
+			radialAvgFT[i] /= sumPower;
+		}
+	}
+
+	#ifdef DEBUG_RADIAL_AVERAGE	
+	for(size_t i = 0; i < radialAvgFT.size(); i++)
+	{
+		std::cout <<"radialAvgFT["<<i<< "]=" << radialAvgFT[i]<< std::endl;
+	}
+	#endif
+}
+
+void ProgClassifyPartialOccupancy::calculatePowerNoiseRadialAverage(std::vector<double> &radialAvgFT,
+																	bool normalize) 
+{
+	std::vector<double> radialCounter_FT;
+	radialCounter_FT.resize(radialAvgFT.size(), 0);
+
+	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(powerNoise())
+	{
+		// Limit analysis to Nyquist
+		if(DIRECT_MULTIDIM_ELEM(particleFreqMap,n) < (Xdim/2) + 1)
+		{
+			radialAvgFT[(int)(DIRECT_MULTIDIM_ELEM(particleFreqMap,n))]      += DIRECT_MULTIDIM_ELEM(powerNoise(),n);
 			radialCounter_FT[(int)(DIRECT_MULTIDIM_ELEM(particleFreqMap,n))] += 1;
 		}
 	}

@@ -207,10 +207,12 @@ public:
                               std::vector<int> &maxX, 
                               std::vector<int> &maxY, 
                               int numLig);
-    
     void calculateRadialAverage(const MultidimArray<std::complex<double>> &particleFT, 
 								std::vector<double> &radialAvgVolFT,
                                 bool normalize);
+    void calculatePowerNoiseRadialAverage(std::vector<double> &radialAvgFT,
+										  bool normalize);
+
                                 
 
     // ----------------------- CLASS METHODS ------------------------------
