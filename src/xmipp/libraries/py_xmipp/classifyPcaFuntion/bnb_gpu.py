@@ -1864,7 +1864,8 @@ class BnBgpu:
         bp_filter = (low * high).unsqueeze(0)  # [1, H, W]
     
         # === Filtro combinado: solo en frecuencia ===
-        combo_filter = lp_filter * (blend_factor + (1 - blend_factor) * bp_filter)
+        # combo_filter = lp_filter * (blend_factor + (1 - blend_factor) * bp_filter)
+        combo_filter = blend_factor * lp_filter + (1 - blend_factor) * bp_filter
     
         # === Aplicar en Fourier directamente ===
         fft = torch.fft.fft2(averages)
@@ -2001,8 +2002,15 @@ class BnBgpu:
         enhance_filter = torch.where(
             r_norm_exp <= frc_cutoffs,
             0.5 * (1 - torch.cos(torch.pi * r_norm_exp / (frc_cutoffs + eps))),
-            torch.ones_like(r_norm_exp)
+            torch.zeros_like(r_norm_exp)
         )
+        
+        # cos_term = torch.pi * r_norm_exp / (frc_cutoffs + eps)
+        # enhance_filter = torch.where(
+        #     r_norm_exp <= frc_cutoffs,
+        #     0.5 * (1 - torch.cos(cos_term)) ** sharpen_power,
+        #     torch.zeros_like(r_norm_exp)
+        # )
     
         # --- Filtro combinado final en Fourier ---
         # combo_filter = lp_filter * (blend_factor + (1 - blend_factor) * enhance_filter)
