@@ -1970,6 +1970,7 @@ class BnBgpu:
         pixel_size: float,                 # Å/pixel
         order: int = 2,
         blend_factor: float = 0.5,
+        sharpen_power: float = 2.0, 
         normalize: bool = True
     ) -> torch.Tensor:
         device = averages.device
@@ -1999,18 +2000,18 @@ class BnBgpu:
         lp_filter = 1.0 / (1.0 + (r_norm_exp / (frc_cutoffs + eps)) ** (2 * order))  # [B, H, W]
     
         # --- Filtro coseno para realce ---
-        enhance_filter = torch.where(
-            r_norm_exp <= frc_cutoffs,
-            0.5 * (1 - torch.cos(torch.pi * r_norm_exp / (frc_cutoffs + eps))),
-            torch.zeros_like(r_norm_exp)
-        )
-        
-        # cos_term = torch.pi * r_norm_exp / (frc_cutoffs + eps)
         # enhance_filter = torch.where(
         #     r_norm_exp <= frc_cutoffs,
-        #     0.5 * (1 - torch.cos(cos_term)) ** sharpen_power,
+        #     0.5 * (1 - torch.cos(torch.pi * r_norm_exp / (frc_cutoffs + eps))),
         #     torch.zeros_like(r_norm_exp)
         # )
+        
+        cos_term = torch.pi * r_norm_exp / (frc_cutoffs + eps)
+        enhance_filter = torch.where(
+            r_norm_exp <= frc_cutoffs,
+            0.5 * (1 - torch.cos(cos_term)) ** sharpen_power,
+            torch.zeros_like(r_norm_exp)
+        )
     
         # --- Filtro combinado final en Fourier ---
         # combo_filter = lp_filter * (blend_factor + (1 - blend_factor) * enhance_filter)
