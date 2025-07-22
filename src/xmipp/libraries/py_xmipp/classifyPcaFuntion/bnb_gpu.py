@@ -499,11 +499,11 @@ class BnBgpu:
             # print(bfactor)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
             # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
-            # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling)
-            clk = self.enhance_averages_butterworth_combined_cos_FFT(clk, res_classes, sampling)
+            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
             # clk = self.unsharp_mask_norm(clk)
     
@@ -686,12 +686,12 @@ class BnBgpu:
             res_classes = self.frc_resolution_tensor(newCL, sampling)
             # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
-            # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling) 
-            clk = self.enhance_averages_butterworth_combined_cos_FFT(clk, res_classes, sampling)
+            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
             # clk = self.unsharp_mask_norm(clk)
             # clk = self.gaussian_lowpass_filter_2D(clk, maxRes, sampling)
@@ -1970,7 +1970,7 @@ class BnBgpu:
         pixel_size: float,                 # Å/pixel
         order: int = 2,
         blend_factor: float = 0.5,
-        sharpen_power: float = 2.0, 
+        # sharpen_power: float = 0.5, 
         normalize: bool = True
     ) -> torch.Tensor:
         device = averages.device
@@ -2005,6 +2005,10 @@ class BnBgpu:
         #     0.5 * (1 - torch.cos(torch.pi * r_norm_exp / (frc_cutoffs + eps))),
         #     torch.zeros_like(r_norm_exp)
         # )
+        
+        ref_res = 10.0
+        sharpen_power = (ref_res / resolutions.clamp(min=3.0, max=20.0))  # shape [B]
+        sharpen_power = sharpen_power.clamp(min=0.5, max=1.5).view(-1, 1, 1) 
         
         cos_term = torch.pi * r_norm_exp / (frc_cutoffs + eps)
         enhance_filter = torch.where(
@@ -2256,20 +2260,21 @@ class BnBgpu:
         return filtered
     
     @torch.no_grad()
-    def highpass_butterworth_soft_batch(self,
+    def highpass_cosine_sharpen(
+        self,
         averages: torch.Tensor,         # [B, H, W]
         resolutions: torch.Tensor,      # [B] en Å
         pixel_size: float,              # tamaño del píxel en Å/pix
-        order: int = 2,                 # orden del filtro
-        a: float = 0.2,                 # mínimo valor en bajas frecuencias
+        boost_max: float = 2.0,         # ganancia máxima en f_cutoff
+        # sharpen_power: float = 1.5,     # qué tan pronunciado es el realce
         eps: float = 1e-8,
         normalize: bool = True
-    ) -> torch.Tensor: 
+    ) -> torch.Tensor:
         """
-        Aplica un filtro paso alto tipo Butterworth suavizado a un batch de imágenes.
-        F(f) = a + (1 - a) / (1 + (fc / (f + eps))^(2n))
+        Aplica un filtro de realce tipo coseno desde f=0 hasta f=f_cutoff,
+        con ganancia máxima `boost_max` y luego se anula (0) para f > f_cutoff.
     
-        Cada imagen se filtra con su propia resolución como frecuencia de corte.
+        El parámetro `sharpen_power` controla qué tan abrupto es el realce.
         """
         B, H, W = averages.shape
         device = averages.device
@@ -2284,8 +2289,15 @@ class BnBgpu:
         # === Frecuencia de corte desde resolución ===
         f_cutoff = (1.0 / resolutions.clamp(min=1e-3)).view(B, 1, 1)  # [B, 1, 1]
     
-        # === Filtro paso alto suavizado ===
-        filt = a + (1 - a) / (1 + (f_cutoff / (freq_r + eps)) ** (2 * order))  # [B, H, W]
+        # === Filtro de realce tipo coseno ===
+        ref_res = 10.0
+        sharpen_power = (ref_res / resolutions.clamp(min=3.0, max=20.0))  # shape [B]
+        sharpen_power = sharpen_power.clamp(min=0.5, max=1.5).view(-1, 1, 1) 
+        
+        cos_term = torch.pi * freq_r / (f_cutoff + eps)
+        cosine_shape = (1 - torch.cos(cos_term)) / 2
+        boost = 1.0 + (boost_max - 1.0) * cosine_shape ** sharpen_power
+        filt = torch.where(freq_r <= f_cutoff, boost, torch.zeros_like(freq_r))  # [B, H, W]
     
         # === FFT e inversión ===
         fft = torch.fft.fft2(averages, norm='forward')  # [B, H, W]
