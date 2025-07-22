@@ -2005,7 +2005,8 @@ class BnBgpu:
         )
     
         # --- Filtro combinado final en Fourier ---
-        combo_filter = lp_filter * (blend_factor + (1 - blend_factor) * enhance_filter)
+        # combo_filter = lp_filter * (blend_factor + (1 - blend_factor) * enhance_filter)
+        combo_filter = blend_factor * lp_filter + (1 - blend_factor) * enhance_filter
     
         # === FFT y aplicación del filtro combinado ===
         fft = torch.fft.fft2(averages, norm="forward")
