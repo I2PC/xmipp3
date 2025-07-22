@@ -38,7 +38,7 @@
 #define VERBOSE_OUTPUT
 // #define DEBUG_FREQUENCY_PROFILE
 // #define DEBUG_NOISE_CALCULATION
-#define DEBUG_REGIONS_COMPARISON
+// #define DEBUG_REGIONS_COMPARISON
 #define DEBUG_LOG_LIKELIHOOD
 #define DEBUG_ENTROPY
 // #define DEBUG_RADIAL_AVERAGE
@@ -142,7 +142,7 @@ class ProgClassifyPartialOccupancy: public XmippMetadataProgram
     // Variables for frequency profiling
     double thrModuleFT; // Defined as x% of the value of the frequency with the maximum module
     double maxModuleFT; // Just keep track of the maximum frequency magnitude for normalization
-    std::vector<double> radialAvg_FT;
+    std::vector<double> radialAvgVolFT; // *** hay un overwritting de esta variable!
     MultidimArray<double> particleFreqMap;
 
     // Variables for unit cell calculation
@@ -193,6 +193,11 @@ public:
                  MultidimArray<std::complex<double>> fftI,
                  MultidimArray<std::complex<double>> fftIsubP);
 
+    void kullbackLeibler(double &ll_I_it,
+                         double &ll_IsubP_it, 
+                         MultidimArray<std::complex<double>> fftI,
+                         MultidimArray<std::complex<double>> fftIsubP);
+
     // ---------------------- UTILS METHODS ------------------------------
     Image<double> binarizeMask(Projection &) const;
     Image<double> invertMask(const Image<double> &);
@@ -204,7 +209,7 @@ public:
                               int numLig);
     
     void calculateRadialAverage(const MultidimArray<std::complex<double>> &particleFT, 
-								std::vector<double> &radialAvg_FT,
+								std::vector<double> &radialAvgVolFT,
                                 bool normalize);
                                 
 

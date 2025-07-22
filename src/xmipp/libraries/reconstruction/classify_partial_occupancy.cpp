@@ -420,7 +420,7 @@ void ProgClassifyPartialOccupancy::frequencyCharacterization()
 	std::vector<double> radialCounter_FT;
 
 	V_ft_mod.initZeros(Zdim_ft, Ydim_ft, Xdim_ft);
-	radialAvg_FT.resize(maxRadius, 0);
+	radialAvgVolFT.resize(maxRadius, 0);
 	radialCounter_FT.resize(maxRadius, 0);
 
 	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V_ft)
@@ -431,18 +431,18 @@ void ProgClassifyPartialOccupancy::frequencyCharacterization()
 		
 		if(DIRECT_MULTIDIM_ELEM(freqMap,n) < maxRadius)
 		{
-			radialAvg_FT[(int)(DIRECT_MULTIDIM_ELEM(freqMap,n))]  += value_mod;
+			radialAvgVolFT[(int)(DIRECT_MULTIDIM_ELEM(freqMap,n))]  += value_mod;
 			radialCounter_FT[(int)(DIRECT_MULTIDIM_ELEM(freqMap,n))] += 1;
 		}
 	}
 
 	for(size_t i = 0; i < radialCounter_FT.size(); i++)
 	{
-		radialAvg_FT[i] /= radialCounter_FT[i];
+		radialAvgVolFT[i] /= radialCounter_FT[i];
 	}
 
 	// Calculate minimum modulus for frequency 
-	auto maxElement = std::max_element(radialAvg_FT.begin(), radialAvg_FT.end());
+	auto maxElement = std::max_element(radialAvgVolFT.begin(), radialAvgVolFT.end());
 	thrModuleFT = 0.5*static_cast<double>(*maxElement);
 	maxModuleFT = static_cast<double>(*maxElement);
 
@@ -499,7 +499,7 @@ void ProgClassifyPartialOccupancy::frequencyCharacterization()
 	for(size_t i = 0; i < radialCounter_FT.size(); i++)
 	{
 		id = md.addObject();
-		md.setValue(MDL_AVG, radialAvg_FT[i],      id);
+		md.setValue(MDL_AVG, radialAvgVolFT[i],      id);
 		md.setValue(MDL_X,   radialCounter_FT[i],  id);
 	}
 
@@ -815,7 +815,7 @@ void ProgClassifyPartialOccupancy::compareRegions(double &ll_I, double &ll_IsubP
 		double ll_IsubP_it = 0;
 
 		// Calcualte metrics for both regions
-		logLikelihood(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
+		// logLikelihood(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
 		entropy(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
 
 		// Do not noralize
@@ -838,7 +838,7 @@ void ProgClassifyPartialOccupancy::logLikelihood(double &ll_I_it,
 	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(fftI)
 	{
 		// Consider only those frequencies (under Nyquist) whose radial module is over threshold
-		// if (radialAvg_FT[DIRECT_MULTIDIM_ELEM(particleFreqMap,n)] > thrModuleFT && DIRECT_MULTIDIM_ELEM(particleFreqMap,n) / Xdim <= 0.5)
+		// if (radialAvgVolFT[DIRECT_MULTIDIM_ELEM(particleFreqMap,n)] > thrModuleFT && DIRECT_MULTIDIM_ELEM(particleFreqMap,n) / Xdim <= 0.5)
 		// {
 		
 		// Consider all frequencies
@@ -853,7 +853,7 @@ void ProgClassifyPartialOccupancy::logLikelihood(double &ll_I_it,
 			ll_IsubP_it += (DIRECT_MULTIDIM_ELEM(fftIsubP,n) * std::conj(DIRECT_MULTIDIM_ELEM(fftIsubP,n))).real() / (DIRECT_MULTIDIM_ELEM(powerNoise(), n));
 
 			// Weight by frquency magnitude (normalized with the maximum)
-			// double freqNormFactor = radialAvg_FT[DIRECT_MULTIDIM_ELEM(particleFreqMap,n)] / maxModuleFT;
+			// double freqNormFactor = radialAvgVolFT[DIRECT_MULTIDIM_ELEM(particleFreqMap,n)] / maxModuleFT;
 			// ll_I_it		*= freqNormFactor;
 			// ll_IsubP_it	*= freqNormFactor;
 		}
@@ -891,6 +891,41 @@ void ProgClassifyPartialOccupancy::entropy(double &entropy_I_it,
 	}
 }
 
+void ProgClassifyPartialOccupancy::kullbackLeibler(double &entropy_I_it, 
+										   double &entropy_IsubP_it, 
+										   MultidimArray<std::complex<double>> fftI,
+										   MultidimArray<std::complex<double>> fftIsubP)
+{	
+	// Take radial average for each FT
+	std::vector<double> fftI_RA;
+	std::vector<double> fftIsubP_RA;
+	std::vector<double> powerNoise_RA;
+
+	fftI_RA.resize((Xdim/2) + 1, 0);	// assume squared paticles 
+	fftIsubP_RA.resize((Xdim/2) + 1, 0);
+	powerNoise_RA.resize((Xdim/2) + 1, 0);
+
+	calculateRadialAverage(fftI, fftI_RA, true);
+	calculateRadialAverage(fftIsubP, fftIsubP_RA, true);
+	// calculateRadialAverage(powerNoise(), powerNoise_RA, true);
+
+	for(size_t n = 0; n < fftI_RA.size(); n++)
+	{		
+		// Consider all frequencies
+		if (true)
+		{
+
+		// Consider only "mount Fuji" frequencies (in Halo but not in APO)
+		// if (n > 50 && n < 150)
+		// {
+			entropy_I_it     += fftI_RA[n]     * std::log2(fftI_RA[n]    /powerNoise_RA[n]);
+			entropy_IsubP_it += fftIsubP_RA[n] * std::log2(fftIsubP_RA[n]/powerNoise_RA[n]);
+		}
+	}
+
+	entropy_I_it     = -entropy_I_it;
+	entropy_IsubP_it = -entropy_IsubP_it;
+}
 
 // Utils methods ===================================================================
 Image<double> ProgClassifyPartialOccupancy::binarizeMask(Projection &m) const 
@@ -981,6 +1016,8 @@ void ProgClassifyPartialOccupancy::calculateRadialAverage(const MultidimArray<st
 		radialAvgFT[i] /= radialCounter_FT[i];
 	}
 
+	// This ensure the elements of the radial average sum 1
+	// usefull to entropy and Kullback-Leibler 
 	if (normalize)
 	{
 		double sumPower = 0;
@@ -997,13 +1034,12 @@ void ProgClassifyPartialOccupancy::calculateRadialAverage(const MultidimArray<st
 	}
 
 	#ifdef DEBUG_RADIAL_AVERAGE	
-	for(size_t i = 0; i < radialAvg_FT.size(); i++)
+	for(size_t i = 0; i < radialAvgFT.size(); i++)
 	{
-		std::cout <<"radialAvg_FT["<<i<< "]=" << radialAvg_FT[i]<< std::endl;
+		std::cout <<"radialAvgFT["<<i<< "]=" << radialAvgFT[i]<< std::endl;
 	}
 	#endif
 }
-
 
 // Class methods =======================================================
 ProgClassifyPartialOccupancy::ProgClassifyPartialOccupancy()

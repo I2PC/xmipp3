@@ -68,8 +68,8 @@ void MpiProgClassifyPartialOccupancy::preProcess()
         particleFreqMapSizeY = (int)YSIZE(particleFreqMap);
         particleFreqMapOrigin = STARTINGX(particleFreqMap);
 
-        radialAvgFTSize = radialAvg_FT.size();
-        radialAvgFTOrigin = radialAvg_FT.data();
+        radialAvgFTSize = radialAvgVolFT.size();
+        radialAvgFTOrigin = radialAvgVolFT.data();
     }
 
     MPI_Bcast(&noiseSizeX,      1, MPI_INT, 0, MPI_COMM_WORLD);
@@ -91,12 +91,12 @@ void MpiProgClassifyPartialOccupancy::preProcess()
         particleFreqMap.resizeNoCopy(particleFreqMapSizeY, particleFreqMapSizeX);
         STARTINGX(particleFreqMap)=STARTINGY(particleFreqMap)=particleFreqMapOrigin;
 
-        radialAvg_FT.resize(radialAvgFTSize);
+        radialAvgVolFT.resize(radialAvgFTSize);
     }
 
     MPI_Bcast(MULTIDIM_ARRAY(powerNoise()),    (int)MULTIDIM_SIZE(powerNoise()),    MPI_DOUBLE, 0, MPI_COMM_WORLD);
     MPI_Bcast(MULTIDIM_ARRAY(particleFreqMap), (int)MULTIDIM_SIZE(particleFreqMap), MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    MPI_Bcast(radialAvg_FT.data(), radialAvg_FT.size(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(radialAvgVolFT.data(), radialAvgVolFT.size(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
     // Initialize Fourier projector for MPI
     int realSizeX;
