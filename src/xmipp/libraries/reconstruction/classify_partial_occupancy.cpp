@@ -776,23 +776,23 @@ void ProgClassifyPartialOccupancy::compareRegions(double &ll_I, double &ll_IsubP
 		std::cout << "numberOfPx " 	<< numberOfPx << std::endl;
 		#endif
 
-		// Fix scale previous to FT
-		double scallignFactor = (Xdim * Ydim) / (numberOfPx);
+		// // Fix scale previous to FT
+		// double scallignFactor = (Xdim * Ydim) / (numberOfPx);
 
-		for (int i = minY[value]; i <= maxY[value]; ++i) 
-		{
-			for (int j = minX[value]; j <= maxX[value]; ++j) 
-			{
-				int newI = centerY - height / 2 + (i - minY[value]);
-				int newJ = centerX - width / 2 + (j - minX[value]);
+		// for (int i = minY[value]; i <= maxY[value]; ++i) 
+		// {
+		// 	for (int j = minX[value]; j <= maxX[value]; ++j) 
+		// 	{
+		// 		int newI = centerY - height / 2 + (i - minY[value]);
+		// 		int newJ = centerX - width / 2 + (j - minX[value]);
 				
-				if (DIRECT_A2D_ELEM(PmaskRoiLabel, i, j) > 0)
-				{
-					DIRECT_A2D_ELEM(centeredLigand, newI, newJ) *= scallignFactor;
-					DIRECT_A2D_ELEM(centeredLigandSubP, newI, newJ) *= scallignFactor;
-				}
-			}
-		}
+		// 		if (DIRECT_A2D_ELEM(PmaskRoiLabel, i, j) > 0)
+		// 		{
+		// 			DIRECT_A2D_ELEM(centeredLigand, newI, newJ) *= scallignFactor;
+		// 			DIRECT_A2D_ELEM(centeredLigandSubP, newI, newJ) *= scallignFactor;
+		// 		}
+		// 	}
+		// }
 
 		#ifdef DEBUG_REGIONS_COMPARISON
 		size_t lastindex = fnImgOut.find_last_of(".");
@@ -1201,11 +1201,12 @@ void ProgClassifyPartialOccupancy::computeParticleStats(MultidimArray<double> &m
 	double sum2 = 0;
 	int Nelems = 0;
 
-	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(M())
+	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(PmaskRoi())
 	{
-		if (DIRECT_MULTIDIM_ELEM(M(),n) > 0)
+		if (DIRECT_MULTIDIM_ELEM(PmaskRoi(),n) > 0)
 		{
 			double value = DIRECT_MULTIDIM_ELEM(mI, n);
+			std::cout << "value    " << value << std::endl;
 
 			sum += value;
 			sum2 += value*value;
@@ -1219,9 +1220,9 @@ void ProgClassifyPartialOccupancy::computeParticleStats(MultidimArray<double> &m
 	int zScoreThr = 3;
 	zScore = 0;
 
-	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(M())
+	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(PmaskRoi())
 	{
-		if (DIRECT_MULTIDIM_ELEM(M(),n) > 0)
+		if (DIRECT_MULTIDIM_ELEM(PmaskRoi(),n) > 0)
 		{
 			double value = DIRECT_MULTIDIM_ELEM(mI, n);
 
@@ -1236,6 +1237,7 @@ void ProgClassifyPartialOccupancy::computeParticleStats(MultidimArray<double> &m
 	zScore /= Nelems;
 	
 	#ifdef DEBUG_COMPUTE_STATISTICS
+	std::cout << "--------------------------------------------------" << std::endl;
 	std::cout << "sum " << sum << std::endl;
 	std::cout << "sum2 " << sum2 << std::endl;
 	std::cout << "Nelems " << Nelems << std::endl;
