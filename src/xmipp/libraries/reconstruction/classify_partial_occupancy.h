@@ -34,7 +34,7 @@
 #include "data/unitCell.h"
 #include "core/xmipp_metadata_program.h"
 
-// #define DEBUG
+#define DEBUG_COMPUTE_STATISTICS
 #define VERBOSE_OUTPUT
 // #define DEBUG_FREQUENCY_PROFILE
 // #define DEBUG_NOISE_CALCULATION
@@ -228,8 +228,9 @@ public:
     // ---------------------- UNUSED METHODS ------------------------------
     void computeParticleStats(MultidimArray<double> &mI,
                               double &avg, 
-                              double &stdev, 
-                              double &zScore,
+                              double &std, 
+                              double &zScore, 
                               double &energy);
+ };
  //@}
 #endif

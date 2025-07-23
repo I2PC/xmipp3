@@ -821,14 +821,14 @@ void ProgClassifyPartialOccupancy::compareRegions(double &ll_I, double &ll_IsubP
 		ll_I += energy_I_it/value;
 		ll_IsubP += energy_IsubP_it/value;
 
-		// // Calculate FT for each cropping
+		// // Calcualte metrics for both regions in Fourier space
 		// transformerI.FourierTransform(centeredLigand, fftI, false);
 		// transformerIsubP.FourierTransform(centeredLigandSubP, fftIsubP, false);
-
-		// // Calcualte metrics for both regions in FT space
+		
 		// double ll_I_it = 0;
 		// double ll_IsubP_it = 0;
-		
+
+		// // Calcualte metrics for both regions
 		// // logLikelihood(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
 		// // radialLogLikelihood(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
 		// // entropy(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
@@ -1193,17 +1193,17 @@ ProgClassifyPartialOccupancy::~ProgClassifyPartialOccupancy()
 // Unused methods ===================================================================
 void ProgClassifyPartialOccupancy::computeParticleStats(MultidimArray<double> &mI,
 														double &avg, 
-														double &stdev, 
-														double &zScore,
+														double &std, 
+														double &zScore, 
 														double &energy)
 {	
 	double sum = 0;
 	double sum2 = 0;
 	int Nelems = 0;
 
-	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(PmaskRoi())
+	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(M())
 	{
-		if (DIRECT_MULTIDIM_ELEM(PmaskRoi(),n) > 0)
+		if (DIRECT_MULTIDIM_ELEM(M(),n) > 0)
 		{
 			double value = DIRECT_MULTIDIM_ELEM(mI, n);
 
@@ -1213,20 +1213,20 @@ void ProgClassifyPartialOccupancy::computeParticleStats(MultidimArray<double> &m
 		}
 	}
 
+	energy =sum2;
 	avg = sum / Nelems;
-	stdev = sqrt(sum2/Nelems - avg*avg);
-	energy = sum2;
+	std = sqrt(sum2/Nelems - avg*avg);
 	int zScoreThr = 3;
 	zScore = 0;
 
-	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(PmaskRoi())
+	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(M())
 	{
-		if (DIRECT_MULTIDIM_ELEM(PmaskRoi(),n) > 0)
+		if (DIRECT_MULTIDIM_ELEM(M(),n) > 0)
 		{
 			double value = DIRECT_MULTIDIM_ELEM(mI, n);
 
-			zScore += (value - avg) / stdev;
-			// if(value > (avg + stdev * zScoreThr))
+			zScore += (value - avg) / std;
+			// if(value > (avg + std * zScoreThr))
 			// {
 			// 	zScore++;
 			// }
@@ -1235,12 +1235,13 @@ void ProgClassifyPartialOccupancy::computeParticleStats(MultidimArray<double> &m
 
 	zScore /= Nelems;
 	
-	#ifdef DEBUG
+	#ifdef DEBUG_COMPUTE_STATISTICS
 	std::cout << "sum " << sum << std::endl;
 	std::cout << "sum2 " << sum2 << std::endl;
 	std::cout << "Nelems " << Nelems << std::endl;
 	std::cout << "avg " << avg << std::endl;
-	std::cout << "stdev " << stdev << std::endl;
+	std::cout << "std " << std << std::endl;
 	std::cout << "zScore " << zScore << std::endl;
+	std::cout << "energy " << energy << std::endl;
 	#endif
 }
