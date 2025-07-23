@@ -2273,7 +2273,7 @@ class BnBgpu:
         resolutions: torch.Tensor,      # [B] en Å
         pixel_size: float,              # tamaño del píxel en Å/pix
         boost_max: float = 2.0,         # ganancia máxima en f_cutoff
-        sharpen_power: float = 0.5,     # qué tan pronunciado es el realce
+        sharpen_power: float = 1.0,     # qué tan pronunciado es el realce
         eps: float = 1e-8,
         normalize: bool = True
     ) -> torch.Tensor:
@@ -2295,6 +2295,7 @@ class BnBgpu:
     
         # === Frecuencia de corte desde resolución ===
         f_cutoff = (1.0 / resolutions.clamp(min=1e-3)).view(B, 1, 1)  # [B, 1, 1]
+        nyquist = 1.0 / (2 * pixel_size)
     
         # === Filtro de realce tipo coseno ===
         # ref_res = 10.0
@@ -2302,6 +2303,7 @@ class BnBgpu:
         # sharpen_power = sharpen_power.clamp(min=0.5, max=1.5).view(-1, 1, 1) 
         
         cos_term = torch.pi * freq_r / (f_cutoff + eps)
+        # cos_term = torch.pi * freq_r / (nyquist + eps)
         cosine_shape = (1 - torch.cos(cos_term)) / 2
         boost = 1.0 + (boost_max - 1.0) * cosine_shape ** sharpen_power
         filt = torch.where(freq_r <= f_cutoff, boost, torch.ones_like(freq_r))  # [B, H, W]
