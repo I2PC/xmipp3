@@ -2299,7 +2299,8 @@ class BnBgpu:
         cos_term = torch.pi * freq_r / (f_cutoff + eps)
         cosine_shape = (1 - torch.cos(cos_term)) / 2
         boost = 1.0 + (boost_max - 1.0) * cosine_shape ** sharpen_power
-        filt = torch.where(freq_r <= f_cutoff, boost, torch.zeros_like(freq_r))  # [B, H, W]
+        # filt = torch.where(freq_r <= f_cutoff, boost, torch.ones_like(freq_r))  # [B, H, W]
+        filt = boost
     
         # === FFT e inversión ===
         fft = torch.fft.fft2(averages, norm='forward')  # [B, H, W]
