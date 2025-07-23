@@ -186,6 +186,10 @@ public:
                        double &ll_IsubP_it, 
                        MultidimArray<std::complex<double>> fftI,
                        MultidimArray<std::complex<double>> fftIsubP);
+    void radialLogLikelihood(double &ll_I_it, 
+		     		         double &ll_IsubP_it, 
+							 MultidimArray<std::complex<double>> fftI,
+							 MultidimArray<std::complex<double>> fftIsubP);
     void entropy(double &ll_I_it,
                  double &ll_IsubP_it, 
                  MultidimArray<std::complex<double>> fftI,

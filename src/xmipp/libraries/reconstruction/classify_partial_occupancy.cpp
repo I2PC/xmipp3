@@ -816,8 +816,10 @@ void ProgClassifyPartialOccupancy::compareRegions(double &ll_I, double &ll_IsubP
 
 		// Calcualte metrics for both regions
 		// logLikelihood(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
+		radialLogLikelihood(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
 		// entropy(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
-		kullbackLeibler(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
+		// kullbackLeibler(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
+		// crossEntropy(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
 
 		// Accumulate for all regions
 		ll_I	 += ll_I_it;
@@ -861,6 +863,39 @@ void ProgClassifyPartialOccupancy::logLikelihood(double &ll_I_it,
 	}
 }
 
+void ProgClassifyPartialOccupancy::radialLogLikelihood(double &ll_I_it, 
+												       double &ll_IsubP_it, 
+												 	   MultidimArray<std::complex<double>> fftI,
+												 	   MultidimArray<std::complex<double>> fftIsubP)
+{
+	// Take radial average for each FT
+	std::vector<double> fftI_RA;
+	std::vector<double> fftIsubP_RA;
+	std::vector<double> powerNoise_RA;
+
+	fftI_RA.resize((Xdim/2) + 1, 0);	// assume squared paticles 
+	fftIsubP_RA.resize((Xdim/2) + 1, 0);
+	powerNoise_RA.resize((Xdim/2) + 1, 0);
+
+	calculateRadialAverage(fftI, fftI_RA, false);
+	calculateRadialAverage(fftIsubP, fftIsubP_RA, false);
+	calculatePowerNoiseRadialAverage(powerNoise_RA, false);
+
+	for(size_t n = 0; n < fftI_RA.size(); n++)
+	{		
+		// Consider all frequencies
+		if (true)
+		{
+
+		// Consider only "mount Fuji" frequencies (in Halo but not in APO)
+		// if (n > 50 && n < 150)
+		// {
+			// std::cout << "fftI_RA[" << n << "]" << fftI_RA[n] << "        std::log2(fftI_RA[" << n << "])" << std::log2(fftI_RA[n]) << std::endl;
+			ll_I_it     += fftI_RA[n]     / powerNoise_RA[n];
+			ll_IsubP_it += fftIsubP_RA[n] / powerNoise_RA[n];
+		}
+	}
+}
 
 void ProgClassifyPartialOccupancy::entropy(double &entropy_I_it, 
 										   double &entropy_IsubP_it, 
