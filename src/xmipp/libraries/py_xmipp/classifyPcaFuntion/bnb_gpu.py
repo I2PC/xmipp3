@@ -2273,7 +2273,7 @@ class BnBgpu:
         resolutions: torch.Tensor,      # [B] en Å
         pixel_size: float,              # tamaño del píxel en Å/pix
         boost_max: float = 2.0,         # ganancia máxima en f_cutoff
-        sharpen_power: float = 3.0,     # qué tan pronunciado es el realce
+        sharpen_power: float = 0.5,     # qué tan pronunciado es el realce
         eps: float = 1e-8,
         normalize: bool = True
     ) -> torch.Tensor:
