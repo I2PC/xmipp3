@@ -402,7 +402,7 @@ class BnBgpu:
             
         
         # if iter > 3 and iter < 10: # and cycles == 0:
-        if iter > 3 and iter < 7 and cycles == 0:
+        if iter > 3 and iter < 7:# and cycles == 0:
             print("--------", iter, "-----------")
             thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches, threshold=2.0)
         # elif iter >= 10:
@@ -411,7 +411,7 @@ class BnBgpu:
             
 
         # if iter > 3 and iter < 10: # and cycles == 0:
-        if iter > 3 and iter < 7 and cycles == 0:
+        if iter > 3 and iter < 7:# and cycles == 0:
             num = int(classes/2)
             newCL = [[] for i in range(classes)]
         else:
@@ -454,7 +454,7 @@ class BnBgpu:
 
             
             # if iter > 3 and iter < 10:# and cycles == 0:
-            if iter > 3 and iter < 7 and cycles == 0:
+            if iter > 3 and iter < 7:# and cycles == 0:
                 
                 for n in range(num):
                     
@@ -502,9 +502,9 @@ class BnBgpu:
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling)
-            # clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)
-            clk = self.enhance_averages_butterworth_combined_cos_FFT(clk, res_classes, sampling)
-            # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
+            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)
+            # clk = self.enhance_averages_butterworth_combined_cos_FFT(clk, res_classes, sampling)
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
             # clk = self.unsharp_mask_norm(clk)
     
@@ -691,9 +691,9 @@ class BnBgpu:
             # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling) 
-            # clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)
-            clk = self.enhance_averages_butterworth_combined_cos_FFT(clk, res_classes, sampling)
-            # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
+            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)
+            # clk = self.enhance_averages_butterworth_combined_cos_FFT(clk, res_classes, sampling)
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
             # clk = self.unsharp_mask_norm(clk)
             # clk = self.gaussian_lowpass_filter_2D(clk, maxRes, sampling)
@@ -2268,7 +2268,7 @@ class BnBgpu:
         resolutions: torch.Tensor,      # [B] en Å
         pixel_size: float,              # tamaño del píxel en Å/pix
         boost_max: float = 2.0,         # ganancia máxima en f_cutoff
-        # sharpen_power: float = 1.5,     # qué tan pronunciado es el realce
+        sharpen_power: float = 1.5,     # qué tan pronunciado es el realce
         eps: float = 1e-8,
         normalize: bool = True
     ) -> torch.Tensor:
@@ -2292,9 +2292,9 @@ class BnBgpu:
         f_cutoff = (1.0 / resolutions.clamp(min=1e-3)).view(B, 1, 1)  # [B, 1, 1]
     
         # === Filtro de realce tipo coseno ===
-        ref_res = 10.0
-        sharpen_power = (ref_res / resolutions.clamp(min=3.0, max=20.0))  # shape [B]
-        sharpen_power = sharpen_power.clamp(min=0.5, max=1.5).view(-1, 1, 1) 
+        # ref_res = 10.0
+        # sharpen_power = (ref_res / resolutions.clamp(min=3.0, max=20.0))  # shape [B]
+        # sharpen_power = sharpen_power.clamp(min=0.5, max=1.5).view(-1, 1, 1) 
         
         cos_term = torch.pi * freq_r / (f_cutoff + eps)
         cosine_shape = (1 - torch.cos(cos_term)) / 2
