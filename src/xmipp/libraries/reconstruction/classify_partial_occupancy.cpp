@@ -806,24 +806,38 @@ void ProgClassifyPartialOccupancy::compareRegions(double &ll_I, double &ll_IsubP
 		saveImage.write(debugFileFn);
 		#endif
 
-		// Calculate FT for each cropping
-		transformerI.FourierTransform(centeredLigand, fftI, false);
-		transformerIsubP.FourierTransform(centeredLigandSubP, fftIsubP, false);
+		// Calcualte metrics for both regions in Real space
+		double avg_I_it = 0;
+		double std_I_it = 0;
+		double zScore_I_it = 0;
+		double energy_I_it = 0;
+		double avg_IsubP_it = 0;
+		double std_IsubP_it = 0;
+		double zScore_IsubP_it = 0;
+		double energy_IsubP_it = 0;
+
+		computeParticleStats(centeredLigand, avg_I_it, std_I_it, zScore_I_it, energy_I_it);
+		computeParticleStats(centeredLigandSubP, avg_IsubP_it, std_IsubP_it, zScore_IsubP_it, energy_IsubP_it);
+		ll_I += energy_I_it/value;
+		ll_IsubP += energy_IsubP_it/value;
+
+		// // Calculate FT for each cropping
+		// transformerI.FourierTransform(centeredLigand, fftI, false);
+		// transformerIsubP.FourierTransform(centeredLigandSubP, fftIsubP, false);
+
+		// // Calcualte metrics for both regions in FT space
+		// double ll_I_it = 0;
+		// double ll_IsubP_it = 0;
 		
-		// Calculate likelihood for each region
-		double ll_I_it = 0;
-		double ll_IsubP_it = 0;
+		// // logLikelihood(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
+		// // radialLogLikelihood(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
+		// // entropy(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
+		// // kullbackLeibler(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
+		// // crossEntropy(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
 
-		// Calcualte metrics for both regions
-		// logLikelihood(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
-		// radialLogLikelihood(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
-		// entropy(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
-		// kullbackLeibler(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
-		crossEntropy(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
-
-		// Accumulate for all regions
-		ll_I	 += ll_I_it;
-		ll_IsubP += ll_IsubP_it;
+		// // Accumulate for all regions
+		// ll_I	 += ll_I_it;
+		// ll_IsubP += ll_IsubP_it;
 	}
 
 	#ifdef DEBUG_METRICS
@@ -929,9 +943,9 @@ void ProgClassifyPartialOccupancy::entropy(double &entropy_I_it,
 }
 
 void ProgClassifyPartialOccupancy::kullbackLeibler(double &entropy_I_it, 
-										   double &entropy_IsubP_it, 
-										   MultidimArray<std::complex<double>> fftI,
-										   MultidimArray<std::complex<double>> fftIsubP)
+										           double &entropy_IsubP_it, 
+										           MultidimArray<std::complex<double>> fftI,
+										           MultidimArray<std::complex<double>> fftIsubP)
 {	
 	// Take radial average for each FT
 	std::vector<double> fftI_RA;
@@ -1177,17 +1191,19 @@ ProgClassifyPartialOccupancy::~ProgClassifyPartialOccupancy()
 
 
 // Unused methods ===================================================================
-void ProgClassifyPartialOccupancy::computeParticleStats(Image<double> &I, Image<double> &M, FileName fnImgOut, double &avg, double &std, double &zScore)
+void ProgClassifyPartialOccupancy::computeParticleStats(MultidimArray<double> &mI,
+														double &avg, 
+														double &stdev, 
+														double &zScore,
+														double &energy)
 {	
-	MultidimArray<double> &mI=I();
-
 	double sum = 0;
 	double sum2 = 0;
 	int Nelems = 0;
 
-	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(M())
+	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(PmaskRoi())
 	{
-		if (DIRECT_MULTIDIM_ELEM(M(),n) > 0)
+		if (DIRECT_MULTIDIM_ELEM(PmaskRoi(),n) > 0)
 		{
 			double value = DIRECT_MULTIDIM_ELEM(mI, n);
 
@@ -1198,18 +1214,19 @@ void ProgClassifyPartialOccupancy::computeParticleStats(Image<double> &I, Image<
 	}
 
 	avg = sum / Nelems;
-	std = sqrt(sum2/Nelems - avg*avg);
+	stdev = sqrt(sum2/Nelems - avg*avg);
+	energy = sum2;
 	int zScoreThr = 3;
 	zScore = 0;
 
-	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(M())
+	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(PmaskRoi())
 	{
-		if (DIRECT_MULTIDIM_ELEM(M(),n) > 0)
+		if (DIRECT_MULTIDIM_ELEM(PmaskRoi(),n) > 0)
 		{
 			double value = DIRECT_MULTIDIM_ELEM(mI, n);
 
-			zScore += (value - avg) / std;
-			// if(value > (avg + std * zScoreThr))
+			zScore += (value - avg) / stdev;
+			// if(value > (avg + stdev * zScoreThr))
 			// {
 			// 	zScore++;
 			// }
@@ -1223,14 +1240,7 @@ void ProgClassifyPartialOccupancy::computeParticleStats(Image<double> &I, Image<
 	std::cout << "sum2 " << sum2 << std::endl;
 	std::cout << "Nelems " << Nelems << std::endl;
 	std::cout << "avg " << avg << std::endl;
-	std::cout << "std " << std << std::endl;
+	std::cout << "stdev " << stdev << std::endl;
 	std::cout << "zScore " << zScore << std::endl;
-	#endif
-
-	#ifdef DEBUG_OUTPUT_FILES
-	// Save output masked particle for debugging
-	size_t dotPos = fnImgOut.find_last_of('.');
-
-	M.write(fnImgOut.substr(0, dotPos) + "_maskesParicle.mrcs");
 	#endif
 }

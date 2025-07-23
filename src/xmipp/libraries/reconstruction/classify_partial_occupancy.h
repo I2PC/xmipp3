@@ -216,9 +216,7 @@ public:
 								std::vector<double> &radialAvgVolFT,
                                 bool normalize);
     void calculatePowerNoiseRadialAverage(std::vector<double> &radialAvgFT,
-										  bool normalize);
-
-                                
+										  bool normalize);                                
 
     // ----------------------- CLASS METHODS ------------------------------
     // Empty constructor
@@ -228,7 +226,10 @@ public:
     ~ProgClassifyPartialOccupancy();
 
     // ---------------------- UNUSED METHODS ------------------------------
-    void computeParticleStats(Image<double> &I, Image<double> &M, FileName fnImgOut, double &avg, double &std, double &zScore);
- };
+    void computeParticleStats(MultidimArray<double> &mI,
+                              double &avg, 
+                              double &stdev, 
+                              double &zScore,
+                              double &energy);
  //@}
 #endif
