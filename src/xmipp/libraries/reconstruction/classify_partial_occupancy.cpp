@@ -819,7 +819,7 @@ void ProgClassifyPartialOccupancy::compareRegions(double &ll_I, double &ll_IsubP
 		// entropy(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
 		kullbackLeibler(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
 
-		// Do not noralize
+		// Accumulate for all regions
 		ll_I	 += ll_I_it;
 		ll_IsubP += ll_IsubP_it;
 	}
@@ -860,6 +860,7 @@ void ProgClassifyPartialOccupancy::logLikelihood(double &ll_I_it,
 		}
 	}
 }
+
 
 void ProgClassifyPartialOccupancy::entropy(double &entropy_I_it, 
 										   double &entropy_IsubP_it, 
@@ -906,9 +907,9 @@ void ProgClassifyPartialOccupancy::kullbackLeibler(double &entropy_I_it,
 	fftIsubP_RA.resize((Xdim/2) + 1, 0);
 	powerNoise_RA.resize((Xdim/2) + 1, 0);
 
-	calculateRadialAverage(fftI, fftI_RA, true);
-	calculateRadialAverage(fftIsubP, fftIsubP_RA, true);
-	calculatePowerNoiseRadialAverage(powerNoise_RA, true);
+	calculateRadialAverage(fftI, fftI_RA, false);
+	calculateRadialAverage(fftIsubP, fftIsubP_RA, false);
+	calculatePowerNoiseRadialAverage(powerNoise_RA, false);
 
 	for(size_t n = 0; n < fftI_RA.size(); n++)
 	{		
@@ -920,7 +921,43 @@ void ProgClassifyPartialOccupancy::kullbackLeibler(double &entropy_I_it,
 		// if (n > 50 && n < 150)
 		// {
 			entropy_I_it     += fftI_RA[n]     * std::log2(fftI_RA[n]    /powerNoise_RA[n]);
-			entropy_IsubP_it += fftIsubP_RA[n] * std::log2(fftIsubP_RA[n]/powerNoise_RA[n]);
+			entropy_IsubP_it += fftIsubP_RA[n] * std::log2(fftIsubP_RA[n]/powerNoise_RA[n]); 
+		}
+	}
+
+	entropy_I_it     = -entropy_I_it;
+	entropy_IsubP_it = -entropy_IsubP_it;
+}
+
+void ProgClassifyPartialOccupancy::crossEntropy(double &entropy_I_it, 
+										   double &entropy_IsubP_it, 
+										   MultidimArray<std::complex<double>> fftI,
+										   MultidimArray<std::complex<double>> fftIsubP)
+{	
+	// Take radial average for each FT
+	std::vector<double> fftI_RA;
+	std::vector<double> fftIsubP_RA;
+	std::vector<double> powerNoise_RA;
+
+	fftI_RA.resize((Xdim/2) + 1, 0);	// assume squared paticles 
+	fftIsubP_RA.resize((Xdim/2) + 1, 0);
+	powerNoise_RA.resize((Xdim/2) + 1, 0);
+
+	calculateRadialAverage(fftI, fftI_RA, false);
+	calculateRadialAverage(fftIsubP, fftIsubP_RA, false);
+	calculatePowerNoiseRadialAverage(powerNoise_RA, false);
+
+	for(size_t n = 0; n < fftI_RA.size(); n++)
+	{		
+		// Consider all frequencies
+		if (true)
+		{
+
+		// Consider only "mount Fuji" frequencies (in Halo but not in APO)
+		// if (n > 50 && n < 150)
+		// {
+			entropy_I_it     += fftI_RA[n]     * std::log2(powerNoise_RA[n]);
+			entropy_IsubP_it += fftIsubP_RA[n] * std::log2(powerNoise_RA[n]); 
 		}
 	}
 

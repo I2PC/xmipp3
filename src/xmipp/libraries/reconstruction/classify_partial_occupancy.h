@@ -182,7 +182,6 @@ public:
     void frequencyCharacterization();
     void noiseEstimation();
     void compareRegions(double &ll_I, double &ll_IsubP, const FileName &fnImgOut);
-
     void logLikelihood(double &ll_I_it,
                        double &ll_IsubP_it, 
                        MultidimArray<std::complex<double>> fftI,
@@ -191,11 +190,14 @@ public:
                  double &ll_IsubP_it, 
                  MultidimArray<std::complex<double>> fftI,
                  MultidimArray<std::complex<double>> fftIsubP);
-
     void kullbackLeibler(double &ll_I_it,
                          double &ll_IsubP_it, 
                          MultidimArray<std::complex<double>> fftI,
                          MultidimArray<std::complex<double>> fftIsubP);
+    void crossEntropy(double &entropy_I_it, 
+					  double &entropy_IsubP_it, 
+					  MultidimArray<std::complex<double>> fftI,
+					  MultidimArray<std::complex<double>> fftIsubP);
 
     // ---------------------- UTILS METHODS ------------------------------
     Image<double> binarizeMask(Projection &) const;
