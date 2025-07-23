@@ -1972,7 +1972,7 @@ class BnBgpu:
         pixel_size: float,                 # Å/pixel
         order: int = 2,
         blend_factor: float = 0.5,
-        # sharpen_power: float = 0.5, 
+        sharpen_power: float = 1.5, 
         normalize: bool = True
     ) -> torch.Tensor:
         device = averages.device
@@ -2008,9 +2008,9 @@ class BnBgpu:
         #     torch.zeros_like(r_norm_exp)
         # )
         
-        ref_res = 10.0
-        sharpen_power = (ref_res / resolutions.clamp(min=3.0, max=20.0))  # shape [B]
-        sharpen_power = sharpen_power.clamp(min=0.5, max=1.5).view(-1, 1, 1) 
+        # ref_res = 10.0
+        # sharpen_power = (ref_res / resolutions.clamp(min=3.0, max=20.0))  # shape [B]
+        # sharpen_power = sharpen_power.clamp(min=0.5, max=1.5).view(-1, 1, 1) 
         
         cos_term = torch.pi * r_norm_exp / (frc_cutoffs + eps)
         enhance_filter = torch.where(
