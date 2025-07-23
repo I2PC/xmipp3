@@ -503,6 +503,7 @@ class BnBgpu:
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling)
             clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)
+            # clk = self.enhance_averages_butterworth_combined_FFT(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_combined_cos_FFT(clk, res_classes, sampling)
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
@@ -517,7 +518,8 @@ class BnBgpu:
         
 
         # if iter in [13, 16]:
-        if iter in [10, 13]:
+        # if iter in [10, 13]:
+        if iter == 10:
             # clk = clk * self.approximate_otsu_threshold(clk, percentile=10)
             clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
                                 intensity_percentile=50, contrast_weight=1.5, intensity_weight=1.0)
@@ -692,6 +694,7 @@ class BnBgpu:
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling) 
             clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)
+            # clk = self.enhance_averages_butterworth_combined_FFT(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_combined_cos_FFT(clk, res_classes, sampling)
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
@@ -1826,7 +1829,7 @@ class BnBgpu:
         averages: torch.Tensor,            # [B, H, W]
         resolutions: torch.Tensor,         # [B]
         pixel_size: float,                 # Å/pixel
-        low_res_angstrom: float = 15.0,
+        low_res_angstrom: float = 20.0,
         order: int = 2,
         blend_factor: float = 0.5,
         normalize: bool = True
@@ -2192,7 +2195,7 @@ class BnBgpu:
         averages,
         pixel_size,
         # high_res_angstrom=4,
-        low_res_angstrom=20,
+        low_res_angstrom=15,
         order=2,
         blend_factor=0.5,
         normalize=True
@@ -2247,6 +2250,8 @@ class BnBgpu:
         fft_filtered = fft_shift * bp_filter  # aplica el filtro
         fft_unshift = torch.fft.ifftshift(fft_filtered, dim=(-2, -1))
         filtered = torch.fft.ifft2(fft_unshift).real
+        
+        filtered = blend_factor * averages + (1.0 - blend_factor) * filtered
     
         # 3. Normalización para mantener contraste
         if normalize:
@@ -2257,7 +2262,7 @@ class BnBgpu:
             filtered = (filtered - mean_filt) / (std_filt + eps) * std_orig + mean_orig
             
         # 4. Fusión con original (mezcla controlada)
-        filtered = blend_factor * averages + (1.0 - blend_factor) * filtered
+        # filtered = blend_factor * averages + (1.0 - blend_factor) * filtered
     
         return filtered
     
@@ -2268,7 +2273,7 @@ class BnBgpu:
         resolutions: torch.Tensor,      # [B] en Å
         pixel_size: float,              # tamaño del píxel en Å/pix
         boost_max: float = 2.0,         # ganancia máxima en f_cutoff
-        sharpen_power: float = 1.5,     # qué tan pronunciado es el realce
+        sharpen_power: float = 3.0,     # qué tan pronunciado es el realce
         eps: float = 1e-8,
         normalize: bool = True
     ) -> torch.Tensor:
@@ -2323,7 +2328,7 @@ class BnBgpu:
         averages,       
         frc_res,        
         pixel_size,       # Å/pix
-        low_res_floor = 20.0,
+        low_res_floor = 15.0,
         order = 2,
         blend_factor = 0.5,
         normalize = True
@@ -2381,6 +2386,12 @@ class BnBgpu:
         filtered_fft = fft_shifted * bp
         fft_unshifted = torch.fft.ifftshift(filtered_fft, dim=(-2, -1))
         filtered = torch.fft.ifft2(fft_unshifted).real
+        
+        output = averages.clone()
+        output[apply_mask] = (
+            blend_factor * averages[apply_mask] +
+            (1.0 - blend_factor) * filtered[apply_mask]
+        )
     
         # === 7. Normalización de contraste
         if normalize:
@@ -2391,11 +2402,11 @@ class BnBgpu:
             filtered = (filtered - mean_filt) / (std_filt + eps) * std_orig + mean_orig
     
         # === 8. Fusión: sólo en clases seleccionadas
-        output = averages.clone()
-        output[apply_mask] = (
-            blend_factor * averages[apply_mask] +
-            (1.0 - blend_factor) * filtered[apply_mask]
-        )
+        # output = averages.clone()
+        # output[apply_mask] = (
+        #     blend_factor * averages[apply_mask] +
+        #     (1.0 - blend_factor) * filtered[apply_mask]
+        # )
     
         return output
 
