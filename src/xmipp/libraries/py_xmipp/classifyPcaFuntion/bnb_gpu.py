@@ -501,8 +501,8 @@ class BnBgpu:
             # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
-            # clk = self.enhance_averages_butterworth(clk, sampling)
-            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)
+            clk = self.enhance_averages_butterworth(clk, sampling)
+            # clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_combined_FFT(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_combined_cos_FFT(clk, res_classes, sampling)
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
@@ -692,8 +692,8 @@ class BnBgpu:
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
-            # clk = self.enhance_averages_butterworth(clk, sampling) 
-            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)
+            clk = self.enhance_averages_butterworth(clk, sampling) 
+            # clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_combined_FFT(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_combined_cos_FFT(clk, res_classes, sampling)
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
@@ -2195,7 +2195,7 @@ class BnBgpu:
         averages,
         pixel_size,
         # high_res_angstrom=4,
-        low_res_angstrom=15,
+        low_res_angstrom=24,
         order=2,
         blend_factor=0.5,
         normalize=True
@@ -2245,11 +2245,11 @@ class BnBgpu:
         bp_filter = low * high  # pasa-banda
     
         # 2. Aplicar en espacio de Fourier
-        fft_avg = torch.fft.fft2(averages)
+        fft_avg = torch.fft.fft2(averages, norm='forward')
         fft_shift = torch.fft.fftshift(fft_avg, dim=(-2, -1))
         fft_filtered = fft_shift * bp_filter  # aplica el filtro
         fft_unshift = torch.fft.ifftshift(fft_filtered, dim=(-2, -1))
-        filtered = torch.fft.ifft2(fft_unshift).real
+        filtered = torch.fft.ifft2(fft_unshift, norm='forward').real
         
         filtered = blend_factor * averages + (1.0 - blend_factor) * filtered
     
