@@ -2322,6 +2322,7 @@ class BnBgpu:
             energy_orig = torch.sum(amp_orig ** 2, dim=(-2, -1), keepdim=True).sqrt()
             energy_filt = torch.sum(amp_filt ** 2, dim=(-2, -1), keepdim=True).sqrt()
             scale = (energy_orig + eps) / (energy_filt + eps)
+            print(scale)
             
             # Escalar para conservar la desviación estándar del módulo complejo
             # std_orig = amp_orig.std(dim=(-2, -1), keepdim=True)
