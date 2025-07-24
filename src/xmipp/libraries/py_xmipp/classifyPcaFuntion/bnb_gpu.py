@@ -501,7 +501,8 @@ class BnBgpu:
             # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
-            clk = self.enhance_averages_butterworth(clk, sampling)
+            # clk = self.enhance_averages_butterworth(clk, sampling)
+            clk = self.enhance_averages_butterworth_normF(clk, sampling)
             # clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_combined_FFT(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_combined_cos_FFT(clk, res_classes, sampling)
@@ -692,7 +693,8 @@ class BnBgpu:
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
-            clk = self.enhance_averages_butterworth(clk, sampling) 
+            # clk = self.enhance_averages_butterworth(clk, sampling) 
+            clk = self.enhance_averages_butterworth_normF(clk, sampling)
             # clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_combined_FFT(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_combined_cos_FFT(clk, res_classes, sampling)
@@ -2251,7 +2253,7 @@ class BnBgpu:
         fft_unshift = torch.fft.ifftshift(fft_filtered, dim=(-2, -1))
         filtered = torch.fft.ifft2(fft_unshift, norm='forward').real
         
-        filtered = blend_factor * averages + (1.0 - blend_factor) * filtered
+        # filtered = blend_factor * averages + (1.0 - blend_factor) * filtered
     
         # 3. Normalización para mantener contraste
         if normalize:
@@ -2262,9 +2264,75 @@ class BnBgpu:
             filtered = (filtered - mean_filt) / (std_filt + eps) * std_orig + mean_orig
             
         # 4. Fusión con original (mezcla controlada)
-        # filtered = blend_factor * averages + (1.0 - blend_factor) * filtered
+        filtered = blend_factor * averages + (1.0 - blend_factor) * filtered
     
         return filtered
+    
+    
+    @torch.no_grad()
+    def enhance_averages_butterworth_normF(self, 
+        averages,
+        pixel_size,
+        low_res_angstrom=24,
+        order=2,
+        blend_factor=0.5,
+        normalize=True
+    ):
+        """
+        Realza altas frecuencias en imágenes promedio usando filtro Butterworth pasa-banda,
+        con normalización hecha directamente en el dominio de Fourier.
+        """
+        high_res_angstrom = (2 * pixel_size) / 0.95  # corte Nyquist un poco por debajo (95%)
+    
+        device = averages.device
+        B, H, W = averages.shape
+        eps = 1e-8
+    
+        # --- Filtro pasa-banda Butterworth ---
+        nyquist = 1.0 / (2.0 * pixel_size)
+        low_cutoff = (1.0 / low_res_angstrom) / nyquist / 2
+        high_cutoff = (1.0 / high_res_angstrom) / nyquist / 2
+        MAX_CUTOFF = 0.475
+        low_cutoff = max(0.0, min(low_cutoff, MAX_CUTOFF))
+        high_cutoff = max(0.0, min(high_cutoff, MAX_CUTOFF))
+    
+        y, x = torch.meshgrid(
+            torch.arange(H, device=device),
+            torch.arange(W, device=device),
+            indexing='ij'
+        )
+        r = torch.sqrt((x - W // 2) ** 2 + (y - H // 2) ** 2)
+        r_norm = r / r.max()
+    
+        low = 1.0 / (1.0 + (r_norm / (low_cutoff + eps)) ** (2 * order))
+        high = 1.0 / (1.0 + (high_cutoff / (r_norm + eps)) ** (2 * order))
+        bp_filter = low * high  # filtro pasa-banda [H, W]
+    
+        # --- FFT y aplicación del filtro ---
+        fft_avg = torch.fft.fft2(averages, norm='forward')  # [B, H, W]
+        fft_shift = torch.fft.fftshift(fft_avg, dim=(-2, -1))
+        fft_filtered = fft_shift * bp_filter  # aplicar filtro pasa-banda
+    
+        # --- Normalización en Fourier ---
+        if normalize:
+            # Escalar para conservar la desviación estándar del módulo complejo
+            amp_orig = torch.abs(fft_shift)
+            amp_filt = torch.abs(fft_filtered)
+    
+            std_orig = amp_orig.std(dim=(-2, -1), keepdim=True)
+            std_filt = amp_filt.std(dim=(-2, -1), keepdim=True)
+    
+            scale = (std_orig + eps) / (std_filt + eps)
+            fft_filtered = fft_filtered * scale  # normaliza espectro
+    
+        # --- IFFT ---
+        fft_unshift = torch.fft.ifftshift(fft_filtered, dim=(-2, -1))
+        filtered = torch.fft.ifft2(fft_unshift, norm='forward').real  # resultado real
+    
+        # --- Fusión con original ---
+        result = blend_factor * averages + (1.0 - blend_factor) * filtered
+    
+        return result
     
     @torch.no_grad()
     def highpass_cosine_sharpen(
