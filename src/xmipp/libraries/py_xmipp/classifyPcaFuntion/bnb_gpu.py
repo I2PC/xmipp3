@@ -2430,10 +2430,16 @@ class BnBgpu:
         f_cutoff = (1.0 / resolutions.clamp(min=1e-3)).view(B, 1, 1)  # [B, 1, 1]
     
         # === Cosine shape fijo ===
-        cos_term = torch.pi * freq_r / (f_cutoff + eps)
-        cosine_shape = ((1 - torch.cos(cos_term)) / 2).clamp(min=0.0, max=1.0)
-        cosine_shape = torch.where(freq_r <= f_cutoff, cosine_shape, torch.zeros_like(freq_r))
-        cosine_shape = cosine_shape ** sharpen_power  # [B, H, W]
+        # cos_term = torch.pi * freq_r / (f_cutoff + eps)
+        # cosine_shape = ((1 - torch.cos(cos_term)) / 2).clamp(min=0.0, max=1.0)
+        # cosine_shape = torch.where(freq_r <= f_cutoff, cosine_shape, torch.zeros_like(freq_r))
+        # cosine_shape = cosine_shape ** sharpen_power  # [B, H, W]
+        
+        f_nyquist = 1.0 / (2.0 * pixel_size)
+        cos_term = torch.pi * freq_r / (f_nyquist + eps)
+        cosine_shape = ((1 - torch.cos(cos_term)) / 2).clamp(0.0, 1.0)
+        cosine_shape = cosine_shape ** sharpen_power
+
     
         if boost_max is None:
             # === Buscar gain que duplique la energía total ===
@@ -2468,7 +2474,9 @@ class BnBgpu:
         print(boost_max)
     
         # === Filtro coseno final ===
+        
         boost = 1.0 + (boost_max - 1.0) * cosine_shape
+        boost = torch.where(freq_r <= f_cutoff, boost, torch.zeros_like(freq_r))
         filt = boost
     
         # === Aplicar filtro ===
