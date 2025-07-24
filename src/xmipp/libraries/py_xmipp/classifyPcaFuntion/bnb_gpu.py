@@ -2315,14 +2315,19 @@ class BnBgpu:
     
         # --- Normalización en Fourier ---
         if normalize:
-            # Escalar para conservar la desviación estándar del módulo complejo
+            # Escalar para conservar la energía (norma L2/ 
             amp_orig = torch.abs(fft_shift)
             amp_filt = torch.abs(fft_filtered)
-    
-            std_orig = amp_orig.std(dim=(-2, -1), keepdim=True)
-            std_filt = amp_filt.std(dim=(-2, -1), keepdim=True)
-    
-            scale = (std_orig + eps) / (std_filt + eps)
+            
+            energy_orig = torch.sum(amp_orig ** 2, dim=(-2, -1), keepdim=True).sqrt()
+            energy_filt = torch.sum(amp_filt ** 2, dim=(-2, -1), keepdim=True).sqrt()
+            scale = (energy_orig + eps) / (energy_filt + eps)
+            
+            # Escalar para conservar la desviación estándar del módulo complejo
+            # std_orig = amp_orig.std(dim=(-2, -1), keepdim=True)
+            # std_filt = amp_filt.std(dim=(-2, -1), keepdim=True)
+            # scale = (std_orig + eps) / (std_filt + eps)
+            
             fft_filtered = fft_filtered * scale  # normaliza espectro
     
         # --- IFFT ---
