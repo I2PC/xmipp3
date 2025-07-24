@@ -724,6 +724,30 @@ void ProgClassifyPartialOccupancy::compareRegions(double &ll_I, double &ll_IsubP
 	saveImage.write(fnImgOut.substr(0, dotPos) + "_IsubP.mrcs");
 	#endif
 
+	// Calcualte metrics for both images in Real space
+	double avg_I = 0;
+	double std_I = 0;
+	double zScore_I = 0;
+	double energy_I = 0;
+	double avg_IsubP = 0;
+	double std_IsubP = 0;
+	double zScore_IsubP = 0;
+	double energy_IsubP = 0;
+
+	computeParticleStats(I(), avg_I, std_I, zScore_I, energy_I);
+	computeParticleStats(IsubP(), avg_IsubP, std_IsubP, zScore_IsubP, energy_IsubP);
+	ll_I += energy_I;
+	ll_IsubP += energy_IsubP;
+
+	#ifdef DEBUG_METRICS
+	std::cout << "Final ll_I: " << ll_I << std::endl;
+	std::cout << "Final ll_IsubP: " << ll_IsubP << std::endl;
+	std::cout << "Final diff ll_I - ll_IsubP: " << ll_I - ll_IsubP << std::endl;
+	#endif	
+
+	return;
+
+
 	std::cout << "--------------------------------------------------------------------- " 	<< std::endl;
 	std::cout << fnImgI << std::endl;
 
@@ -805,21 +829,6 @@ void ProgClassifyPartialOccupancy::compareRegions(double &ll_I, double &ll_IsubP
 		saveImage() = centeredLigandSubP;
 		saveImage.write(debugFileFn);
 		#endif
-
-		// Calcualte metrics for both regions in Real space
-		double avg_I_it = 0;
-		double std_I_it = 0;
-		double zScore_I_it = 0;
-		double energy_I_it = 0;
-		double avg_IsubP_it = 0;
-		double std_IsubP_it = 0;
-		double zScore_IsubP_it = 0;
-		double energy_IsubP_it = 0;
-
-		computeParticleStats(centeredLigand, avg_I_it, std_I_it, zScore_I_it, energy_I_it);
-		computeParticleStats(centeredLigandSubP, avg_IsubP_it, std_IsubP_it, zScore_IsubP_it, energy_IsubP_it);
-		ll_I += energy_I_it/value;
-		ll_IsubP += energy_IsubP_it/value;
 
 		// // Calcualte metrics for both regions in Fourier space
 		// transformerI.FourierTransform(centeredLigand, fftI, false);
@@ -1206,7 +1215,6 @@ void ProgClassifyPartialOccupancy::computeParticleStats(MultidimArray<double> &m
 		if (DIRECT_MULTIDIM_ELEM(PmaskRoi(),n) > 0)
 		{
 			double value = DIRECT_MULTIDIM_ELEM(mI, n);
-			std::cout << "value    " << value << std::endl;
 
 			sum += value;
 			sum2 += value*value;
