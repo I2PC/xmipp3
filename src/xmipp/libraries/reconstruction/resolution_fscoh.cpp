@@ -355,7 +355,7 @@ void ProgFSCoh::normalizeFTMap(MultidimArray<std::complex<double>> &volFT)
 	}
 
 	sum /= numElems;
-	sum2 = sqrt(sum2 / static_cast<double>(numElems)) - std::norm(sum);
+	sum2 = sqrt(sum2 / static_cast<double>(numElems) - std::norm(sum));
 
     // Normalize map
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(volFT)
