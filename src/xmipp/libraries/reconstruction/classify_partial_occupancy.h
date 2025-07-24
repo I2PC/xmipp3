@@ -34,13 +34,13 @@
 #include "data/unitCell.h"
 #include "core/xmipp_metadata_program.h"
 
-#define DEBUG_COMPUTE_STATISTICS
 #define VERBOSE_OUTPUT
 // #define DEBUG_FREQUENCY_PROFILE
 // #define DEBUG_NOISE_CALCULATION
 #define DEBUG_REGIONS_COMPARISON
 // #define DEBUG_RADIAL_AVERAGE
 #define DEBUG_METRICS
+// #define DEBUG_COMPUTE_STATISTICS
 // #define DEBUG_WRITE_PARICLE
 #define DEBUG_OUTPUT_FILES
 
