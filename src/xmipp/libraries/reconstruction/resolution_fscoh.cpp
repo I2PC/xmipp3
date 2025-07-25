@@ -126,8 +126,8 @@ void ProgFSCoh::fourierShellCoherence(MetaDataVec mapPoolMD)
         }
 
         ft.FourierTransform(V(), V_ft, false);
-		// normalizeFTMap(V_ft);
-		fourierShellNormalization(V_ft);
+		normalizeFTMap(V_ft);
+		// fourierShellNormalization(V_ft);
 
         FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V_ft)
         {
