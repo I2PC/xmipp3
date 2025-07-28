@@ -503,7 +503,8 @@ class BnBgpu:
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling)
             # clk = self.enhance_averages_butterworth_normF(clk, sampling)
-            clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling)
+            # clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling)
+            clk = self.sigmoid_highboost_filter(clk, sampling)
             # clk = self.enhance_averages_butterworth_combined_FFT(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_combined_cos_FFT(clk, res_classes, sampling)
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
@@ -695,7 +696,8 @@ class BnBgpu:
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling) 
             # clk = self.enhance_averages_butterworth_normF(clk, sampling)
-            clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling)
+            # clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling)
+            clk = self.sigmoid_highboost_filter(clk, sampling)
             # clk = self.enhance_averages_butterworth_combined_FFT(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_combined_cos_FFT(clk, res_classes, sampling)
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
@@ -2492,6 +2494,77 @@ class BnBgpu:
             filtered = (filtered - mean_filt) / (std_filt + eps) * std_orig + mean_orig
     
         return filtered
+    
+    
+    @torch.no_grad()
+    def sigmoid_highboost_filter(
+        self,
+        averages: torch.Tensor,         # [B, H, W]
+        pixel_size: float,              # Å/pix
+        boost: float = None,            # ajustado si None
+        f_center: float = 1/20.0,       # ~0.05 Å⁻¹ = 20 Å
+        f_width: float = None,          # control de pendiente
+        eps: float = 1e-8,
+        normalize: bool = True,
+        max_iter: int = 20,
+        return_boost: bool = False
+    ):
+        B, H, W = averages.shape
+        device = averages.device
+    
+        # === FFT y energía original ===
+        fft = torch.fft.fft2(averages, norm='forward')       # [B, H, W]
+        fft_mag2 = fft.abs().square()                        # [B, H, W]
+        energy_orig = fft_mag2.sum(dim=(-2, -1))             # [B]
+    
+        # === Frecuencias radiales ===
+        fy = torch.fft.fftfreq(H, d=pixel_size, device=device)
+        fx = torch.fft.fftfreq(W, d=pixel_size, device=device)
+        gy, gx = torch.meshgrid(fy, fx, indexing='ij')
+        freq_r = torch.sqrt(gx**2 + gy**2)                   # [H, W]
+    
+        if f_width is None:
+            f_width = f_center / 20  # transición abrupta
+    
+        sigmoid_mask = torch.sigmoid((freq_r - f_center) / (f_width + eps))  # [H, W]
+    
+        # === Calcular boost si no se da ===
+        if boost is None:
+            def compute_energy(g):
+                filt = 1.0 + (g - 1.0).unsqueeze(-1).unsqueeze(-1) * sigmoid_mask  # [B, H, W]
+                return (fft_mag2 * filt**2).sum(dim=(-2, -1))                      # [B]
+    
+            target_energy = 2 * energy_orig
+            g_low = torch.ones(B, device=device)
+            g_high = torch.full((B,), 1000.0, device=device)
+    
+            for _ in range(max_iter):
+                g_mid = (g_low + g_high) / 2
+                energy = compute_energy(g_mid)
+                g_low = torch.where(energy < target_energy, g_mid, g_low)
+                g_high = torch.where(energy >= target_energy, g_mid, g_high)
+    
+            boost = g_mid
+    
+        if not torch.is_tensor(boost):
+            boost = torch.tensor(boost, device=device, dtype=averages.dtype)
+        if boost.dim() == 0:
+            boost = boost.expand(B)
+    
+        # === Filtro final ===
+        filt = 1.0 + (boost.unsqueeze(-1).unsqueeze(-1) - 1.0) * sigmoid_mask  # [B, H, W]
+        fft_filtered = fft * filt                                              # [B, H, W]
+        filtered = torch.fft.ifft2(fft_filtered, norm='forward').real          # [B, H, W]
+    
+        # === Normalización de contraste (opcional) ===
+        if normalize:
+            mean = averages.mean(dim=(-2, -1), keepdim=True)
+            std = averages.std(dim=(-2, -1), keepdim=True)
+            mean_f = filtered.mean(dim=(-2, -1), keepdim=True)
+            std_f = filtered.std(dim=(-2, -1), keepdim=True)
+            filtered = (filtered - mean_f) / (std_f + eps) * std + mean
+    
+        return (filtered, boost) if return_boost else filtered
     
     
     @torch.no_grad()
