@@ -2502,7 +2502,7 @@ class BnBgpu:
         averages: torch.Tensor,         # [B, H, W]
         pixel_size: float,              # Å/pix
         boost: float = None,            # ajustado si None
-        f_center: float = 1/20.0,       # ~0.05 Å⁻¹ = 20 Å
+        f_center: float = 1/25.0,       #  24 Å
         f_width: float = None,          # control de pendiente
         eps: float = 1e-8,
         normalize: bool = True,
