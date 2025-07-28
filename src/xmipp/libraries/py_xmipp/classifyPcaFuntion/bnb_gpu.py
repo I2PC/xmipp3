@@ -1605,7 +1605,8 @@ class BnBgpu:
             newCL,                       # lista de tensores [N_i,H,W]
             pixel_size: float,           # Å/px
             frc_threshold: float = 0.143,
-            fallback_res: float = 40.0
+            fallback_res: float = 40.0,
+            apply_window: bool = True    # NUEVO: aplica ventana Hann si True
     ) -> torch.Tensor:
         
         """Devuelve tensor [n_classes] con la resolución FRC por clase (Å)."""
@@ -1623,6 +1624,12 @@ class BnBgpu:
         r_flat = r.view(-1)
         freqs   = torch.linspace(0, 0.5/pixel_size, Rmax, device=device)
     
+        # Ventana Hann si se solicita
+        if apply_window:
+            wy = torch.hann_window(h, periodic=False, device=device)
+            wx = torch.hann_window(w, periodic=False, device=device)
+            window = wy[:, None] * wx[None, :]
+    
         for c, imgs in enumerate(newCL):
             n = imgs.shape[0]
             if n < 2:
@@ -1632,6 +1639,10 @@ class BnBgpu:
             perm          = torch.randperm(n, device=device)
             half1, half2  = torch.chunk(imgs[perm], 2, dim=0)
             avg1, avg2    = half1.mean(0), half2.mean(0)
+    
+            if apply_window:
+                avg1 = avg1 * window
+                avg2 = avg2 * window
     
             # ---------------- FRC -----------------------
             fft1 = torch.fft.fftshift(torch.fft.fft2(avg1, norm="forward"))
@@ -1649,11 +1660,12 @@ class BnBgpu:
             idx     = torch.where(frc < frc_threshold)[0]
     
             if len(idx) and idx[0] > 0:
-                res_out[c]   = 1.0 / freqs[idx[0]]
+                res_out[c] = 1.0 / freqs[idx[0]]
     
         # ---------- sustituye NaN e Inf una sola vez ------------
         res_out = torch.nan_to_num(res_out, nan=fallback_res, posinf=fallback_res, neginf=fallback_res)
-        return res_out  
+        return res_out
+
 
     
     @torch.no_grad()
@@ -2502,8 +2514,8 @@ class BnBgpu:
         averages: torch.Tensor,         # [B, H, W]
         pixel_size: float,              # Å/pix
         boost: float = None,            # ajustado si None
-        f_center: float = 1/25.0,       #  24 Å
-        f_width: float = None,          # control de pendiente
+        f_center: float = 1/20.0,       # frecuencia ~20 Å
+        f_width: float = None,          # controla pendiente
         eps: float = 1e-8,
         normalize: bool = True,
         max_iter: int = 20,
@@ -2512,23 +2524,30 @@ class BnBgpu:
         B, H, W = averages.shape
         device = averages.device
     
+        # === Aplicar ventana de Hann 2D para reducir ringing ===
+        wy = torch.hann_window(H, periodic=False, device=device)
+        wx = torch.hann_window(W, periodic=False, device=device)
+        window = wy[:, None] * wx[None, :]              # [H, W]
+        averages = averages * window                    # [B, H, W]
+    
         # === FFT y energía original ===
-        fft = torch.fft.fft2(averages, norm='forward')       # [B, H, W]
-        fft_mag2 = fft.abs().square()                        # [B, H, W]
-        energy_orig = fft_mag2.sum(dim=(-2, -1))             # [B]
+        fft = torch.fft.fft2(averages, norm='forward')  # [B, H, W]
+        fft_mag2 = fft.abs().square()                   # [B, H, W]
+        energy_orig = fft_mag2.sum(dim=(-2, -1))        # [B]
     
         # === Frecuencias radiales ===
         fy = torch.fft.fftfreq(H, d=pixel_size, device=device)
         fx = torch.fft.fftfreq(W, d=pixel_size, device=device)
         gy, gx = torch.meshgrid(fy, fx, indexing='ij')
-        freq_r = torch.sqrt(gx**2 + gy**2)                   # [H, W]
+        freq_r = torch.sqrt(gx**2 + gy**2)              # [H, W]
     
         if f_width is None:
-            f_width = f_center / 5  # transición abrupta
+            f_width = f_center / 5                      # transición más abrupta
     
+        # === Máscara sigmoide en frecuencia ===
         sigmoid_mask = torch.sigmoid((freq_r - f_center) / (f_width + eps))  # [H, W]
     
-        # === Calcular boost si no se da ===
+        # === Ajuste automático de boost si es necesario ===
         if boost is None:
             def compute_energy(g):
                 filt = 1.0 + (g - 1.0).unsqueeze(-1).unsqueeze(-1) * sigmoid_mask  # [B, H, W]
@@ -2546,17 +2565,18 @@ class BnBgpu:
     
             boost = g_mid
     
+        # === Asegurar boost tensorial por batch ===
         if not torch.is_tensor(boost):
             boost = torch.tensor(boost, device=device, dtype=averages.dtype)
         if boost.dim() == 0:
             boost = boost.expand(B)
     
-        # === Filtro final ===
+        # === Filtro y aplicación ===
         filt = 1.0 + (boost.unsqueeze(-1).unsqueeze(-1) - 1.0) * sigmoid_mask  # [B, H, W]
         fft_filtered = fft * filt                                              # [B, H, W]
         filtered = torch.fft.ifft2(fft_filtered, norm='forward').real          # [B, H, W]
     
-        # === Normalización de contraste (opcional) ===
+        # === Reescalado opcional de contraste ===
         if normalize:
             mean = averages.mean(dim=(-2, -1), keepdim=True)
             std = averages.std(dim=(-2, -1), keepdim=True)
