@@ -205,7 +205,7 @@ class ScriptSynchronizeTransform(XmippScript):
         predicted = desing @ solution[0]
         deltas = predicted - y
         deltas = deltas.reshape(len(indices), 3)
-        errors = np.square(deltas).sum(axis=1)
+        errors = np.sqrt(np.square(deltas).sum(axis=1))
         
         return x, errors
     
