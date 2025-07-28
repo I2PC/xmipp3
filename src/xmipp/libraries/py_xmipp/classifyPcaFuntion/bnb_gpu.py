@@ -2525,10 +2525,10 @@ class BnBgpu:
         device = averages.device
     
         # === Aplicar ventana de Hann 2D para reducir ringing ===
-        wy = torch.hann_window(H, periodic=False, device=device)
-        wx = torch.hann_window(W, periodic=False, device=device)
-        window = wy[:, None] * wx[None, :]              # [H, W]
-        averages = averages * window                    # [B, H, W]
+        # wy = torch.hann_window(H, periodic=False, device=device)
+        # wx = torch.hann_window(W, periodic=False, device=device)
+        # window = wy[:, None] * wx[None, :]              # [H, W]
+        # averages = averages * window                    # [B, H, W]
     
         # === FFT y energía original ===
         fft = torch.fft.fft2(averages, norm='forward')  # [B, H, W]
