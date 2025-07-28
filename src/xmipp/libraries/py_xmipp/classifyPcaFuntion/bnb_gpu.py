@@ -2524,7 +2524,7 @@ class BnBgpu:
         freq_r = torch.sqrt(gx**2 + gy**2)                   # [H, W]
     
         if f_width is None:
-            f_width = f_center / 20  # transición abrupta
+            f_width = f_center / 10  # transición abrupta
     
         sigmoid_mask = torch.sigmoid((freq_r - f_center) / (f_width + eps))  # [H, W]
     
