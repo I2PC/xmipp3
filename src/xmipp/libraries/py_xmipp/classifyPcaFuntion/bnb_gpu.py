@@ -521,7 +521,7 @@ class BnBgpu:
         
 
         # if iter in [13, 16]:
-        if iter in [9, 12]:
+        if iter in [8, 11]:
         # if iter == 10:
             # clk = clk * self.approximate_otsu_threshold(clk, percentile=10)
             clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
