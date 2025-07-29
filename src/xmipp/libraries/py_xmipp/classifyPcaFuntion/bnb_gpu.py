@@ -401,7 +401,7 @@ class BnBgpu:
         # print("----------create-classes-------------")      
             
         
-        # if iter > 3 and iter < 10: # and cycles == 0:
+        # if iter > 3 and iter < 7: # and cycles == 0:
         if iter > 3 and iter < 8:# and cycles == 0:
             print("--------", iter, "-----------")
             thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches, threshold=2.0)
@@ -410,7 +410,7 @@ class BnBgpu:
         #     thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches, threshold=2.0)
             
 
-        # if iter > 3 and iter < 10: # and cycles == 0:
+        # if iter > 3 and iter < 7: # and cycles == 0:
         if iter > 3 and iter < 8:# and cycles == 0:
             num = int(classes/2)
             newCL = [[] for i in range(classes)]
@@ -453,7 +453,7 @@ class BnBgpu:
             count+=1
 
             
-            # if iter > 3 and iter < 10:# and cycles == 0:
+            # if iter > 3 and iter < 7:# and cycles == 0:
             if iter > 3 and iter < 8:# and cycles == 0:
                 
                 for n in range(num):
@@ -520,17 +520,17 @@ class BnBgpu:
         # clk = self.gaussian_lowpass_filter_2D(clk, 6.0, sampling)
         
 
-        # if iter in [13, 16]:
-        if iter in [8, 11]:
+        # if iter in [10, 13]:
+        if iter in [9, 12]:
         # if iter == 10:
             # clk = clk * self.approximate_otsu_threshold(clk, percentile=10)
             clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
                                 intensity_percentile=50, contrast_weight=1.5, intensity_weight=1.0, smooth_sigma=1.0)
-        # if 3 < iter < 10 and iter % 2 == 0:
-        if 2 < iter < 7 and iter % 2 != 0:
+        # if 3 < iter < 7 and iter % 2 == 0:
+        if 3 < iter < 7 and iter % 2 == 0:
             # clk = clk * self.approximate_otsu_threshold(clk, percentile=10)
             clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=90,
-                                intensity_percentile=60, contrast_weight=1.5, intensity_weight=1.0, smooth_sigma=0.5)
+                                intensity_percentile=60, contrast_weight=1.5, intensity_weight=1.0, smooth_sigma=1.0)
 
         
         # if iter < 17:
