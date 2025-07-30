@@ -503,12 +503,12 @@ class BnBgpu:
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling)
             # clk = self.enhance_averages_butterworth_normF(clk, sampling)
-            # clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling)
+            clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling)
             # clk = self.sigmoid_highboost_filter(clk, sampling)
             # clk = self.enhance_averages_butterworth_combined_FFT(clk, res_classes, sampling)
-            clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
+            # clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_combined_cos_FFT(clk, res_classes, sampling)
-            # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
             # clk = self.unsharp_mask_norm(clk)
     
@@ -521,7 +521,7 @@ class BnBgpu:
         
 
         # if iter in [10, 13]:
-        if iter in [9, 12]:
+        if iter in [10, 13]:
         # if iter == 10:
             # clk = clk * self.approximate_otsu_threshold(clk, percentile=10)
             clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
@@ -697,12 +697,12 @@ class BnBgpu:
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling) 
             # clk = self.enhance_averages_butterworth_normF(clk, sampling)
-            # clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling)
+            clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling)
             # clk = self.sigmoid_highboost_filter(clk, sampling)
             # clk = self.enhance_averages_butterworth_combined_FFT(clk, res_classes, sampling)
-            clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
+            # clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_combined_cos_FFT(clk, res_classes, sampling)
-            # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
             # clk = self.unsharp_mask_norm(clk)
             # clk = self.gaussian_lowpass_filter_2D(clk, maxRes, sampling)
@@ -2492,7 +2492,7 @@ class BnBgpu:
         # === Filtro coseno final ===
         
         boost = 1.0 + (boost_max - 1.0) * cosine_shape
-        boost = torch.where(freq_r <= f_cutoff, boost, torch.zeros_like(freq_r))
+        # boost = torch.where(freq_r <= f_cutoff, boost, torch.zeros_like(freq_r))
         filt = boost
     
         # === Aplicar filtro ===
