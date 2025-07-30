@@ -2422,7 +2422,7 @@ class BnBgpu:
         resolutions: torch.Tensor,      # [B] en Å
         pixel_size: float,              # tamaño del píxel en Å/pix
         boost_max: float = None,        # si None, se ajusta para duplicar energía
-        sharpen_power: float = 1,
+        sharpen_power: float = None,    # si None, se ajusta automáticamente según resolución
         eps: float = 1e-8,
         normalize: bool = True,
         conserve_energy: bool = False,  # innecesario si ajustamos para duplicar energía
@@ -2442,10 +2442,17 @@ class BnBgpu:
         gy, gx = torch.meshgrid(fy, fx, indexing='ij')
         freq_r = torch.sqrt(gx**2 + gy**2).unsqueeze(0).expand(B, -1, -1)  # [B, H, W]
     
-        # === Frecuencia de corte ===
+        # === Frecuencia de corte por imagen ===
         f_cutoff = (1.0 / resolutions.clamp(min=1e-3)).view(B, 1, 1)  # [B, 1, 1]
     
-        # === Cosine shape fijo ===
+        # === Ajuste dinámico de sharpen_power por resolución ===
+        if sharpen_power is None:
+            sharpen_power = (1.5 - 0.1 * resolutions).clamp(min=0.4, max=1.0)  # regla empírica
+        if not torch.is_tensor(sharpen_power):
+            sharpen_power = torch.tensor(sharpen_power, device=device)
+        sharpen_power = sharpen_power.view(B, 1, 1)  # broadcasting por imagen
+    
+        # === Filtro en forma de coseno ===
         cos_term = torch.pi * freq_r / (f_cutoff + eps)
         cosine_shape = ((1 - torch.cos(cos_term)) / 2).clamp(min=0.0, max=1.0)
         cosine_shape = torch.where(freq_r <= f_cutoff, cosine_shape, torch.ones_like(freq_r))
@@ -2455,10 +2462,9 @@ class BnBgpu:
         # cos_term = torch.pi * freq_r / (f_nyquist + eps)
         # cosine_shape = ((1 - torch.cos(cos_term)) / 2).clamp(0.0, 1.0)
         # cosine_shape = cosine_shape ** sharpen_power
-
     
+        # === Ajuste automático de boost_max para duplicar energía ===
         if boost_max is None:
-            # === Buscar gain que duplique la energía total ===
             def energy_with_gain(g: torch.Tensor) -> torch.Tensor:
                 boost = 1.0 + (g - 1.0) * cosine_shape
                 energy = torch.sum(fft_mag2 * boost**2, dim=(-2, -1))  # [B]
@@ -2486,11 +2492,8 @@ class BnBgpu:
             if boost_max.shape[0] != B:
                 boost_max = boost_max.expand(B)
             boost_max = boost_max.view(B, 1, 1)
-            
-        # print(boost_max)
     
-        # === Filtro coseno final ===
-        
+        # === Filtro coseno final con limitación hasta f_cutoff ===
         boost = 1.0 + (boost_max - 1.0) * cosine_shape
         boost = torch.where(freq_r <= f_cutoff, boost, torch.ones_like(freq_r))
         filt = boost
