@@ -2422,7 +2422,7 @@ class BnBgpu:
         resolutions: torch.Tensor,      # [B] en Å
         pixel_size: float,              # tamaño del píxel en Å/pix
         boost_max: float = None,        # si None, se ajusta para duplicar energía
-        sharpen_power: float = 1.0,
+        sharpen_power: float = 0.5,
         eps: float = 1e-8,
         normalize: bool = True,
         conserve_energy: bool = False,  # innecesario si ajustamos para duplicar energía
@@ -2487,7 +2487,7 @@ class BnBgpu:
                 boost_max = boost_max.expand(B)
             boost_max = boost_max.view(B, 1, 1)
             
-        print(boost_max)
+        # print(boost_max)
     
         # === Filtro coseno final ===
         
