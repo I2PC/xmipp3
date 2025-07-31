@@ -497,14 +497,14 @@ class BnBgpu:
             print(res_classes) 
             # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             # print(bfactor)
-            # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
+            clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
             # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling)
             # clk = self.enhance_averages_butterworth_normF(clk, sampling)
-            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
-            clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling)
+            # clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling)
             # clk = self.sigmoid_highboost_filter(clk, sampling)
             # clk = self.enhance_averages_butterworth_combined_FFT(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
@@ -691,14 +691,14 @@ class BnBgpu:
             
             res_classes = self.frc_resolution_tensor(newCL, sampling)
             # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
-            # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
+            clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling) 
             # clk = self.enhance_averages_butterworth_normF(clk, sampling)
-            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
-            clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling)
+            # clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling)
             # clk = self.sigmoid_highboost_filter(clk, sampling)
             # clk = self.enhance_averages_butterworth_combined_FFT(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
@@ -2597,7 +2597,7 @@ class BnBgpu:
         averages,       
         frc_res,        
         pixel_size,       # Å/pix
-        low_res_floor = 15.0,
+        low_res_floor = 24.0,
         order = 2,
         blend_factor = 0.5,
         normalize = True
@@ -2650,17 +2650,17 @@ class BnBgpu:
         bp = low * high  # [B, H, W]
     
         # === 6. FFT y aplicación de filtro
-        fft = torch.fft.fft2(averages)
+        fft = torch.fft.fft2(averages, norm='forward')
         fft_shifted = torch.fft.fftshift(fft, dim=(-2, -1))
         filtered_fft = fft_shifted * bp
         fft_unshifted = torch.fft.ifftshift(filtered_fft, dim=(-2, -1))
-        filtered = torch.fft.ifft2(fft_unshifted).real
+        filtered = torch.fft.ifft2(fft_unshifted, norm='forward').real
         
-        output = averages.clone()
-        output[apply_mask] = (
-            blend_factor * averages[apply_mask] +
-            (1.0 - blend_factor) * filtered[apply_mask]
-        )
+        # output = averages.clone()
+        # output[apply_mask] = (
+        #     blend_factor * averages[apply_mask] +
+        #     (1.0 - blend_factor) * filtered[apply_mask]
+        # )
     
         # === 7. Normalización de contraste
         if normalize:
@@ -2671,11 +2671,11 @@ class BnBgpu:
             filtered = (filtered - mean_filt) / (std_filt + eps) * std_orig + mean_orig
     
         # === 8. Fusión: sólo en clases seleccionadas
-        # output = averages.clone()
-        # output[apply_mask] = (
-        #     blend_factor * averages[apply_mask] +
-        #     (1.0 - blend_factor) * filtered[apply_mask]
-        # )
+        output = averages.clone()
+        output[apply_mask] = (
+            blend_factor * averages[apply_mask] +
+            (1.0 - blend_factor) * filtered[apply_mask]
+        )
     
         return output
 
