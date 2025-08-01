@@ -1610,7 +1610,7 @@ class BnBgpu:
             pixel_size: float,           # Å/px
             frc_threshold: float = 0.143,
             fallback_res: float = 40.0,
-            apply_window: bool = True    # NUEVO: aplica ventana Hann si True
+            apply_window: bool = False    # NUEVO: aplica ventana Hann si True
     ) -> torch.Tensor:
         
         """Devuelve tensor [n_classes] con la resolución FRC por clase (Å)."""
@@ -2450,7 +2450,7 @@ class BnBgpu:
         # === Ajuste dinámico de sharpen_power por resolución ===
         if sharpen_power is None:
             # sharpen_power = (1.5 - 0.1 * resolutions).clamp(min=0.4, max=1.0)  # regla empírica
-            sharpen_power = (0.12 * resolutions).clamp(min=0.3, max=2.5)
+            sharpen_power = (0.1 * resolutions).clamp(min=0.3, max=2.5)
         if not torch.is_tensor(sharpen_power):
             sharpen_power = torch.tensor(sharpen_power, device=device)
         sharpen_power = sharpen_power.view(B, 1, 1)  # broadcasting por imagen
