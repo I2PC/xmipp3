@@ -81,7 +81,7 @@ void ProgStatisticalMap::writeZscoresMap(FileName fnIn)
     size_t lastSlashPos = fnIn.find_last_of("/\\");
     size_t lastDotPos = fnIn.find_last_of('.');
 
-    FileName newFileName = fnIn.substr(lastSlashPos + 1, lastDotPos - lastSlashPos - 1) + "_Zscores" + fnIn.substr(lastDotPos);
+    FileName newFileName = fnIn.substr(lastSlashPos + 1, lastDotPos - lastSlashPos - 1) + "_Zscores.mrc";
     FileName fnOut = fn_oroot + (fn_oroot.back() == '/' || fn_oroot.back() == '\\' ? "" : "/") + newFileName;
 
     // Check if file already existes (the same pool map might contain to identical filenames
@@ -101,14 +101,14 @@ void ProgStatisticalMap::writeWeightedMap(FileName fnIn)
     size_t lastSlashPos = fnIn.find_last_of("/\\");
     size_t lastDotPos = fnIn.find_last_of('.');
 
-    FileName newFileName = fnIn.substr(lastSlashPos + 1, lastDotPos - lastSlashPos - 1) + "_weighted" + fnIn.substr(lastDotPos);
+    FileName newFileName = fnIn.substr(lastSlashPos + 1, lastDotPos - lastSlashPos - 1) + "_weighted.mrc";
     FileName fnOut = fn_oroot + (fn_oroot.back() == '/' || fn_oroot.back() == '\\' ? "" : "/") + newFileName;
 
     // Check if file already existes (the same pool map might contain to identical filenames
     int counter = 1;
     while (std::ifstream(fnOut)) 
     {
-        fnOut = fn_oroot + (fn_oroot.back() == '/' || fn_oroot.back() == '\\' ? "" : "/") + fnIn.substr(fnIn.find_last_of("/\\") + 1, fnIn.find_last_of('.') - fnIn.find_last_of("/\\") - 1) + "_weighted_" + std::to_string(counter++) + fnIn.substr(fnIn.find_last_of('.'));
+        fnOut = fn_oroot + (fn_oroot.back() == '/' || fn_oroot.back() == '\\' ? "" : "/") + fnIn.substr(fnIn.find_last_of("/\\") + 1, fnIn.find_last_of('.') - fnIn.find_last_of("/\\") - 1) + "_weighted_" + std::to_string(counter++) + ".mrc";
     }
 
     //Write output weighted volume
