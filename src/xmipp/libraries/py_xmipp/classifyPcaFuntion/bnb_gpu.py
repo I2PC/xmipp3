@@ -1610,7 +1610,7 @@ class BnBgpu:
             pixel_size: float,           # Å/px
             frc_threshold: float = 0.143,
             fallback_res: float = 40.0,
-            apply_window: bool = False    # NUEVO: aplica ventana Hann si True
+            apply_window: bool = True    # NUEVO: aplica ventana Hann si True
     ) -> torch.Tensor:
         
         """Devuelve tensor [n_classes] con la resolución FRC por clase (Å)."""
