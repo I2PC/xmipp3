@@ -724,29 +724,28 @@ void ProgClassifyPartialOccupancy::compareRegions(double &ll_I, double &ll_IsubP
 	saveImage.write(fnImgOut.substr(0, dotPos) + "_IsubP.mrcs");
 	#endif
 
-	// Calcualte metrics for both images in Real space
-	double avg_I = 0;
-	double std_I = 0;
-	double zScore_I = 0;
-	double energy_I = 0;
-	double avg_IsubP = 0;
-	double std_IsubP = 0;
-	double zScore_IsubP = 0;
-	double energy_IsubP = 0;
+	// // Calcualte metrics for both images in Real space
+	// double avg_I = 0;
+	// double std_I = 0;
+	// double zScore_I = 0;
+	// double energy_I = 0;
+	// double avg_IsubP = 0;
+	// double std_IsubP = 0;
+	// double zScore_IsubP = 0;
+	// double energy_IsubP = 0;
 
-	computeParticleStats(I(), avg_I, std_I, zScore_I, energy_I);
-	computeParticleStats(IsubP(), avg_IsubP, std_IsubP, zScore_IsubP, energy_IsubP);
-	ll_I += energy_I;
-	ll_IsubP += energy_IsubP;
+	// computeParticleStats(I(), avg_I, std_I, zScore_I, energy_I);
+	// computeParticleStats(IsubP(), avg_IsubP, std_IsubP, zScore_IsubP, energy_IsubP);
+	// ll_I += energy_I;
+	// ll_IsubP += energy_IsubP;
 
-	#ifdef DEBUG_METRICS
-	std::cout << "Final ll_I: " << ll_I << std::endl;
-	std::cout << "Final ll_IsubP: " << ll_IsubP << std::endl;
-	std::cout << "Final diff ll_I - ll_IsubP: " << ll_I - ll_IsubP << std::endl;
-	#endif	
+	// #ifdef DEBUG_METRICS
+	// std::cout << "Final ll_I: " << ll_I << std::endl;
+	// std::cout << "Final ll_IsubP: " << ll_IsubP << std::endl;
+	// std::cout << "Final diff ll_I - ll_IsubP: " << ll_I - ll_IsubP << std::endl;
+	// #endif	
 
-	return;
-
+	// return;
 
 	std::cout << "--------------------------------------------------------------------- " 	<< std::endl;
 	std::cout << fnImgI << std::endl;
@@ -800,23 +799,23 @@ void ProgClassifyPartialOccupancy::compareRegions(double &ll_I, double &ll_IsubP
 		std::cout << "numberOfPx " 	<< numberOfPx << std::endl;
 		#endif
 
-		// // Fix scale previous to FT
-		// double scallignFactor = (Xdim * Ydim) / (numberOfPx);
+		// Fix scale previous to FT
+		double scallignFactor = (Xdim * Ydim) / (numberOfPx);
 
-		// for (int i = minY[value]; i <= maxY[value]; ++i) 
-		// {
-		// 	for (int j = minX[value]; j <= maxX[value]; ++j) 
-		// 	{
-		// 		int newI = centerY - height / 2 + (i - minY[value]);
-		// 		int newJ = centerX - width / 2 + (j - minX[value]);
+		for (int i = minY[value]; i <= maxY[value]; ++i) 
+		{
+			for (int j = minX[value]; j <= maxX[value]; ++j) 
+			{
+				int newI = centerY - height / 2 + (i - minY[value]);
+				int newJ = centerX - width / 2 + (j - minX[value]);
 				
-		// 		if (DIRECT_A2D_ELEM(PmaskRoiLabel, i, j) > 0)
-		// 		{
-		// 			DIRECT_A2D_ELEM(centeredLigand, newI, newJ) *= scallignFactor;
-		// 			DIRECT_A2D_ELEM(centeredLigandSubP, newI, newJ) *= scallignFactor;
-		// 		}
-		// 	}
-		// }
+				if (DIRECT_A2D_ELEM(PmaskRoiLabel, i, j) > 0)
+				{
+					DIRECT_A2D_ELEM(centeredLigand, newI, newJ) *= scallignFactor;
+					DIRECT_A2D_ELEM(centeredLigandSubP, newI, newJ) *= scallignFactor;
+				}
+			}
+		}
 
 		#ifdef DEBUG_REGIONS_COMPARISON
 		size_t lastindex = fnImgOut.find_last_of(".");
@@ -830,23 +829,23 @@ void ProgClassifyPartialOccupancy::compareRegions(double &ll_I, double &ll_IsubP
 		saveImage.write(debugFileFn);
 		#endif
 
-		// // Calcualte metrics for both regions in Fourier space
-		// transformerI.FourierTransform(centeredLigand, fftI, false);
-		// transformerIsubP.FourierTransform(centeredLigandSubP, fftIsubP, false);
+		// Calcualte metrics for both regions in Fourier space
+		transformerI.FourierTransform(centeredLigand, fftI, false);
+		transformerIsubP.FourierTransform(centeredLigandSubP, fftIsubP, false);
 		
-		// double ll_I_it = 0;
-		// double ll_IsubP_it = 0;
+		double ll_I_it = 0;
+		double ll_IsubP_it = 0;
 
-		// // Calcualte metrics for both regions
-		// // logLikelihood(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
-		// // radialLogLikelihood(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
-		// // entropy(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
-		// // kullbackLeibler(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
-		// // crossEntropy(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
+		// Calcualte metrics for both regions
+		logLikelihood(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
+		// radialLogLikelihood(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
+		// entropy(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
+		// kullbackLeibler(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
+		// crossEntropy(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
 
-		// // Accumulate for all regions
-		// ll_I	 += ll_I_it;
-		// ll_IsubP += ll_IsubP_it;
+		// Accumulate for all regions
+		ll_I	 += ll_I_it;
+		ll_IsubP += ll_IsubP_it;
 	}
 
 	#ifdef DEBUG_METRICS
