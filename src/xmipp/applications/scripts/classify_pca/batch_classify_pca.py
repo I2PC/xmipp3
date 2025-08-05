@@ -164,7 +164,7 @@ if __name__=="__main__":
     
     
     ### Start initial cycles
-    num_cycles = 1 
+    num_cycles = 3 
     for cycles in range (num_cycles):
         batch_projExp_cpu = []
         endBatch = 0
