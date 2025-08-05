@@ -402,7 +402,7 @@ class BnBgpu:
             
         
         # if iter > 3 and iter < 7: # and cycles == 0:
-        if iter > 3 and iter < 7:# and cycles == 0:
+        if iter > 1 and iter < 7:# and cycles == 0:
             print("--------", iter, "-----------")
             thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches, threshold=2.0)
         # elif iter >= 10:
@@ -411,7 +411,7 @@ class BnBgpu:
             
 
         # if iter > 3 and iter < 7: # and cycles == 0:
-        if iter > 3 and iter < 7:# and cycles == 0:
+        if iter > 1 and iter < 7:# and cycles == 0:
             num = int(classes/2)
             newCL = [[] for i in range(classes)]
         else:
@@ -454,7 +454,7 @@ class BnBgpu:
 
             
             # if iter > 3 and iter < 7:# and cycles == 0:
-            if iter > 3 and iter < 7:# and cycles == 0:
+            if iter > 1 and iter < 7:# and cycles == 0:
                 
                 for n in range(num):
                     
@@ -529,7 +529,8 @@ class BnBgpu:
             clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
                                 intensity_percentile=50, contrast_weight=1.5, intensity_weight=1.0, smooth_sigma=1.0)
         # if 3 < iter < 7 and iter % 2 == 0:
-        if 3 < iter < 7 and iter % 2 == 0:
+        # if 3 < iter < 7 and iter % 2 == 0:
+        if 1 < iter < 7 and iter % 2 == 0:
             # clk = clk * self.approximate_otsu_threshold(clk, percentile=10)
             clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
                                 intensity_percentile=50, contrast_weight=1.5, intensity_weight=1.0, smooth_sigma=1.0)
