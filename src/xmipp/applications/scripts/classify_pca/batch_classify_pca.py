@@ -54,6 +54,44 @@ def flatGrid(freq_band, coef, nBand):
         
     return(grid_flat)  
 
+
+def kmeans_pytorch_fast(X, num_clusters, num_iters=10, verbose=False):
+    """
+    Fast K-Means in PyTorch using vectorized ops (supports GPU).
+
+    Args:
+        X (torch.Tensor): (N, D) data points
+        num_clusters (int): number of clusters
+        num_iters (int): maximum number of iterations
+
+    Returns:
+        labels: (N,) cluster assignments
+        centroids: (num_clusters, D) final centroids
+    """
+    N, D = X.shape
+
+    # Random initialization of centroids
+    indices = torch.randperm(N, device=X.device)[:num_clusters]
+    centroids = X[indices]
+
+    for it in range(num_iters):
+        # Compute squared distances (N, K)
+        distances = torch.cdist(X, centroids, p=2)
+
+        # Assign each point to nearest cluster
+        labels = distances.argmin(dim=1)
+
+        # Compute new centroids with scatter
+        counts = torch.bincount(labels, minlength=num_clusters).clamp(min=1).unsqueeze(1)  # avoid division by 0
+        centroids_sum = torch.zeros_like(centroids).scatter_add_(0, labels.unsqueeze(1).expand(-1, D), X)
+        centroids = centroids_sum / counts
+
+        if verbose:
+            inertia = (distances[torch.arange(N), labels] ** 2).sum().item()
+            print(f"Iteration {it+1}, Inertia: {inertia:.2f}")
+
+    return labels, centroids
+
        
 if __name__=="__main__":
       
@@ -149,8 +187,52 @@ if __name__=="__main__":
         cl = torch.from_numpy(clIm).float().to(cuda)
     else:
         initStep = int(min(numFirstBatch, np.ceil(nExp/expBatchSize)))
-        cl = bnb.init_ramdon_classes(final_classes, mmap, initSubset) 
+        # cl = bnb.init_ramdon_classes(final_classes, mmap, initSubset) 
         # cl = bnb.init_ramdon_classes(final_classes//2, mmap, initSubset)
+        
+        
+        Im_zero = mmap.data[0:Ntrain].astype(np.float32)
+        # Im_zero = mmap.data[0:15000].astype(np.float32)
+        Texp_zero = torch.from_numpy(Im_zero).float().to(cuda)
+        del(Im_zero)
+        
+        # 2. Obtener vectores PCA (puede devolver lista → convertir a numpy array)
+        pca_zero = bnb.create_batchExp(Texp_zero, freqBn, coef, cvecs)
+        print(cvecs[0].shape[1])
+        pca_zero = torch.stack(pca_zero)
+        
+        # X_pca = pca_zero.view(Im_zero.shape[0], cvecs[0].shape[1]).float().cpu().numpy()
+        X_pca = pca_zero.view(Texp_zero.shape[0], cvecs[0].shape[1]).float()
+        
+        # X_pca = pca_zero.float().cpu().numpy()
+        print(X_pca.shape)
+        
+        labels_tensor, centroids = kmeans_pytorch_fast(X_pca, final_classes, num_iters=20, verbose=True)
+        #
+        # # 3. Clustering con KMeans
+        # from sklearn.cluster import KMeans
+        # kmeans = KMeans(n_clusters=50, n_init=10)
+        # labels = kmeans.fit_predict(X_pca)
+        # labels_tensor = torch.from_numpy(labels).to(Texp_zero.device)
+        #
+        # 4. Calcular promedios por clase
+        averages = []
+        for i in range(final_classes):
+            class_mask = labels_tensor == i
+            class_images = Texp_zero[class_mask]
+        
+            if class_images.size(0) > 0:
+                avg = class_images.mean(dim=0)
+            else:
+                avg = torch.zeros_like(Texp_zero[0])
+        
+            averages.append(avg)
+        
+        # 5. Guardar promedios como imagenes .mrcs
+        cl = torch.stack(averages)
+        # init_classes = "init_classes.mrcs"
+        # save_images(cl.cpu().detach().numpy(), sampling, init_classes)
+        del Texp_zero, pca_zero, X_pca, labels_tensor, centroids, averages
         
     
     if refImages:
@@ -164,7 +246,7 @@ if __name__=="__main__":
     
     
     ### Start initial cycles
-    num_cycles = 3 
+    num_cycles = 1 
     for cycles in range (num_cycles):
         batch_projExp_cpu = []
         endBatch = 0
