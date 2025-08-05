@@ -191,8 +191,7 @@ if __name__=="__main__":
         # cl = bnb.init_ramdon_classes(final_classes//2, mmap, initSubset)
         
         
-        Im_zero = mmap.data[0:Ntrain].astype(np.float32)
-        # Im_zero = mmap.data[0:15000].astype(np.float32)
+        Im_zero = mmap.data[0:50000].astype(np.float32)
         Texp_zero = torch.from_numpy(Im_zero).float().to(cuda)
         del(Im_zero)
         
