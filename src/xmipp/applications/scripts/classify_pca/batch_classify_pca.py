@@ -193,6 +193,7 @@ if __name__=="__main__":
         
         Im_zero = mmap.data[0:50000].astype(np.float32)
         Texp_zero = torch.from_numpy(Im_zero).float().to(cuda)
+        Texp_zero = Texp_zero * bnb.create_gaussian_mask(Texp_zero, sigma)
         del(Im_zero)
         
         # 2. Obtener vectores PCA (puede devolver lista → convertir a numpy array)
