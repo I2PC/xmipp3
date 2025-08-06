@@ -454,7 +454,7 @@ class BnBgpu:
 
             
             # if iter > 3 and iter < 7:# and cycles == 0:
-            if iter > 1 and iter < 0:# and cycles == 0:
+            if iter > 1 and iter < 7:# and cycles == 0:
                 
                 for n in range(num):
                     
@@ -477,8 +477,7 @@ class BnBgpu:
 
             else:  
       
-                # for n in range(num):
-                for n in range(classes):
+                for n in range(num):
                     class_images = transforIm[matches[initBatch:endBatch, 1] == n]
                     newCL[n].append(class_images)
                     
@@ -670,18 +669,25 @@ class BnBgpu:
         
         # if iter == 3:
         if iter == 2:
-            newCL = [[] for i in range(classes)]              
-                    
-            for n in range(classes):
-                class_images = transforIm[matches[:, 1] == n]
-                newCL[n].append(class_images)
-                         
+            # newCL = [[] for i in range(classes)]              
+            #
+            # for n in range(classes):
+            #     class_images = transforIm[matches[:, 1] == n]
+            #     newCL[n].append(class_images)
+            #
+            # del(transforIm)
+            #
+            # newCL = [torch.cat(class_images_list, dim=0) for class_images_list in newCL] 
+            # clk = self.averages(data, newCL, classes)
+            
+            clk = self.averages_direct(transforIm, matches, classes)
+            res_classes = self.frc_resolution_tensor_align(transforIm, matches, classes, sampling)
             del(transforIm)
             
-            newCL = [torch.cat(class_images_list, dim=0) for class_images_list in newCL] 
-            clk = self.averages(data, newCL, classes)
+
             
-            res_classes = self.frc_resolution_tensor(newCL, sampling)
+            
+            # res_classes = self.frc_resolution_tensor(newCL, sampling)
             # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
@@ -852,6 +858,25 @@ class BnBgpu:
                 clk.append(torch.mean(newCL[n], dim=0))
             else:
                 clk.append(torch.zeros((data.shape[1], data.shape[2]), device=newCL[0].device))
+        clk = torch.stack(clk)
+        return clk
+    
+    
+    def averages_direct(self, transforIm, matches, classes):
+        labels = matches[:, 1]
+        clk = []
+    
+        for i in range(classes):
+            class_mask = labels == i
+            class_imgs = transforIm[class_mask]
+    
+            if class_imgs.shape[0] > 0:
+                avg = class_imgs.mean(dim=0)
+            else:
+                avg = torch.zeros_like(transforIm[0])
+    
+            clk.append(avg)
+    
         clk = torch.stack(clk)
         return clk
     
@@ -1657,6 +1682,75 @@ class BnBgpu:
                 res_out[c] = 1.0 / freqs[idx[0]]
     
         # ---------- sustituye NaN e Inf una sola vez ------------
+        res_out = torch.nan_to_num(res_out, nan=fallback_res, posinf=fallback_res, neginf=fallback_res)
+        return res_out
+    
+    @torch.no_grad()
+    def frc_resolution_tensor_align(
+            self,
+            transforIm,             # tensor [B, H, W]
+            matches,                 # tensor [B], clases de cada imagen
+            classes,                # int, número de clases
+            pixel_size: float,           
+            frc_threshold: float = 0.143,
+            fallback_res: float = 40.0,
+            apply_window: bool = True
+        ) -> torch.Tensor:
+    
+        n_classes = classes
+        device = transforIm.device
+        labels = matches[:, 1]
+        
+        h, w = transforIm.shape[-2], transforIm.shape[-1]
+        
+        res_out = torch.full((n_classes,), float('nan'), device=device)
+        
+        y, x = torch.meshgrid(torch.arange(h, device=device),
+                              torch.arange(w, device=device),
+                              indexing='ij')
+        r = ((x - w//2)**2 + (y - h//2)**2).sqrt().long()
+        Rmax = min(h, w) // 2
+        r.clamp_(0, Rmax-1)
+        r_flat = r.view(-1)
+        freqs = torch.linspace(0, 0.5 / pixel_size, Rmax, device=device)
+    
+        # Ventana Hann
+        if apply_window:
+            wy = torch.hann_window(h, periodic=False, device=device)
+            wx = torch.hann_window(w, periodic=False, device=device)
+            window = wy[:, None] * wx[None, :]
+    
+        for c in range(n_classes):
+            class_mask = labels == c
+            imgs = transforIm[class_mask]
+            n = imgs.shape[0]
+            if n < 2:
+                continue
+            
+            perm = torch.randperm(n, device=device)
+            half1, half2 = torch.chunk(imgs[perm], 2, dim=0)
+            avg1, avg2 = half1.mean(0), half2.mean(0)
+    
+            if apply_window:
+                avg1 = avg1 * window
+                avg2 = avg2 * window
+    
+            fft1 = torch.fft.fftshift(torch.fft.fft2(avg1, norm="forward"))
+            fft2 = torch.fft.fftshift(torch.fft.fft2(avg2, norm="forward"))
+    
+            p1 = (fft1.real**2 + fft1.imag**2)
+            p2 = (fft2.real**2 + fft2.imag**2)
+            prod = (fft1 * fft2.conj()).real
+    
+            frc_num = torch.zeros(Rmax, device=device).scatter_add_(0, r_flat, prod.view(-1))
+            frc_d1 = torch.zeros(Rmax, device=device).scatter_add_(0, r_flat, p1.view(-1))
+            frc_d2 = torch.zeros(Rmax, device=device).scatter_add_(0, r_flat, p2.view(-1))
+            frc = frc_num / (torch.sqrt(frc_d1 * frc_d2) + 1e-12)
+    
+            idx = torch.where(frc < frc_threshold)[0]
+            if len(idx) and idx[0] > 0:
+                res_out[c] = 1.0 / freqs[idx[0]]
+    
         res_out = torch.nan_to_num(res_out, nan=fallback_res, posinf=fallback_res, neginf=fallback_res)
         return res_out
 
