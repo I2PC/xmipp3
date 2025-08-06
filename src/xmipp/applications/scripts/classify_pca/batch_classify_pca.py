@@ -191,9 +191,11 @@ if __name__=="__main__":
         # cl = bnb.init_ramdon_classes(final_classes//2, mmap, initSubset)
         
         
-        Im_zero = mmap.data[0:50000].astype(np.float32)
+        # Im_zero = mmap.data[0:50000].astype(np.float32)
+        indices = np.random.choice(nExp, size=50000, replace=False)
+        Im_zero = mmap.data[indices].astype(np.float32)
         Texp_zero = torch.from_numpy(Im_zero).float().to(cuda)
-        Texp_zero = Texp_zero * bnb.create_gaussian_mask(Texp_zero, sigma)
+        # Texp_zero = Texp_zero * bnb.create_gaussian_mask(Texp_zero, sigma)
         del(Im_zero)
         
         # 2. Obtener vectores PCA (puede devolver lista → convertir a numpy array)
