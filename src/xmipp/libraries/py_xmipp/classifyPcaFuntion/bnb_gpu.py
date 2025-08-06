@@ -454,7 +454,7 @@ class BnBgpu:
 
             
             # if iter > 3 and iter < 7:# and cycles == 0:
-            if iter > 1 and iter < 7:# and cycles == 0:
+            if iter > 1 and iter < 0:# and cycles == 0:
                 
                 for n in range(num):
                     
@@ -477,7 +477,8 @@ class BnBgpu:
 
             else:  
       
-                for n in range(num):
+                # for n in range(num):
+                for n in range(classes):
                     class_images = transforIm[matches[initBatch:endBatch, 1] == n]
                     newCL[n].append(class_images)
                     
@@ -674,18 +675,6 @@ class BnBgpu:
             for n in range(classes):
                 class_images = transforIm[matches[:, 1] == n]
                 newCL[n].append(class_images)
-                          
-                # class_images = transforIm[
-                #                         (matches[:, 1] == n) &
-                #                         (matches[:, 2] > thr_low[n]) &
-                #                         (matches[:, 2] < thr_high[n])
-                #                     ]
-                # newCL[n].append(class_images)
-                
-                # maskSel = matches[:, 1] == n  
-                # sorted_indices = torch.argsort(matches[:, 2][maskSel])  
-                # class_images = transforIm[maskSel][sorted_indices[:max(1, len(sorted_indices) // 2)]] 
-                # newCL[n].append(class_images)
                          
             del(transforIm)
             
@@ -2682,6 +2671,59 @@ class BnBgpu:
         )
     
         return output
+    
+    
+    def kmeans_pytorch_for_averages(self, Im_tensor, X, eigvect, num_clusters, num_iters=20, verbose=False):
+        """
+        Fast K-Means in PyTorch.
+    
+        Args:
+            X (torch.Tensor): (N, D) data points
+            num_clusters (int): number of clusters
+            num_iters (int): maximum number of iterations
+    
+        Returns:
+            averages
+        """
+        X = torch.stack(X)
+        X = X.view(Im_tensor.shape[0], eigvect[0].shape[1]).float()
+        N, D = X.shape
+    
+        # Random initialization of centroids
+        indices = torch.randperm(N, device=X.device)[:num_clusters]
+        centroids = X[indices]
+    
+        for it in range(num_iters):
+            # Compute squared distances (N, K)
+            distances = torch.cdist(X, centroids, p=2)
+    
+            # Assign each point to nearest cluster
+            labels = distances.argmin(dim=1)
+    
+            # Compute new centroids with scatter
+            counts = torch.bincount(labels, minlength=num_clusters).clamp(min=1).unsqueeze(1)  # avoid division by 0
+            centroids_sum = torch.zeros_like(centroids).scatter_add_(0, labels.unsqueeze(1).expand(-1, D), X)
+            centroids = centroids_sum / counts
+    
+            if verbose:
+                inertia = (distances[torch.arange(N), labels] ** 2).sum().item()
+                print(f"Iteration {it+1}, Inertia: {inertia:.2f}")
+                
+        averages = []
+        for i in range(num_clusters):
+            class_mask = labels == i
+            class_images = Im_tensor[class_mask]
+        
+            if class_images.size(0) > 0:
+                avg = class_images.mean(dim=0)
+            else:
+                avg = torch.zeros_like(Im_tensor[0])
+        
+            averages.append(avg)
+            
+        del X, labels, centroids
+    
+        return torch.stack(averages)
 
 
 

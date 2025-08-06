@@ -57,7 +57,7 @@ def flatGrid(freq_band, coef, nBand):
 
 def kmeans_pytorch_fast(X, num_clusters, num_iters=10, verbose=False):
     """
-    Fast K-Means in PyTorch using vectorized ops (supports GPU).
+    Fast K-Means in PyTorch.
 
     Args:
         X (torch.Tensor): (N, D) data points
@@ -190,9 +190,8 @@ if __name__=="__main__":
         # cl = bnb.init_ramdon_classes(final_classes, mmap, initSubset) 
         # cl = bnb.init_ramdon_classes(final_classes//2, mmap, initSubset)
         
-        
-        # Im_zero = mmap.data[0:50000].astype(np.float32)
-        indices = np.random.choice(nExp, size=50000, replace=False)
+        indices = np.random.choice(nExp, size=min(50000, nExp), replace=False)
+        # indices = np.random.choice(nExp, size=min(15000, nExp), replace=False)
         Im_zero = mmap.data[indices].astype(np.float32)
         Texp_zero = torch.from_numpy(Im_zero).float().to(cuda)
         # Texp_zero = Texp_zero * bnb.create_gaussian_mask(Texp_zero, sigma)
@@ -200,41 +199,31 @@ if __name__=="__main__":
         
         # 2. Obtener vectores PCA (puede devolver lista → convertir a numpy array)
         pca_zero = bnb.create_batchExp(Texp_zero, freqBn, coef, cvecs)
-        print(cvecs[0].shape[1])
-        pca_zero = torch.stack(pca_zero)
         
-        # X_pca = pca_zero.view(Im_zero.shape[0], cvecs[0].shape[1]).float().cpu().numpy()
-        X_pca = pca_zero.view(Texp_zero.shape[0], cvecs[0].shape[1]).float()
+        cl = bnb.kmeans_pytorch_for_averages(Texp_zero, pca_zero, cvecs, num_clusters = final_classes)
+        del Texp_zero, pca_zero
         
-        # X_pca = pca_zero.float().cpu().numpy()
-        print(X_pca.shape)
-        
-        labels_tensor, centroids = kmeans_pytorch_fast(X_pca, final_classes, num_iters=20, verbose=True)
+        # pca_zero = torch.stack(pca_zero)
+        # X_pca = pca_zero.view(Texp_zero.shape[0], cvecs[0].shape[1]).float()
         #
-        # # 3. Clustering con KMeans
-        # from sklearn.cluster import KMeans
-        # kmeans = KMeans(n_clusters=50, n_init=10)
-        # labels = kmeans.fit_predict(X_pca)
-        # labels_tensor = torch.from_numpy(labels).to(Texp_zero.device)
+        # labels_tensor, centroids = kmeans_pytorch_fast(X_pca, final_classes, num_iters=20, verbose=True)
         #
-        # 4. Calcular promedios por clase
-        averages = []
-        for i in range(final_classes):
-            class_mask = labels_tensor == i
-            class_images = Texp_zero[class_mask]
-        
-            if class_images.size(0) > 0:
-                avg = class_images.mean(dim=0)
-            else:
-                avg = torch.zeros_like(Texp_zero[0])
-        
-            averages.append(avg)
-        
-        # 5. Guardar promedios como imagenes .mrcs
-        cl = torch.stack(averages)
+        # averages = []
+        # for i in range(final_classes):
+        #     class_mask = labels_tensor == i
+        #     class_images = Texp_zero[class_mask]
+        #
+        #     if class_images.size(0) > 0:
+        #         avg = class_images.mean(dim=0)
+        #     else:
+        #         avg = torch.zeros_like(Texp_zero[0])
+        #
+        #     averages.append(avg)
+        #
+        # cl = torch.stack(averages)
         # init_classes = "init_classes.mrcs"
         # save_images(cl.cpu().detach().numpy(), sampling, init_classes)
-        del Texp_zero, pca_zero, X_pca, labels_tensor, centroids, averages
+        # del Texp_zero, pca_zero, X_pca, labels_tensor, centroids, averages
         
     
     if refImages:
