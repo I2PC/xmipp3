@@ -138,6 +138,7 @@ void ProgStatisticalMap::run()
         std::cout << "Processing volume " << fn_V << " from statistical map pool..." << std::endl;
         #endif
 
+        V.clear();
         V.read(fn_V); 
 
         if (!dimInitialized)
@@ -163,12 +164,12 @@ void ProgStatisticalMap::run()
             dimInitialized = true;
         }
 
-        preprocessMap();
+        preprocessMap(fn_V);
         processStaticalMap();
     }
 
     computeStatisticalMaps();
-    calculateAvgDiffMap();
+    // calculateAvgDiffMap();
 
     #ifdef DEBUG_STAT_MAP
     std::cout << "Statistical map succesfully calculated!" << std::endl;
@@ -187,13 +188,16 @@ void ProgStatisticalMap::run()
         std::cout << "Anayzing volume " << fn_V << " against statistical map..." << std::endl;
         #endif
 
+        V.clear();
         V.read(fn_V);
 
-        preprocessMap();
+        preprocessMap(fn_V);
 
+        V_Zscores.clear();
         calculateZscoreMap();
         writeZscoresMap(fn_V);
 
+        weightedMap.clear();
         weightMap();
         writeWeightedMap(fn_V);
     }
@@ -229,7 +233,7 @@ void ProgStatisticalMap::calculateFSCoh()
 	#endif
 }
 
-void ProgStatisticalMap::preprocessMap()
+void ProgStatisticalMap::preprocessMap(FileName fnIn)
 {
     std::cout << "    Preprocessing input map..." << std::endl;
 
@@ -257,6 +261,11 @@ void ProgStatisticalMap::preprocessMap()
     }
 
     ft.inverseFourierTransform();
+
+    #ifdef DEBUG_OUTPUT_FILES
+    FileName fnOut = fn_oroot + (fn_oroot.back() == '/' || fn_oroot.back() == '\\' ? "" : "/") + fnIn.substr(fnIn.find_last_of("/\\") + 1, fnIn.find_last_of('.') - fnIn.find_last_of("/\\") - 1) + "_preprocess.mrc";
+    V.write(fnOut);
+    #endif
 }
 
 void ProgStatisticalMap::processStaticalMap()
@@ -317,7 +326,8 @@ void ProgStatisticalMap::calculateZscoreMap()
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
         // Classic Z-score
-        double zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / DIRECT_MULTIDIM_ELEM(stdVolume(),n);
+        // double zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / DIRECT_MULTIDIM_ELEM(stdVolume(),n);
+        double zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n));
 
         // Average-normalized Z-score
         // double zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) * DIRECT_MULTIDIM_ELEM(avgVolume(),n) / DIRECT_MULTIDIM_ELEM(stdVolume(),n);
@@ -410,7 +420,7 @@ void ProgStatisticalMap::weightMap()
     // Weight by z-scores
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
-        DIRECT_MULTIDIM_ELEM(V(),n) =  1 - normal_cdf(DIRECT_MULTIDIM_ELEM(V_Zscores(),n));
+        DIRECT_MULTIDIM_ELEM(weightedMap(),n) =  1 - normal_cdf(DIRECT_MULTIDIM_ELEM(V_Zscores(),n));
     }
 }
 

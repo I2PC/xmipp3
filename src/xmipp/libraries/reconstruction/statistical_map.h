@@ -102,7 +102,7 @@ public:
 
     // ----------------------- CORE METHODS ------------------------------
     void calculateFSCoh();
-    void preprocessMap();
+    void preprocessMap(FileName fnIn);
     void processStaticalMap();
     void computeStatisticalMaps();
     void calculateAvgDiffMap();
