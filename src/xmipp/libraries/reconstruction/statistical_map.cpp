@@ -31,7 +31,8 @@
  #include <iostream>
  #include <string>
  #include <chrono>
- #include <cmath>    // For std::erf
+ #include <cmath>
+#include <numeric>
 
 
 
@@ -196,6 +197,14 @@ void ProgStatisticalMap::run()
         double p = percentile(V_Zscores(), percentileThr);
         histogramEqualizationParameters.push_back(p);        
     }
+
+    // Calculate average transformation
+    double sum = std::accumulate(histogramEqualizationParameters.begin(), histogramEqualizationParameters.end(), 0.0);
+    equalizationParam =  sum / histogramEqualizationParameters.size();
+
+    #ifdef DEBUG_PERCENTILE
+    std::cout << "Equalization parameter: " << equalizationParam << std::endl;
+    #endif
 
     // Compare input maps against statistical map
     mapPoolMD.read(fn_mapPool);

@@ -77,6 +77,7 @@ class ProgStatisticalMap: public XmippProgram
     // Histogram equalization
     double percentileThr = 99;
     std::vector<double> histogramEqualizationParameters;
+    double equalizationParam;
 
     // Particle metadata
     MetaDataVec mapPoolMD;
