@@ -112,6 +112,7 @@ public:
     // ---------------------- UTILS METHODS ------------------------------
     // Generate side info
     void generateSideInfo();
+    double normal_cdf(double z);
 
     double t_cdf(double t, int nu);
     double t_p_value(double t_stat, int nu);

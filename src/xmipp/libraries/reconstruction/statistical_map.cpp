@@ -31,6 +31,7 @@
  #include <iostream>
  #include <string>
  #include <chrono>
+ #include <cmath>    // For std::erf
 
 
 
@@ -309,6 +310,10 @@ void ProgStatisticalMap::calculateZscoreMap()
 {
     std::cout << "    Calculating Zscore map..." << std::endl;
 
+    int numberPx = Xdim*Ydim*Zdim;
+    MultidimArray<double> pValuesArray;
+    pValuesArray.initZeros(numberPx);
+
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
         // Classic Z-score
@@ -320,17 +325,53 @@ void ProgStatisticalMap::calculateZscoreMap()
         // Add constant to denominator
         // double zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / sqrt(DIRECT_MULTIDIM_ELEM(stdVolume(),n) + 0.5);
 
-        // Multiply by the 
+        // Multiply by the average volume
         // double zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) * DIRECT_MULTIDIM_ELEM(avgDiffVolume(),n) / sqrt(DIRECT_MULTIDIM_ELEM(stdVolume(),n));
 
+        // Correction factor by the number of maps
+        // double zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / (DIRECT_MULTIDIM_ELEM(stdVolume(),n) * sqrt(1 + 1 / Ndim));
+
+        // Ad-hoc sigma normalization factor
+        // double sigma_norm = std::percentile();
+        // double adjusted_std = sqrt(DIRECT_MULTIDIM_ELEM(stdVolume(),n)*DIRECT_MULTIDIM_ELEM(stdVolume(),n) + sigma_norm * sigma_norm);
+        // double zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / adjusted_std;
+        
         // Take only positive Z-score (densities that appear in the test map that are not present in the pool)
         if (zscore > 0)
         {
             DIRECT_MULTIDIM_ELEM(V_Zscores(),n) = zscore;
         }
 
-        // DIRECT_MULTIDIM_ELEM(V_Zscores(),n) = zscore;
+        // // Convert z-score to one-tailed p-value using standard normal CDF
+        // double p = 1 - normal_cdf(zscore);
+        // DIRECT_MULTIDIM_ELEM(pValuesArray,n) = p;
+
+        // // Use p values instead of Z-scores
+        // DIRECT_MULTIDIM_ELEM(V_Zscores(),n) = p;
     }
+
+    // MultidimArray<double> pValuesArray_sort;
+    // pValuesArray.sort(pValuesArray_sort);
+    // double pSignificant = 1.0;
+    // int q = 0.05; // significance parameter
+
+    // // Benjamini-Hochberg procedure: find the smallest p such that p > (i/m) * q
+    // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(pValuesArray_sort)
+    // {
+    //     if (DIRECT_MULTIDIM_ELEM(pValuesArray_sort,n) > (n/(numberPx*1.0))*q)
+    //     {
+    //         pSignificant = DIRECT_MULTIDIM_ELEM(pValuesArray_sort,n);
+    //         break;
+    //     }
+    // }
+
+    // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V_Zscores())
+    // {
+    //     if (DIRECT_MULTIDIM_ELEM(V_Zscores(),n) > pSignificant)
+    //     {
+    //         DIRECT_MULTIDIM_ELEM(V_Zscores(),n) = 0;
+    //     }
+    // }
     
     // calculate t-statistc
     // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
@@ -369,7 +410,7 @@ void ProgStatisticalMap::weightMap()
     // Weight by z-scores
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
-        DIRECT_MULTIDIM_ELEM(V(),n) *= DIRECT_MULTIDIM_ELEM(V_Zscores(),n);
+        DIRECT_MULTIDIM_ELEM(V(),n) =  1 - normal_cdf(DIRECT_MULTIDIM_ELEM(V_Zscores(),n));
     }
 }
 
@@ -403,4 +444,8 @@ void ProgStatisticalMap::generateSideInfo()
 {
     fn_out_avg_map = fn_oroot + "statsMap_avg.mrc";
     fn_out_std_map = fn_oroot + "statsMap_std.mrc";
+}
+
+double ProgStatisticalMap::normal_cdf(double z) {
+    return 0.5 * (1.0 + std::erf(z / std::sqrt(2.0)));
 }
