@@ -39,6 +39,7 @@
 #define DEBUG_WEIGHT_MAP
 #define DEBUG_WRITE_OUTPUT
 #define DEBUG_OUTPUT_FILES
+#define DEBUG_PERCENTILE
 
 /**@defgroup ProgStatisticalMap Calculates statistical map
    @ingroup ReconsLibrary */
@@ -72,6 +73,10 @@ class ProgStatisticalMap: public XmippProgram
     Image<double> avgVolume;                        // Average volume
     Image<double> stdVolume;                        // Standard deviation volume
     Image<double> avgDiffVolume;                    // Average difference volume
+
+    // Histogram equalization
+    double percentileThr = 99;
+    std::vector<double> histogramEqualizationParameters;
 
     // Particle metadata
     MetaDataVec mapPoolMD;
@@ -115,6 +120,8 @@ public:
 
     double t_cdf(double t, int nu);
     double t_p_value(double t_stat, int nu);
+    double percentile(MultidimArray<double>& data, double p);
+
 };
 //@}
 #endif

@@ -176,6 +176,27 @@ void ProgStatisticalMap::run()
     
     writeStatisticalMap();
 
+    // Calculate Z-score maps from statistical map pool for histogram equalization
+    for (const auto& row : mapPoolMD)
+	{
+        row.getValue(MDL_IMAGE, fn_V);
+
+        #ifdef DEBUG_WEIGHT_MAP
+        std::cout << "Anayzing volume " << fn_V << " against statistical map for histogram equalization..." << std::endl;
+        #endif
+
+        V.clear();
+        V.read(fn_V);
+
+        preprocessMap(fn_V);
+
+        V_Zscores().initZeros(Zdim, Ydim, Xdim);
+        calculateZscoreMap();
+
+        double p = percentile(V_Zscores(), percentileThr);
+        histogramEqualizationParameters.push_back(p);        
+    }
+
     // Compare input maps against statistical map
     mapPoolMD.read(fn_mapPool);
 
@@ -456,4 +477,23 @@ void ProgStatisticalMap::generateSideInfo()
 
 double ProgStatisticalMap::normal_cdf(double z) {
     return 0.5 * (1.0 + std::erf(z / std::sqrt(2.0)));
+}
+
+double ProgStatisticalMap::percentile(MultidimArray<double>& data, double p) {
+
+    MultidimArray<double> data_sorted;
+    data.sort(data_sorted);
+
+    double pos = (p / 100.0) * (NZYXSIZE(data_sorted) - 1);
+    size_t idx = static_cast<size_t>(std::floor(pos));
+    double frac = pos - idx;
+
+    // Linear interpolation
+    double percentile = DIRECT_MULTIDIM_ELEM(data_sorted, idx) * (1.0 - frac) + DIRECT_MULTIDIM_ELEM(data_sorted, idx);
+
+    #ifdef DEBUG_PERCENTILE
+    std::cout << "Calulated percentile: " << percentile << std::endl;
+    #endif
+
+    return percentile;
 }
