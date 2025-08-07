@@ -159,7 +159,6 @@ void ProgStatisticalMap::run()
             avgVolume().initZeros(Zdim, Ydim, Xdim);
             stdVolume().initZeros(Zdim, Ydim, Xdim);
             avgDiffVolume().initZeros(Zdim, Ydim, Xdim);
-            V_Zscores().initZeros(Zdim, Ydim, Xdim);
 
             dimInitialized = true;
         }
@@ -193,11 +192,10 @@ void ProgStatisticalMap::run()
 
         preprocessMap(fn_V);
 
-        V_Zscores.clear();
+        V_Zscores().initZeros(Zdim, Ydim, Xdim);
         calculateZscoreMap();
         writeZscoresMap(fn_V);
 
-        weightedMap.clear();
         weightMap();
         writeWeightedMap(fn_V);
     }
@@ -420,7 +418,7 @@ void ProgStatisticalMap::weightMap()
     // Weight by z-scores
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
-        DIRECT_MULTIDIM_ELEM(weightedMap(),n) =  1 - normal_cdf(DIRECT_MULTIDIM_ELEM(V_Zscores(),n));
+        DIRECT_MULTIDIM_ELEM(V(),n) =  1 - normal_cdf(DIRECT_MULTIDIM_ELEM(V_Zscores(),n));
     }
 }
 
