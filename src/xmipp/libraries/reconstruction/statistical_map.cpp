@@ -128,6 +128,10 @@ void ProgStatisticalMap::run()
     calculateFSCoh();
 
     // Calculate statistical map
+    #ifdef VERBOSE_OUTPUT
+    std::cout << "\n\n---Analyzing input map pool for statistical characterization---" << std::endl;
+    #endif
+    
     mapPoolMD.read(fn_mapPool_statistical);
     Ndim = mapPoolMD.size();
 
@@ -178,6 +182,11 @@ void ProgStatisticalMap::run()
     writeStatisticalMap();
 
     // Calculate Z-score maps from statistical map pool for histogram equalization
+    
+    #ifdef VERBOSE_OUTPUT
+    std::cout << "\n\n---Analyzing input map pool for histogram equalization---" << std::endl;
+    #endif
+
     for (const auto& row : mapPoolMD)
 	{
         row.getValue(MDL_IMAGE, fn_V);
@@ -193,6 +202,7 @@ void ProgStatisticalMap::run()
 
         V_Zscores().initZeros(Zdim, Ydim, Xdim);
         calculateZscoreMap();
+        writeZscoresMap(fn_V);
 
         double p = percentile(V_Zscores(), percentileThr);
         histogramEqualizationParameters.push_back(p);        
@@ -207,6 +217,11 @@ void ProgStatisticalMap::run()
     #endif
 
     // Compare input maps against statistical map
+    
+    #ifdef VERBOSE_OUTPUT
+    std::cout << "\n\n---Comparing input map pool agains statistical map---" << std::endl;
+    #endif
+
     mapPoolMD.read(fn_mapPool);
 
     for (const auto& row : mapPoolMD)
