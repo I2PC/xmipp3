@@ -176,7 +176,7 @@ void ProgStatisticalMap::run()
         // processStaticalMap();
     }
 
-    computeStatisticalMaps();
+    // computeStatisticalMaps();
     // calculateAvgDiffMap();
 
     #ifdef DEBUG_STAT_MAP
@@ -185,53 +185,51 @@ void ProgStatisticalMap::run()
     
     writeStatisticalMap();
 
-    // Calculate Z-score maps from statistical map pool for histogram equalization
-    
-    #ifdef VERBOSE_OUTPUT
-    std::cout << "\n\n---Analyzing input map pool for histogram equalization---" << std::endl;
-    #endif
+    // // Calculate Z-score maps from statistical map pool for histogram equalization
+    // #ifdef VERBOSE_OUTPUT
+    // std::cout << "\n\n---Analyzing input map pool for histogram equalization---" << std::endl;
+    // #endif
 
-    for (const auto& row : mapPoolMD)
-	{
-        row.getValue(MDL_IMAGE, fn_V);
+    // for (const auto& row : mapPoolMD)
+	// {
+    //     row.getValue(MDL_IMAGE, fn_V);
 
-        #ifdef DEBUG_WEIGHT_MAP
-        std::cout << "Anayzing volume " << fn_V << " against statistical map for histogram equalization..." << std::endl;
-        #endif
+    //     #ifdef DEBUG_WEIGHT_MAP
+    //     std::cout << "Anayzing volume " << fn_V << " against statistical map for histogram equalization..." << std::endl;
+    //     #endif
 
-        V.clear();
-        V.read(fn_V);
+    //     V.clear();
+    //     V.read(fn_V);
 
-        preprocessMap(fn_V);
+    //     preprocessMap(fn_V);
 
-        V_Zscores().initZeros(Zdim, Ydim, Xdim);
-        calculateZscoreMap();
-        writeZscoresMap(fn_V);
+    //     V_Zscores().initZeros(Zdim, Ydim, Xdim);
+    //     calculateZscoreMap();
+    //     writeZscoresMap(fn_V);
 
-        // double p = percentile(V_Zscores(), percentileThr);
-        // histogramEqualizationParameters.push_back(p);        
+    //     // double p = percentile(V_Zscores(), percentileThr);
+    //     // histogramEqualizationParameters.push_back(p);        
 
-        double min;
-        double max;
-        V_Zscores().computeDoubleMinMax(min, max);
+    //     double min;
+    //     double max;
+    //     V_Zscores().computeDoubleMinMax(min, max);
 
-        #ifdef DEBUG_PERCENTILE
-        std::cout << "Max value in Z-score map: " << max << std::endl;
-        #endif
+    //     #ifdef DEBUG_PERCENTILE
+    //     std::cout << "Max value in Z-score map: " << max << std::endl;
+    //     #endif
 
-        histogramEqualizationParameters.push_back(max);        
-    }
+    //     histogramEqualizationParameters.push_back(max);        
+    // }
 
-    // Calculate average transformation
-    double sum = std::accumulate(histogramEqualizationParameters.begin(), histogramEqualizationParameters.end(), 0.0);
-    equalizationParam =  sum / histogramEqualizationParameters.size();
+    // // Calculate average transformation
+    // double sum = std::accumulate(histogramEqualizationParameters.begin(), histogramEqualizationParameters.end(), 0.0);
+    // equalizationParam =  sum / histogramEqualizationParameters.size();
 
-    #ifdef DEBUG_PERCENTILE
-    std::cout << "Equalization parameter: " << equalizationParam << std::endl;
-    #endif
+    // #ifdef DEBUG_PERCENTILE
+    // std::cout << "Equalization parameter: " << equalizationParam << std::endl;
+    // #endif
 
     // Compare input maps against statistical map
-    
     #ifdef VERBOSE_OUTPUT
     std::cout << "\n\n---Comparing input map pool agains statistical map---" << std::endl;
     #endif
@@ -252,11 +250,12 @@ void ProgStatisticalMap::run()
         preprocessMap(fn_V);
 
         V_Zscores().initZeros(Zdim, Ydim, Xdim);
-        calculateZscoreMap();
+        // calculateZscoreMap();
+        calculateDixonMap();
         writeZscoresMap(fn_V);
 
-        weightMap();
-        writeWeightedMap(fn_V);
+        // weightMap();
+        // writeWeightedMap(fn_V);
     }
 
     #ifdef DEBUG_WEIGHT_MAP
@@ -390,6 +389,34 @@ void ProgStatisticalMap::calculateAvgDiffMap()
     avgDiffVolume() /= Ndim;
 
     avgDiffVolume.write(fn_oroot + "statsMap_avgDiff.mrc");
+}
+
+
+calculateDixonMap
+void ProgStatisticalMap::calculateDixonMap()
+{
+    std::cout << "    Calculating Dixon map..." << std::endl;
+    double dixonThreshold = 0.521;
+
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+    {
+        // Compute Dixon
+        if (DIRECT_MULTIDIM_ELEM(V(),n) > DIRECT_MULTIDIM_ELEM(avgVolume(),n))
+        {
+            DIRECT_MULTIDIM_ELEM(V_Zscores(),n) = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / (DIRECT_MULTIDIM_ELEM(avgVolume(),n) - DIRECT_MULTIDIM_ELEM(stdVolume(),n));
+
+            if (DIRECT_MULTIDIM_ELEM(V_Zscores(),n) > dixonThreshold)
+            {
+               DIRECT_MULTIDIM_ELEM(V(),n) = 1;
+            }
+            
+        }
+        else
+        {
+            DIRECT_MULTIDIM_ELEM(V_Zscores(),n) = 0;
+            DIRECT_MULTIDIM_ELEM(V(),n) = 0;
+        }
+    }
 }
 
 void ProgStatisticalMap::calculateZscoreMap()
