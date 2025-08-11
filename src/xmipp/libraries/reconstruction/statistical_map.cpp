@@ -165,11 +165,15 @@ void ProgStatisticalMap::run()
             stdVolume().initZeros(Zdim, Ydim, Xdim);
             avgDiffVolume().initZeros(Zdim, Ydim, Xdim);
 
+            // For Dixon
+            stdVolume().initConstant(DBL_MAX);
+
             dimInitialized = true;
         }
 
         preprocessMap(fn_V);
-        processStaticalMap();
+        processStaticalMapDixon();
+        // processStaticalMap();
     }
 
     computeStatisticalMaps();
@@ -204,18 +208,18 @@ void ProgStatisticalMap::run()
         calculateZscoreMap();
         writeZscoresMap(fn_V);
 
-        double p = percentile(V_Zscores(), percentileThr);
-        histogramEqualizationParameters.push_back(p);        
+        // double p = percentile(V_Zscores(), percentileThr);
+        // histogramEqualizationParameters.push_back(p);        
 
-        // double min;
-        // double max;
-        // V_Zscores().computeDoubleMinMax(min, max);
+        double min;
+        double max;
+        V_Zscores().computeDoubleMinMax(min, max);
 
-        // #ifdef DEBUG_PERCENTILE
-        // std::cout << "Max value in Z-score map: " << max << std::endl;
-        // #endif
+        #ifdef DEBUG_PERCENTILE
+        std::cout << "Max value in Z-score map: " << max << std::endl;
+        #endif
 
-        // histogramEqualizationParameters.push_back(max);        
+        histogramEqualizationParameters.push_back(max);        
     }
 
     // Calculate average transformation
@@ -319,6 +323,26 @@ void ProgStatisticalMap::preprocessMap(FileName fnIn)
     FileName fnOut = fn_oroot + (fn_oroot.back() == '/' || fn_oroot.back() == '\\' ? "" : "/") + fnIn.substr(fnIn.find_last_of("/\\") + 1, fnIn.find_last_of('.') - fnIn.find_last_of("/\\") - 1) + "_preprocess.mrc";
     V.write(fnOut);
     #endif
+}
+
+void ProgStatisticalMap::processStaticalMapDixon()
+{ 
+    std::cout << "    Processing input map for statistical map calculation..." << std::endl;
+
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+    {
+        // Reuse avg and std maps for min and max (memory efficient)
+        double value = DIRECT_MULTIDIM_ELEM(V(),n);
+
+        if(value > DIRECT_MULTIDIM_ELEM(avgVolume(),n))
+        {
+            DIRECT_MULTIDIM_ELEM(avgVolume(),n) = value;   // max
+        }
+        if(value < DIRECT_MULTIDIM_ELEM(stdVolume(),n))
+        {
+            DIRECT_MULTIDIM_ELEM(stdVolume(),n) = value;   // min
+        }
+    }
 }
 
 void ProgStatisticalMap::processStaticalMap()
@@ -479,30 +503,45 @@ void ProgStatisticalMap::weightMap()
 
 
     // Use percentile to set a threshold 
-    MultidimArray sorted_Zscores; 
-    V_Zscores().sort(sorted_Zscores);
+    // MultidimArray<double> sorted_Zscores; 
+    // V_Zscores().sort(sorted_Zscores);
 
-    double percentile_over3sd;
-    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(sorted_Zscores)
-    {
-        if (DIRECT_MULTIDIM_ELEM(sorted_Zscores,n) > 3)
-        {
-            percentile_over3sd = n / NZYXSIZE(sorted_Zscores);
-            break;
-        }
-    }
+    // double percentile_over3sd;
+    // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(sorted_Zscores)
+    // {
+    //     if (DIRECT_MULTIDIM_ELEM(sorted_Zscores,n) > 3)
+    //     {
+    //         percentile_over3sd = n / NZYXSIZE(sorted_Zscores);
+    //         break;
+    //     }
+    // }
 
-    double overall_percentile = percentile_over3sd + equalizationParam;
+    // double overall_percentile = percentile_over3sd + equalizationParam;
 
-    size_t idx = static_cast<size_t>(std::floor(overall_percentile));
-    double threshold = DIRECT_MULTIDIM_ELEM(sorted_Zscores, idx);
-    std::cout << "THRESHOLD Z SCORE HALO MAP AT: " << threshold;
+    // size_t idx = static_cast<size_t>(std::floor(overall_percentile));
+    // double threshold = DIRECT_MULTIDIM_ELEM(sorted_Zscores, idx);
+
+
+    // Use percentile to set a threshold (bis)
+    // MultidimArray<double> sorted_Zscores; 
+    // V_Zscores().sort(sorted_Zscores);
+
+    // double threshold = DIRECT_MULTIDIM_ELEM(sorted_Zscores, static_cast<size_t>(std::floor(NZYXSIZE(sorted_Zscores) - equalizationParam)));
+    // std::cout << "THRESHOLD Z SCORE HALO MAP AT: " << threshold << std::endl;
     
+
     // Use FDR for outlier pixels
         // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     // {
     //     DIRECT_MULTIDIM_ELEM(V(),n) =  1 - normal_cdf(DIRECT_MULTIDIM_ELEM(V_Zscores(),n));
     // }
+
+
+    // Reweight z-score map based on the transofmration that put all z-score under z<1 
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+    {
+        DIRECT_MULTIDIM_ELEM(V(),n) =  DIRECT_MULTIDIM_ELEM(V_Zscores(),n) / equalizationParam;
+    }
 }
 
 double ProgStatisticalMap::t_cdf(double t, int nu) {
@@ -577,25 +616,32 @@ double ProgStatisticalMap::percentile(MultidimArray<double>& data, double p)
     std::cout << "NZYXSIZE(data_sorted)   "  << NZYXSIZE(data_sorted) << std::endl;
     std::cout << "NZYXSIZE(data)   "  << NZYXSIZE(data) << std::endl;
 
-    int p;
+    double p_over3 = 0;
+    double p_over0 = 0;
+
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(data_sorted)
     {
-        // We put this here in cose no value is over 3 (i think by definition of z-score will never happen)
-        p = n;
-
-        if ((DIRECT_MULTIDIM_ELEM(data_sorted), n) > 3)
+        if (DIRECT_MULTIDIM_ELEM(data_sorted, n) > 0)
         {
-            break;
+            p_over0++;
+
+            if (DIRECT_MULTIDIM_ELEM(data_sorted, n) > 3)
+            {
+                p_over3++;
+            }        
         }
     }
 
-    percentile = ((NZYXSIZE(data_sorted)-p) * 1.0) / NZYXSIZE(data_sorted);
+    double calculated_percentile = (p_over3/p_over0) * NZYXSIZE(data_sorted);
+
+    std::cout << "p_over0 " << p_over0 << std::endl;
+    std::cout << "p_over3 " << p_over3 << std::endl;
 
     #ifdef DEBUG_PERCENTILE
-    std::cout << "Calulated percentile: " << percentile << std::endl;
+    std::cout << "Calulated percentile: " << calculated_percentile << std::endl;
     #endif
 
     std::cout << "------------------------" << std::endl;
 
-    return percentile;
+    return calculated_percentile;
 }
