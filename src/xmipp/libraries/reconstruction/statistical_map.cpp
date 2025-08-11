@@ -204,17 +204,18 @@ void ProgStatisticalMap::run()
         calculateZscoreMap();
         writeZscoresMap(fn_V);
 
-        // double p = percentile(V_Zscores(), percentileThr);
+        double p = percentile(V_Zscores(), percentileThr);
+        histogramEqualizationParameters.push_back(p);        
 
-        double min;
-        double max;
-        V_Zscores().computeDoubleMinMax(min, max);
+        // double min;
+        // double max;
+        // V_Zscores().computeDoubleMinMax(min, max);
 
-        #ifdef DEBUG_PERCENTILE
-        std::cout << "Max value in Z-score map: " << max << std::endl;
-        #endif
+        // #ifdef DEBUG_PERCENTILE
+        // std::cout << "Max value in Z-score map: " << max << std::endl;
+        // #endif
 
-        histogramEqualizationParameters.push_back(max);        
+        // histogramEqualizationParameters.push_back(max);        
     }
 
     // Calculate average transformation
@@ -469,12 +470,34 @@ void ProgStatisticalMap::weightMap()
 
     // ft.inverseFourierTransform();
 
+
     // Weight by z-scores
-    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+    // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+    // {
+    //     DIRECT_MULTIDIM_ELEM(V(),n) *=  DIRECT_MULTIDIM_ELEM(V_Zscores(),n);
+    // }
+
+
+    // Use percentile to set a threshold 
+    MultidimArray sorted_Zscores; 
+    V_Zscores().sort(sorted_Zscores);
+
+    double percentile_over3sd;
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(sorted_Zscores)
     {
-        DIRECT_MULTIDIM_ELEM(V(),n) *=  DIRECT_MULTIDIM_ELEM(V_Zscores(),n);
+        if (DIRECT_MULTIDIM_ELEM(sorted_Zscores,n) > 3)
+        {
+            percentile_over3sd = n / NZYXSIZE(sorted_Zscores);
+            break;
+        }
     }
 
+    double overall_percentile = percentile_over3sd + equalizationParam;
+
+    size_t idx = static_cast<size_t>(std::floor(overall_percentile));
+    double threshold = DIRECT_MULTIDIM_ELEM(sorted_Zscores, idx);
+    std::cout << "THRESHOLD Z SCORE HALO MAP AT: " << threshold;
+    
     // Use FDR for outlier pixels
         // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     // {
@@ -518,7 +541,34 @@ double ProgStatisticalMap::normal_cdf(double z) {
     return 0.5 * (1.0 + std::erf(z / std::sqrt(2.0)));
 }
 
-double ProgStatisticalMap::percentile(MultidimArray<double>& data, double p) {
+double ProgStatisticalMap::percentile(MultidimArray<double>& data, double p)
+{
+    // MultidimArray<double> data_sorted;
+    // data.sort(data_sorted);
+
+    // std::cout << "------------------------" << std::endl;
+    // std::cout << "NZYXSIZE(data_sorted)   "  << NZYXSIZE(data_sorted) << std::endl;
+    // std::cout << "NZYXSIZE(data)   "  << NZYXSIZE(data) << std::endl;
+
+    // double pos = (p / 100.0) * (NZYXSIZE(data_sorted) - 1);
+    // size_t idx = static_cast<size_t>(std::floor(pos));
+    // double frac = pos - idx;
+
+    // std::cout << "idx   "  <<  idx << std::endl;
+    // std::cout << "pos   "  <<  pos << std::endl;
+    // std::cout << "frac   "  << frac << std::endl;
+
+    // // Linear interpolation
+    // // double percentile = DIRECT_MULTIDIM_ELEM(data_sorted, idx) * (1.0 - frac) + DIRECT_MULTIDIM_ELEM(data_sorted, idx+1) * frac;
+    // double percentile = DIRECT_MULTIDIM_ELEM(data_sorted, NZYXSIZE(data_sorted)-1);
+
+    // #ifdef DEBUG_PERCENTILE
+    // std::cout << "Calulated percentile: " << percentile << std::endl;
+    // #endif
+
+    // std::cout << "------------------------" << std::endl;
+
+    // return percentile;
 
     MultidimArray<double> data_sorted;
     data.sort(data_sorted);
@@ -527,17 +577,19 @@ double ProgStatisticalMap::percentile(MultidimArray<double>& data, double p) {
     std::cout << "NZYXSIZE(data_sorted)   "  << NZYXSIZE(data_sorted) << std::endl;
     std::cout << "NZYXSIZE(data)   "  << NZYXSIZE(data) << std::endl;
 
-    double pos = (p / 100.0) * (NZYXSIZE(data_sorted) - 1);
-    size_t idx = static_cast<size_t>(std::floor(pos));
-    double frac = pos - idx;
+    int p;
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(data_sorted)
+    {
+        // We put this here in cose no value is over 3 (i think by definition of z-score will never happen)
+        p = n;
 
-    std::cout << "idx   "  <<  idx << std::endl;
-    std::cout << "pos   "  <<  pos << std::endl;
-    std::cout << "frac   "  << frac << std::endl;
+        if ((DIRECT_MULTIDIM_ELEM(data_sorted), n) > 3)
+        {
+            break;
+        }
+    }
 
-    // Linear interpolation
-    // double percentile = DIRECT_MULTIDIM_ELEM(data_sorted, idx) * (1.0 - frac) + DIRECT_MULTIDIM_ELEM(data_sorted, idx+1) * frac;
-    double percentile = DIRECT_MULTIDIM_ELEM(data_sorted, NZYXSIZE(data_sorted)-1);
+    percentile = ((NZYXSIZE(data_sorted)-p) * 1.0) / NZYXSIZE(data_sorted);
 
     #ifdef DEBUG_PERCENTILE
     std::cout << "Calulated percentile: " << percentile << std::endl;
