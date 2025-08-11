@@ -204,8 +204,17 @@ void ProgStatisticalMap::run()
         calculateZscoreMap();
         writeZscoresMap(fn_V);
 
-        double p = percentile(V_Zscores(), percentileThr);
-        histogramEqualizationParameters.push_back(p);        
+        // double p = percentile(V_Zscores(), percentileThr);
+
+        double min;
+        double max;
+        V_Zscores().computeDoubleMinMax(min, max)
+
+        #ifdef DEBUG_PERCENTILE
+        std::cout << "Max value in Z-score map: " << max << std::endl;
+        #endif
+        
+        histogramEqualizationParameters.push_back(max);        
     }
 
     // Calculate average transformation
@@ -266,13 +275,13 @@ void ProgStatisticalMap::calculateFSCoh()
 
 
 	#ifdef VERBOSE_OUTPUT
-	std::cout << "----- Calculate FOCoh" << std::endl;
+	std::cout << "----- Calculate FSCoh" << std::endl;
 	#endif
 
 	fscoh.run();
 
 	#ifdef VERBOSE_OUTPUT
-	std::cout << "----- FOCoh caluclated successfully!" << std::endl;
+	std::cout << "----- FSCoh caluclated successfully!" << std::endl;
 	#endif
 }
 
@@ -370,7 +379,7 @@ void ProgStatisticalMap::calculateZscoreMap()
     {
         // Classic Z-score
         // double zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / DIRECT_MULTIDIM_ELEM(stdVolume(),n);
-        double zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n));
+        double zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / DIRECT_MULTIDIM_ELEM(stdVolume(),n);
 
         // Average-normalized Z-score
         // double zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) * DIRECT_MULTIDIM_ELEM(avgVolume(),n) / DIRECT_MULTIDIM_ELEM(stdVolume(),n);
@@ -445,26 +454,32 @@ void ProgStatisticalMap::weightMap()
 { 
     std::cout << "    Calculating weighted map..." << std::endl;
 
-    // Filter uncoherent frequencies
-    // FourierTransformer ft;
-    // MultidimArray<std::complex<double>> V_ft;
-	// ft.FourierTransform(V(), V_ft, false);
+    Filter uncoherent frequencies
+    FourierTransformer ft;
+    MultidimArray<std::complex<double>> V_ft;
+	ft.FourierTransform(V(), V_ft, false);
 
-    // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V_ft)
-    // {
-    //     if (DIRECT_MULTIDIM_ELEM(fscoh.freqMap, n) > fscoh.indexThr)
-    //     {
-    //         DIRECT_MULTIDIM_ELEM(V_ft,  n) = 0;
-    //     }
-    // }
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V_ft)
+    {
+        if (DIRECT_MULTIDIM_ELEM(fscoh.freqMap, n) > fscoh.indexThr)
+        {
+            DIRECT_MULTIDIM_ELEM(V_ft,  n) = 0;
+        }
+    }
 
-    // ft.inverseFourierTransform();
+    ft.inverseFourierTransform();
 
     // Weight by z-scores
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
-        DIRECT_MULTIDIM_ELEM(V(),n) =  1 - normal_cdf(DIRECT_MULTIDIM_ELEM(V_Zscores(),n));
+        DIRECT_MULTIDIM_ELEM(V(),n) *=  DIRECT_MULTIDIM_ELEM(V_Zscores(),n);
     }
+
+    // Use FDR for outlier pixels
+        // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+    // {
+    //     DIRECT_MULTIDIM_ELEM(V(),n) =  1 - normal_cdf(DIRECT_MULTIDIM_ELEM(V_Zscores(),n));
+    // }
 }
 
 double ProgStatisticalMap::t_cdf(double t, int nu) {
@@ -508,16 +523,27 @@ double ProgStatisticalMap::percentile(MultidimArray<double>& data, double p) {
     MultidimArray<double> data_sorted;
     data.sort(data_sorted);
 
+    std::cout << "------------------------" << std::endl;
+    std::cout << "NZYXSIZE(data_sorted)   "  << NZYXSIZE(data_sorted) << std::endl;
+    std::cout << "NZYXSIZE(data)   "  << NZYXSIZE(data) << std::endl;
+
     double pos = (p / 100.0) * (NZYXSIZE(data_sorted) - 1);
     size_t idx = static_cast<size_t>(std::floor(pos));
     double frac = pos - idx;
 
+    std::cout << "idx   "  <<  idx << std::endl;
+    std::cout << "pos   "  <<  pos << std::endl;
+    std::cout << "frac   "  << frac << std::endl;
+
     // Linear interpolation
-    double percentile = DIRECT_MULTIDIM_ELEM(data_sorted, idx) * (1.0 - frac) + DIRECT_MULTIDIM_ELEM(data_sorted, idx);
+    // double percentile = DIRECT_MULTIDIM_ELEM(data_sorted, idx) * (1.0 - frac) + DIRECT_MULTIDIM_ELEM(data_sorted, idx+1) * frac;
+    double percentile = DIRECT_MULTIDIM_ELEM(data_sorted, NZYXSIZE(data_sorted)-1);
 
     #ifdef DEBUG_PERCENTILE
     std::cout << "Calulated percentile: " << percentile << std::endl;
     #endif
+
+    std::cout << "------------------------" << std::endl;
 
     return percentile;
 }

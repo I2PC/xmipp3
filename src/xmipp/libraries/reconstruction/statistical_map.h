@@ -75,7 +75,7 @@ class ProgStatisticalMap: public XmippProgram
     Image<double> avgDiffVolume;                    // Average difference volume
 
     // Histogram equalization
-    double percentileThr = 99;
+    double percentileThr = 99.99;  // *** Esto vamos a querer que sea un parametro, lo estoy viendo venir
     std::vector<double> histogramEqualizationParameters;
     double equalizationParam;
 
