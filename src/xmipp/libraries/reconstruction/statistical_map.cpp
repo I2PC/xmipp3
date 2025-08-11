@@ -208,12 +208,12 @@ void ProgStatisticalMap::run()
 
         double min;
         double max;
-        V_Zscores().computeDoubleMinMax(min, max)
+        V_Zscores().computeDoubleMinMax(min, max);
 
         #ifdef DEBUG_PERCENTILE
         std::cout << "Max value in Z-score map: " << max << std::endl;
         #endif
-        
+
         histogramEqualizationParameters.push_back(max);        
     }
 
@@ -454,20 +454,20 @@ void ProgStatisticalMap::weightMap()
 { 
     std::cout << "    Calculating weighted map..." << std::endl;
 
-    Filter uncoherent frequencies
-    FourierTransformer ft;
-    MultidimArray<std::complex<double>> V_ft;
-	ft.FourierTransform(V(), V_ft, false);
+    // Filter uncoherent frequencies
+    // FourierTransformer ft;
+    // MultidimArray<std::complex<double>> V_ft;
+	// ft.FourierTransform(V(), V_ft, false);
 
-    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V_ft)
-    {
-        if (DIRECT_MULTIDIM_ELEM(fscoh.freqMap, n) > fscoh.indexThr)
-        {
-            DIRECT_MULTIDIM_ELEM(V_ft,  n) = 0;
-        }
-    }
+    // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V_ft)
+    // {
+    //     if (DIRECT_MULTIDIM_ELEM(fscoh.freqMap, n) > fscoh.indexThr)
+    //     {
+    //         DIRECT_MULTIDIM_ELEM(V_ft,  n) = 0;
+    //     }
+    // }
 
-    ft.inverseFourierTransform();
+    // ft.inverseFourierTransform();
 
     // Weight by z-scores
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
