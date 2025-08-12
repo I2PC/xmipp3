@@ -50,11 +50,11 @@ class ProgStatisticalMap: public XmippProgram
 {
  public:
     // Input params
-    FileName fn_mapPool;               // Input metadata with map pool for analysis
-    FileName fn_mapPool_statistical;   // Input metadata with map pool for statistical map calculation
-    FileName fn_oroot;                 // Location for saving output maps
-    double sampling_rate;              // Sampling rate of input maps
-    double protein_radius;             // Protein radius
+    FileName fn_mapPool;                    // Input metadata with map pool for analysis
+    FileName fn_mapPool_statistical;        // Input metadata with map pool for statistical map calculation
+    FileName fn_oroot;                      // Location for saving output maps
+    double sampling_rate;                   // Sampling rate of input maps
+    double protein_radius;                  // Protein radius
 
     // Side info variables
     FileName fn_out_avg_map;
@@ -74,6 +74,7 @@ class ProgStatisticalMap: public XmippProgram
     Image<double> avgVolume;                        // Average volume
     Image<double> stdVolume;                        // Standard deviation volume
     Image<double> avgDiffVolume;                    // Average difference volume
+    MultidimArray<int> proteinRadiusMask;           // Mask for focus analysis if protein radius provided
 
     // Histogram equalization
     double percentileThr = 99.99;  // *** Esto vamos a querer que sea un parametro, lo estoy viendo venir
@@ -121,6 +122,7 @@ public:
     // Generate side info
     void generateSideInfo();
     double normal_cdf(double z);
+    void createRadiusMask();
 
     double t_cdf(double t, int nu);
     double t_p_value(double t_stat, int nu);
