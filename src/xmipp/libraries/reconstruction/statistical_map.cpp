@@ -53,8 +53,8 @@ void ProgStatisticalMap::show() const
 	std::cout
 	<< "Input metadata with map pool for analysis:\t" << fn_mapPool << std::endl
 	<< "Input metadata with map pool for statistical map calculation:\t" << fn_mapPool_statistical << std::endl
-	<< "Output location for statistical volumes:\t" << fn_oroot << std::endl;
-	<< "Sampling rate:\t" << sampling_rate << std::endl;
+	<< "Output location for statistical volumes:\t" << fn_oroot << std::endl
+	<< "Sampling rate:\t" << sampling_rate << std::endl
 	<< "Protein radius:\t" << protein_radius << std::endl;
 }
 
