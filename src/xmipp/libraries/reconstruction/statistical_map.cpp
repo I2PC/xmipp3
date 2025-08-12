@@ -293,16 +293,6 @@ void ProgStatisticalMap::preprocessMap(FileName fnIn)
 {
     std::cout << "    Preprocessing input map..." << std::endl;
 
-    // Normalize map: mean=0, std=1
-    double avg;
-    double std;
-    V().computeAvgStdev(avg, std);
-
-    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
-    {
-        DIRECT_MULTIDIM_ELEM(V(), n) = (DIRECT_MULTIDIM_ELEM(V(), n) - avg) / std;
-    }
-
     // LPF map up to coherent resolution threshold (remove uncoherent frequencies)
     FourierTransformer ft;
     MultidimArray<std::complex<double>> V_ft;
@@ -317,6 +307,36 @@ void ProgStatisticalMap::preprocessMap(FileName fnIn)
     }
 
     ft.inverseFourierTransform();
+
+    // Normalize map: mean=0, std=1
+    double avg;
+    double std;
+    
+    if (protein_radius < 0)
+    {
+        V().computeAvgStdev(avg, std);
+
+        FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+        {
+            DIRECT_MULTIDIM_ELEM(V(), n) = (DIRECT_MULTIDIM_ELEM(V(), n) - avg) / std;
+        }
+    }
+    else
+    {
+        V().computeAvgStdev_within_binary_mask(proteinRadiusMask, avg, std);
+
+        FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+        {
+            if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask, n) > 0)
+            {
+                DIRECT_MULTIDIM_ELEM(V(), n) = (DIRECT_MULTIDIM_ELEM(V(), n) - avg) / std;
+            }
+            else
+            {
+                DIRECT_MULTIDIM_ELEM(V(), n) = 0;
+            }
+        }
+    }
 
     #ifdef DEBUG_OUTPUT_FILES
     FileName fnOut = fn_oroot + (fn_oroot.back() == '/' || fn_oroot.back() == '\\' ? "" : "/") + fnIn.substr(fnIn.find_last_of("/\\") + 1, fnIn.find_last_of('.') - fnIn.find_last_of("/\\") - 1) + "_preprocess.mrc";
