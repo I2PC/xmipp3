@@ -127,8 +127,6 @@ void ProgStatisticalMap::run()
 {
 	auto t1 = std::chrono::high_resolution_clock::now();
 
-    generateSideInfo();
-
     calculateFSCoh();
 
     // Calculate statistical map
@@ -152,10 +150,8 @@ void ProgStatisticalMap::run()
 
         if (!dimInitialized)
         {
-            // Read dim
-            Xdim = XSIZE(V());
-            Ydim = YSIZE(V());
-            Zdim = ZSIZE(V());
+            // Generate side info
+            generateSideInfo();
 
             #ifdef DEBUG_DIM
             std::cout 
@@ -601,75 +597,65 @@ double ProgStatisticalMap::t_p_value(double t_stat, int nu) {
 // Utils methods ===================================================================
 void ProgStatisticalMap::generateSideInfo()
 {
+    Xdim = XSIZE(V());
+    Ydim = YSIZE(V());
+    Zdim = ZSIZE(V());
+
     fn_out_avg_map = fn_oroot + "statsMap_avg.mrc";
     fn_out_std_map = fn_oroot + "statsMap_std.mrc";
 
-    createRadiusMask();
+    if (protein_radius < 0) // Default to consider the whole volume
+        createRadiusMask();
 }
 
 void ProgStatisticalMap::createRadiusMask()
 {
-    if (protein_radius <0) // Default to consider the whole volume
+    double radiusInPx = protein_radius / sampling_rate;
+
+    proteinRadiusMask.initZeros(Zdim, Ydim, Xdim);
+
+    // Directional radius along each direction
+    double half_Xdim = (Xdim * 1.0) / 2;
+    double half_Ydim = (Ydim * 1.0) / 2;
+    double half_Zdim = (Zdim * 1.0) / 2;
+    double uz;
+    double uy;
+    double ux;
+    double uz2;
+    double uz2y2;
+    long n=0;
+
+    for(size_t k=0; k<Zdim; ++k)
     {
-        proteinRadiusMask.initZeros(Zdim, Ydim, Xdim);
-        proteinRadiusMask.initConstant(1);
-
-        #ifdef DEBUG_OUTPUT_FILES
-        Image<int> saveImage;
-        std::string debugFileFn = fn_oroot + "proteinRadiusMask.mrc";
-        saveImage() = proteinRadiusMask;
-        saveImage.write(debugFileFn);
-        #endif   
-    }
-    else
-    {
-        double radiusInPx = protein_radius / sampling_rate;
-
-        proteinRadiusMask.initZeros(Zdim, Ydim, Xdim);
-
-        // Directional radius along each direction
-        double half_Xdim = (Xdim * 1.0) / 2;
-        double half_Ydim = (Ydim * 1.0) / 2;
-        double half_Zdim = (Zdim * 1.0) / 2;
-        double uz;
-        double uy;
-        double ux;
-        double uz2;
-        double uz2y2;
-        long n=0;
-
-        for(size_t k=0; k<Zdim; ++k)
+        uz = k - half_Zdim;
+        uz2 = uz*uz;
+        
+        for(size_t i=0; i<Ydim; ++i)
         {
-            uz = k - half_Zdim;
-            uz2 = uz*uz;
-            
-            for(size_t i=0; i<Ydim; ++i)
+            uy = i - half_Ydim;
+            uz2y2 = uz2 + uy*uy;
+
+            for(size_t j=0; j<Xdim; ++j)
             {
-                uy = i - half_Ydim;
-                uz2y2 = uz2 + uy*uy;
+                ux = j - half_Xdim;
+                ux = sqrt(uz2y2 + ux*ux);
 
-                for(size_t j=0; j<Xdim; ++j)
+                if (ux < radiusInPx)
                 {
-                    ux = j - half_Xdim;
-                    ux = sqrt(uz2y2 + ux*ux);
-
-                    if (ux < radiusInPx)
-                    {
-                        DIRECT_MULTIDIM_ELEM(proteinRadiusMask,n) = 1;
-                    }
-
-                    ++n;
+                    DIRECT_MULTIDIM_ELEM(proteinRadiusMask,n) = 1;
                 }
+
+                ++n;
             }
         }
-
-        #ifdef DEBUG_OUTPUT_FILES
-        Image<int> saveImage;
-        std::string debugFileFn = fn_oroot + "proteinRadiusMask.mrc";
-        saveImage() = proteinRadiusMask;
-        saveImage.write(debugFileFn);
-        #endif   
     }
+
+    #ifdef DEBUG_OUTPUT_FILES
+    Image<int> saveImage;
+    std::string debugFileFn = fn_oroot + "proteinRadiusMask.mrc";
+    saveImage() = proteinRadiusMask;
+    saveImage.write(debugFileFn);
+    #endif   
 }   
 
 double ProgStatisticalMap::normal_cdf(double z) {
