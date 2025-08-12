@@ -655,7 +655,7 @@ void ProgStatisticalMap::createRadiusMask()
         }
 
         #ifdef DEBUG_OUTPUT_FILES
-        Image<double> saveImage;
+        Image<int> saveImage;
         std::string debugFileFn = fn_oroot + "proteinRadiusMask.mrc";
         saveImage() = proteinRadiusMask;
         saveImage.write(debugFileFn);
