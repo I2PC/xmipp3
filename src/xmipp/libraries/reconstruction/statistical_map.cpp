@@ -69,7 +69,7 @@ void ProgStatisticalMap::defineParams()
     addParamsLine("--input_mapPool <input_mapPool=\"\">     : Input metadata containing map pool for statistical map calculation.");
     addParamsLine("--oroot <oroot=\"\">                     : Location for saving output.");
     addParamsLine("--sampling_rate <sampling_rate=1.0>      : Sampling rate of the input of maps.");
-    addParamsLine("--protein_radius <sampling_rate=-1>      : Protein raius (in Angstroms). This is used to restrain the number of pixeles considered in the analysis. By default no pixel is removed from analysis.");
+    addParamsLine("[--protein_radius <sampling_rate=-1>]    : Protein raius (in Angstroms). This is used to restrain the number of pixeles considered in the analysis. By default no pixel is removed from analysis.");
 }
 
 void ProgStatisticalMap::writeStatisticalMap() 
