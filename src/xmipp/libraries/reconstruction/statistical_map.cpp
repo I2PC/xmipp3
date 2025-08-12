@@ -603,6 +603,8 @@ void ProgStatisticalMap::generateSideInfo()
 {
     fn_out_avg_map = fn_oroot + "statsMap_avg.mrc";
     fn_out_std_map = fn_oroot + "statsMap_std.mrc";
+
+    createRadiusMask();
 }
 
 void ProgStatisticalMap::createRadiusMask()
