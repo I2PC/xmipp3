@@ -109,10 +109,11 @@ public:
     void calculateFSCoh();
     void preprocessMap(FileName fnIn);
     void processStaticalMap();
-    void processStaticalMapDixon()
+    void processStaticalMapDixon();
     void computeStatisticalMaps();
     void calculateAvgDiffMap();
     void calculateZscoreMap();
+    void calculateDixonMap();
     void weightMap();
 
     // ---------------------- UTILS METHODS ------------------------------
