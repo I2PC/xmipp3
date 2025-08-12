@@ -604,14 +604,13 @@ void ProgStatisticalMap::generateSideInfo()
     fn_out_avg_map = fn_oroot + "statsMap_avg.mrc";
     fn_out_std_map = fn_oroot + "statsMap_std.mrc";
 
-    if (protein_radius < 0) // Default to consider the whole volume
+    if (protein_radius > 0) // Only if mas radius is provided
         createRadiusMask();
 }
 
 void ProgStatisticalMap::createRadiusMask()
 {
     double radiusInPx = protein_radius / sampling_rate;
-
     proteinRadiusMask.initZeros(Zdim, Ydim, Xdim);
 
     // Directional radius along each direction
