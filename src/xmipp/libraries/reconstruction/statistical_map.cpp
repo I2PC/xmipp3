@@ -613,6 +613,13 @@ void ProgStatisticalMap::createRadiusMask()
     {
         proteinRadiusMask.initZeros(Zdim, Ydim, Xdim);
         proteinRadiusMask.initConstant(1);
+
+        #ifdef DEBUG_OUTPUT_FILES
+        Image<int> saveImage;
+        std::string debugFileFn = fn_oroot + "proteinRadiusMask.mrc";
+        saveImage() = proteinRadiusMask;
+        saveImage.write(debugFileFn);
+        #endif   
     }
     else
     {
