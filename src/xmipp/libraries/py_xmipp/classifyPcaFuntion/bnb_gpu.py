@@ -505,8 +505,8 @@ class BnBgpu:
             # clk = self.enhance_averages_butterworth(clk, sampling)
             # clk = self.enhance_averages_butterworth_normF(clk, sampling)
             clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, boost_max=None)
-            print(boost.view(1, len(clk)))
-            print(sharpen_power.view(1, len(clk)))
+            # print(boost.view(1, len(clk)))
+            # print(sharpen_power.view(1, len(clk)))
             # clk = self.sigmoid_highboost_filter(clk, sampling)
             # clk = self.enhance_averages_butterworth_combined_FFT(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
@@ -546,6 +546,177 @@ class BnBgpu:
                 clk = self.center_by_com(clk)                  
         
         return(clk, tMatrix, batch_projExp_cpu)
+    
+    
+    def create_classes_version000(
+        self, mmap, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes,
+        freqBn, coef, cvecs, mask, sigma, sampling, cycles
+    ):
+        device = self.cuda
+        h, w = mmap.data.shape[1], mmap.data.shape[2]
+    
+        # Para thresholds si aplica
+        if 1 < iter < 7:
+            print("--------", iter, "-----------")
+            thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches, threshold=2.0)
+            num = classes // 2
+        else:
+            num = classes
+    
+        # Inicializa acumuladores para averages
+        sums = [torch.zeros((h, w), device=device) for _ in range(classes)]
+        counts = [0 for _ in range(classes)]
+    
+        # Para FRC, inicializamos si vamos a calcular
+        compute_frc = iter > 7
+        if compute_frc:
+            Rmax = min(h, w) // 2
+            r = ((torch.arange(h, device=device).view(-1,1) - h//2)**2 + (torch.arange(w, device=device).view(1,-1) - w//2)**2).sqrt().long()
+            r.clamp_(0, Rmax-1)
+            r_flat = r.view(-1)
+            freqs = torch.linspace(0, 0.5 / sampling, Rmax, device=device)
+    
+            frc_num_accum = [torch.zeros(Rmax, device=device) for _ in range(classes)]
+            frc_d1_accum = [torch.zeros(Rmax, device=device) for _ in range(classes)]
+            frc_d2_accum = [torch.zeros(Rmax, device=device) for _ in range(classes)]
+    
+            # Ventana Hann para FRC
+            wy = torch.hann_window(h, periodic=False, device=device)
+            wx = torch.hann_window(w, periodic=False, device=device)
+            window = wy[:, None] * wx[None, :]
+    
+        step = int(np.ceil(nExp / expBatchSize))
+        batch_projExp_cpu = [0 for _ in range(step)]
+    
+        rotBatch = -matches[:, 3].view(nExp, 1)
+        translations = torch.tensor([vectorshift[i] for i in matches[:, 4].int()], device=device).view(nExp, 2)
+    
+        centerIm = mmap.data.shape[1] / 2
+        centerxy = torch.tensor([centerIm, centerIm], device=device)
+    
+        count = 0
+        for initBatch in range(0, nExp, expBatchSize):
+            endBatch = min(initBatch + expBatchSize, nExp)
+    
+            transforIm, matrixIm = self.center_particles_inverse_save_matrix(
+                mmap.data[initBatch:endBatch], tMatrix[initBatch:endBatch],
+                rotBatch[initBatch:endBatch], translations[initBatch:endBatch], centerxy
+            )
+    
+            if mask:
+                transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
+            else:
+                transforIm = transforIm * self.create_circular_mask(transforIm)
+    
+            tMatrix[initBatch:endBatch] = matrixIm
+            batch_projExp_cpu[count] = self.batchExpToCpu(transforIm, freqBn, coef, cvecs)
+            count += 1
+    
+            # Acumular datos para averages y FRC
+            if 1 < iter < 7:
+                for n in range(num):
+                    class_mask = (matches[initBatch:endBatch, 1] == n) & \
+                                 (matches[initBatch:endBatch, 2] > thr_low[n]) & \
+                                 (matches[initBatch:endBatch, 2] < thr_high[n])
+                    imgs = transforIm[class_mask]
+                    if imgs.shape[0] > 0:
+                        sums[n] += imgs.sum(dim=0)
+                        counts[n] += imgs.shape[0]
+    
+                    non_class_mask = (matches[initBatch:endBatch, 1] == n) & \
+                                     ((matches[initBatch:endBatch, 2] <= thr_low[n]) | (matches[initBatch:endBatch, 2] >= thr_high[n]))
+                    imgs_nc = transforIm[non_class_mask]
+                    if imgs_nc.shape[0] > 0:
+                        sums[n + num] += imgs_nc.sum(dim=0)
+                        counts[n + num] += imgs_nc.shape[0]
+    
+            else:
+                for n in range(num):
+                    class_mask = (matches[initBatch:endBatch, 1] == n)
+                    imgs = transforIm[class_mask]
+                    if imgs.shape[0] > 0:
+                        sums[n] += imgs.sum(dim=0)
+                        counts[n] += imgs.shape[0]
+    
+            # FRC acumulativo (solo si iter > 7)
+            if compute_frc:
+                for c in range(classes):
+                    class_mask = (matches[initBatch:endBatch, 1] == c)
+                    imgs = transforIm[class_mask]
+                    n = imgs.shape[0]
+                    if n < 2:
+                        continue
+    
+                    perm = torch.randperm(n, device=device)
+                    half1, half2 = torch.chunk(imgs[perm], 2, dim=0)
+                    avg1, avg2 = half1.mean(0), half2.mean(0)
+    
+                    avg1 = avg1 * window
+                    avg2 = avg2 * window
+    
+                    fft1 = torch.fft.fftshift(torch.fft.fft2(avg1, norm="forward"))
+                    fft2 = torch.fft.fftshift(torch.fft.fft2(avg2, norm="forward"))
+    
+                    p1 = (fft1.real**2 + fft1.imag**2)
+                    p2 = (fft2.real**2 + fft2.imag**2)
+                    prod = (fft1 * fft2.conj()).real
+    
+                    frc_num_accum[c].scatter_add_(0, r_flat, prod.view(-1))
+                    frc_d1_accum[c].scatter_add_(0, r_flat, p1.view(-1))
+                    frc_d2_accum[c].scatter_add_(0, r_flat, p2.view(-1))
+    
+            del transforIm
+    
+        # Calcula averages finales
+        clk = []
+        for c in range(classes):
+            if counts[c] > 0:
+                clk.append(sums[c] / counts[c])
+            else:
+                clk.append(torch.zeros((h, w), device=device))
+        clk = torch.stack(clk)
+        
+        # REORDENAMOS averages según tamaño de la clase si iter <= 7
+        if iter <= 7:
+            counts_tensor = torch.tensor(counts, device=device)
+            sorted_indices = torch.argsort(counts_tensor, descending=True)
+            clk = clk[sorted_indices]
+    
+        # Calcula resoluciones FRC si corresponde
+        if compute_frc:
+            res_classes = torch.full((classes,), float('nan'), device=device)
+            for c in range(classes):
+                denom = torch.sqrt(frc_d1_accum[c] * frc_d2_accum[c]) + 1e-12
+                frc = frc_num_accum[c] / denom
+                idx = torch.where(frc < 0.143)[0]
+                if len(idx) and idx[0] > 0:
+                    res_classes[c] = 1.0 / freqs[idx[0]]
+            res_classes = torch.nan_to_num(res_classes, nan=40.0, posinf=40.0, neginf=40.0)
+            print(res_classes)
+    
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
+            clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, boost_max=None)
+            # print(boost.view(1, len(clk)))
+            # print(sharpen_power.view(1, len(clk)))
+    
+        # Máscaras y centrado según iter
+        if iter in [10, 13]:
+            clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
+                                                    intensity_percentile=50, contrast_weight=1.5, intensity_weight=1.0,
+                                                    smooth_sigma=1.0)
+    
+        if 1 < iter < 7 and iter % 2 == 0:
+            clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
+                                                    intensity_percentile=50, contrast_weight=1.5, intensity_weight=1.0,
+                                                    smooth_sigma=1.0)
+    
+        clk = clk * self.create_circular_mask(clk)
+    
+        if 2 < iter < 12:
+            for _ in range(2):
+                clk = self.center_by_com(clk)
+    
+        return clk, tMatrix, batch_projExp_cpu
     
     
     
@@ -832,10 +1003,10 @@ class BnBgpu:
     
     def averages_createClasses(self, mmap, iter, newCL): 
         
-        if iter < 10:
+        # if iter < 10:
+        if iter <= 7:
             newCL = sorted(newCL, key=len, reverse=True)    
-        # element = list(map(len, newCL))
-        # print(element)    
+        # element = list(map(len, newCL))   
         classes = len(newCL)       
   
         clk = []
@@ -1680,6 +1851,7 @@ class BnBgpu:
     
             if len(idx) and idx[0] > 0:
                 res_out[c] = 1.0 / freqs[idx[0]]
+
     
         # ---------- sustituye NaN e Inf una sola vez ------------
         res_out = torch.nan_to_num(res_out, nan=fallback_res, posinf=fallback_res, neginf=fallback_res)
@@ -2845,7 +3017,8 @@ class BnBgpu:
             elif dim <= 128:
                 expBatchSize = 15000 
                 # expBatchSize = 10000
-                expBatchSize2 = 20000
+                # expBatchSize2 = 20000
+                expBatchSize2 = 40000
                 # numFirstBatch = 2
                 numFirstBatch = 5
             elif dim <= 256:
