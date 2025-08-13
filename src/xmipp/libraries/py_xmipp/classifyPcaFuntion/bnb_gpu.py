@@ -855,6 +855,7 @@ class BnBgpu:
             clk = self.averages_direct(transforIm, matches, classes)
             res_classes = self.frc_resolution_tensor_align(transforIm, matches, classes, sampling)
             del(transforIm)
+            torch.cuda.empty_cache()
             
 
             
@@ -893,6 +894,7 @@ class BnBgpu:
       
         else: 
             del(transforIm)
+            torch.cuda.empty_cache()
             clk = cl  
             
         return (clk, tMatrix, batch_projExp_cpu) 
