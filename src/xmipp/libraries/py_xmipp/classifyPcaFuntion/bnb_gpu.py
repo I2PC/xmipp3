@@ -151,6 +151,7 @@ class BnBgpu:
         del(Texp)
         bandExp = self.selectBandsRefs(expFFT, freqBn, coef)
         self.batch_projExp = self.phiProjRefs(bandExp, vecs)
+        del(expFFT , bandExp)
         
         torch.cuda.empty_cache()
         return(self.batch_projExp)
