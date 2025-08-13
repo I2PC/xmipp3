@@ -337,7 +337,7 @@ if __name__=="__main__":
                     
                     #update classes        
                     classes = len(cl)
-                    torch.cuda.empty_cache()
+                    
                     if mode == "create_classes":
                         # if iter < 5:
                         cl, tMatrix, batch_projExp_cpu = bnb.create_classes_version00(
@@ -346,6 +346,7 @@ if __name__=="__main__":
                         # else:
                             # cl, tMatrix, batch_projExp_cpu = bnb.create_classes(mmap, tMatrix, iter, subset, expBatchSize, matches, vectorshift, classes, final_classes, freqBn, coef, cvecs, mask, sigma)
                     else:
+                        torch.cuda.empty_cache()
                         cl, tMatrix, batch_projExp_cpu = bnb.align_particles_to_classes(expImages, 
                                         cl, tMatrix, iter, subset, matches, vectorshift, classes,
                                          freqBn, coef, cvecs, mask, sigma, sampling)
