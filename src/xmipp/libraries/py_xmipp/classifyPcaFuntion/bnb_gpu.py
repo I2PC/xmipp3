@@ -808,6 +808,8 @@ class BnBgpu:
     def align_particles_to_classes(self, data, cl, tMatrix, iter, expBatchSize, matches, vectorshift, classes, freqBn, coef, cvecs, mask, sigma, sampling):
         
         # print("----------align-to-classes-------------")
+        print(torch.cuda.memory_allocated() / 1024**2, "MB")
+        print(torch.cuda.memory_reserved() / 1024**2, "MB")
         
         #rotate and translations
         rotBatch = -matches[:,3].view(expBatchSize,1)
@@ -821,6 +823,8 @@ class BnBgpu:
                                                                          rotBatch, translations, centerxy)
         
         del rotBatch,translations, centerxy 
+        print(torch.cuda.memory_allocated() / 1024**2, "MB")
+        print(torch.cuda.memory_reserved() / 1024**2, "MB")
         
         if mask:
             # if iter < 2:

@@ -337,7 +337,7 @@ if __name__=="__main__":
                     
                     #update classes        
                     classes = len(cl)
-            
+                    torch.cuda.empty_cache()
                     if mode == "create_classes":
                         # if iter < 5:
                         cl, tMatrix, batch_projExp_cpu = bnb.create_classes_version00(
