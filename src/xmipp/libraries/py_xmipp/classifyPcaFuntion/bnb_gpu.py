@@ -808,9 +808,6 @@ class BnBgpu:
         
         # print("----------align-to-classes-------------")
         
-        # if iter == 3:
-        #     thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches, threshold=2.0)
-        
         #rotate and translations
         rotBatch = -matches[:,3].view(expBatchSize,1)
         translations = list(map(lambda i: vectorshift[i], matches[:, 4].int()))
@@ -821,6 +818,8 @@ class BnBgpu:
                             
         transforIm, matrixIm = self.center_particles_inverse_save_matrix(data, tMatrix, 
                                                                          rotBatch, translations, centerxy)
+        
+        del rotBatch,translations, centerxy 
         
         if mask:
             # if iter < 2:
@@ -835,6 +834,7 @@ class BnBgpu:
                                
         
         tMatrix = matrixIm
+        del matrixIm
         
         batch_projExp_cpu = self.create_batchExp(transforIm, freqBn, coef, cvecs)
         
