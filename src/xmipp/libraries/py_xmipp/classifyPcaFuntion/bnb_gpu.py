@@ -494,7 +494,7 @@ class BnBgpu:
 
         # if iter > 10: 
         if iter > 7:
-            res_classes = self.frc_resolution_tensor(newCL, sampling)
+            res_classes, frc_curves = self.frc_resolution_tensor(newCL, sampling)
             print(res_classes) 
             # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             # print(bfactor)
@@ -1807,12 +1807,13 @@ class BnBgpu:
         h, w = next((imgs.shape[-2], imgs.shape[-1]) for imgs in newCL if imgs.numel() > 0)
         device    = newCL[0].device
         res_out   = torch.full((n_classes,), float('nan'), device=device)
+        Rmax  = min(h, w) // 2
+        frc_curves = torch.zeros((n_classes, Rmax), device=device)
         
         y, x = torch.meshgrid(torch.arange(h, device=device),
                               torch.arange(w, device=device),
                               indexing='ij')
         r     = ((x - w//2)**2 + (y - h//2)**2).sqrt().long()
-        Rmax  = min(h, w) // 2
         r.clamp_(0, Rmax-1)
         r_flat = r.view(-1)
         freqs   = torch.linspace(0, 0.5/pixel_size, Rmax, device=device)
@@ -1850,6 +1851,8 @@ class BnBgpu:
             frc_d2  = torch.zeros(Rmax, device=device).scatter_add_(0, r_flat, p2.view(-1))
             frc     = frc_num / (torch.sqrt(frc_d1*frc_d2) + 1e-12)
             
+            frc_curves[c] = frc
+            
             idx     = torch.where(frc < frc_threshold)[0]
     
             if len(idx) and idx[0] > 0:
@@ -1858,7 +1861,7 @@ class BnBgpu:
     
         # ---------- sustituye NaN e Inf una sola vez ------------
         res_out = torch.nan_to_num(res_out, nan=fallback_res, posinf=fallback_res, neginf=fallback_res)
-        return res_out
+        return res_out, frc_curves
     
     @torch.no_grad()
     def frc_resolution_tensor_align(
@@ -2686,7 +2689,6 @@ class BnBgpu:
         sharpen_power: float = None,    # si None, se ajusta automáticamente según resolución
         eps: float = 1e-8,
         normalize: bool = True,
-        conserve_energy: bool = False,  # innecesario si ajustamos para duplicar energía
         max_iter: int = 20
     ) -> torch.Tensor:
         B, H, W = averages.shape
@@ -2732,7 +2734,8 @@ class BnBgpu:
                 energy = torch.sum(fft_mag2 * boost**2, dim=(-2, -1))  # [B]
                 return energy
     
-            target_energy = 2.0 * energy_orig  # [B]
+            # target_energy = 2.0 * energy_orig  # [B]
+            target_energy = 3.0 * energy_orig  # [B]
             g_low = torch.ones(B, device=device)
             g_high = torch.full((B,), 1000.0, device=device)  # límite arbitrario
     
@@ -2773,6 +2776,64 @@ class BnBgpu:
             filtered = (filtered - mean_filt) / (std_filt + eps) * std_orig + mean_orig
     
         return filtered, boost_max, sharpen_power
+    
+    @torch.no_grad()
+    def frc_whitening_batch(self, clk, frc_curves, sampling, alpha=0.2, Gmax=1.0, snr_min=0.3):
+        """
+        Realce agresivo de altas frecuencias usando FRC por clase (vectorizado en GPU).
+    
+        clk: tensor [n_classes, h, w] promedios por clase
+        frc_curves: tensor [n_classes, Rmax] con FRC radial
+        sampling: tamaño pixel en Å
+        alpha: pendiente objetivo (0=blanco total, 1=boost moderado)
+        Gmax: ganancia máxima permitida
+        snr_min: SNR mínima para aplicar ganancia
+        """
+        device = clk.device
+        ncls, h, w = clk.shape
+        cy, cx = h // 2, w // 2
+    
+        # Coordenadas radiales (compartidas por todas las clases)
+        yy, xx = torch.meshgrid(torch.arange(h, device=device),
+                                torch.arange(w, device=device),
+                                indexing='ij')
+        r = torch.sqrt((yy - cy)**2 + (xx - cx)**2).long()
+        Rmax = frc_curves.shape[1]
+        r.clamp_(0, Rmax - 1)  # evita indices fuera de rango
+    
+        # FFT de todos los promedios
+        F = torch.fft.fft2(clk, norm='forward')        # [ncls, h, w]
+        mag = torch.abs(F)
+        phase = torch.angle(F)
+    
+        # Potencia radial por clase → [ncls, Rmax]
+        P = torch.zeros((ncls, Rmax), device=device)
+        for rad in range(Rmax):
+            mask = (r == rad)
+            if mask.any():
+                vals = mag[:, mask].pow(2)              # [ncls, Npix_rad]
+                P[:, rad] = vals.mean(dim=1)
+    
+        # SNR y enmascarado por clase
+        snr = frc_curves / (1 - frc_curves + 1e-8)    # [ncls, Rmax]
+        mask_snr = (snr > snr_min).float()
+    
+        # Target slope → broadcast [1, Rmax]
+        freqs = torch.arange(Rmax, device=device) / (h / 2)
+        T = (freqs.clamp(min=1e-3))**alpha
+    
+        # Ganancia radial por clase → [ncls, Rmax]
+        G = (T / (P.sqrt() + 1e-8)).clamp(1.0, Gmax) * mask_snr
+    
+        # Mapear ganancia radial a 2D usando gather correctamente
+        r_b = r.unsqueeze(0).expand(ncls, -1, -1)     # [ncls, h, w]
+        Gmap = G[torch.arange(ncls)[:, None, None], r]
+    
+        # Aplicar en Fourier y reconstruir
+        F_new = (mag * Gmap) * torch.exp(1j * phase)
+        out = torch.real(torch.fft.ifft2(F_new, norm='forward'))
+    
+        return out
     
     
     @torch.no_grad()
@@ -3021,7 +3082,7 @@ class BnBgpu:
                 expBatchSize = 15000 
                 # expBatchSize = 10000
                 # expBatchSize2 = 20000
-                expBatchSize2 = 25000
+                expBatchSize2 = 20000
                 # numFirstBatch = 2
                 numFirstBatch = 5
             elif dim <= 256:
