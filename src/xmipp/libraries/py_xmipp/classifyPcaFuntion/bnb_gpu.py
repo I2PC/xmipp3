@@ -521,6 +521,8 @@ class BnBgpu:
             # clk = self.apply_consistency_masks_vector(clk, mask_C) 
         
         # clk = self.gaussian_lowpass_filter_2D(clk, 6.0, sampling)
+        else:
+            clk = self.unsharp_mask_norm(clk)
         
 
         # if iter in [10, 13]:
