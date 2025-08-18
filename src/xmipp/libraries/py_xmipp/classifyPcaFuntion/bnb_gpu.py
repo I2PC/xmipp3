@@ -495,6 +495,7 @@ class BnBgpu:
         # if iter > 10: 
         if iter > 7:
             res_classes, frc_curves = self.frc_resolution_tensor(newCL, sampling)
+            print("--------RESOLUTION-------")
             print(res_classes) 
             # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             # print(bfactor)
@@ -506,8 +507,11 @@ class BnBgpu:
             # clk = self.enhance_averages_butterworth(clk, sampling)
             # clk = self.enhance_averages_butterworth_normF(clk, sampling)
             clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, boost_max=None)
-            # print(boost.view(1, len(clk)))
-            # print(sharpen_power.view(1, len(clk)))
+            print("--------BOOST-------")
+            print(boost.view(1, len(clk)))
+            print("--------SHARPEN-------")
+            print(sharpen_power.view(1, len(clk)))
+            print("--------HASTA AQUI-------")
             # clk = self.sigmoid_highboost_filter(clk, sampling)
             # clk = self.enhance_averages_butterworth_combined_FFT(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
@@ -521,8 +525,6 @@ class BnBgpu:
             # clk = self.apply_consistency_masks_vector(clk, mask_C) 
         
         # clk = self.gaussian_lowpass_filter_2D(clk, 6.0, sampling)
-        else:
-            clk = self.unsharp_mask_norm(clk)
         
 
         # if iter in [10, 13]:
@@ -2689,6 +2691,7 @@ class BnBgpu:
         pixel_size: float,              # tamaño del píxel en Å/pix
         boost_max: float = None,        # si None, se ajusta para duplicar energía
         sharpen_power: float = None,    # si None, se ajusta automáticamente según resolución
+        # sharpen_power: float = 2.0,
         eps: float = 1e-8,
         normalize: bool = True,
         max_iter: int = 20
@@ -2713,10 +2716,15 @@ class BnBgpu:
         # === Ajuste dinámico de sharpen_power por resolución ===
         if sharpen_power is None:
             # sharpen_power = (1.5 - 0.1 * resolutions).clamp(min=0.4, max=1.0)  # regla empírica
-            sharpen_power = (0.1 * resolutions).clamp(min=0.3, max=2.5)
-        if not torch.is_tensor(sharpen_power):
-            sharpen_power = torch.tensor(sharpen_power, device=device)
-        sharpen_power = sharpen_power.view(B, 1, 1)  # broadcasting por imagen
+            # sharpen_power = (0.1 * resolutions).clamp(min=0.3, max=2.5)
+            log_scale = 1.0 / torch.log(torch.tensor(8.0, device=resolutions.device))
+            sharpen_power = (torch.log(resolutions) * log_scale).clamp(min=0.4, max=3.0)
+            sharpen_power = sharpen_power.view(B, 1, 1)  # broadcasting por imagen
+        else:
+            # Modo fijo: mismo valor para todas las imágenes
+            if not torch.is_tensor(sharpen_power):
+                sharpen_power = torch.tensor(float(sharpen_power), device=device)
+            sharpen_power = sharpen_power.view(1, 1, 1).expand(B, -1, -1)
     
         # === Filtro en forma de coseno ===
         cos_term = torch.pi * freq_r / (f_cutoff + eps)
@@ -2736,8 +2744,8 @@ class BnBgpu:
                 energy = torch.sum(fft_mag2 * boost**2, dim=(-2, -1))  # [B]
                 return energy
     
-            # target_energy = 2.0 * energy_orig  # [B]
-            target_energy = 3.0 * energy_orig  # [B]
+            target_energy = 2.0 * energy_orig  # [B]
+            # target_energy = 3.0 * energy_orig  # [B]
             g_low = torch.ones(B, device=device)
             g_high = torch.full((B,), 1000.0, device=device)  # límite arbitrario
     
