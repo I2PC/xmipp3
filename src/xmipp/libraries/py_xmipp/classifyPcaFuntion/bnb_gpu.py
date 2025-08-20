@@ -506,7 +506,11 @@ class BnBgpu:
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling)
             # clk = self.enhance_averages_butterworth_normF(clk, sampling)
-            clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, boost_max=None)
+            if iter < 12:
+                fe = 3.0
+            else:
+                fe = 1.5
+            clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None)
             print("--------BOOST-------")
             print(boost.view(1, len(clk)))
             print("--------SHARPEN-------")
@@ -2690,6 +2694,7 @@ class BnBgpu:
         averages: torch.Tensor,         # [B, H, W]
         resolutions: torch.Tensor,      # [B] en Å
         pixel_size: float,              # tamaño del píxel en Å/pix
+        f_energy: float = 1.5,
         boost_max: float = None,        # si None, se ajusta para duplicar energía
         sharpen_power: float = None,    # si None, se ajusta automáticamente según resolución
         # sharpen_power: float = 2.0,
@@ -2751,7 +2756,7 @@ class BnBgpu:
                 energy = torch.sum(fft_mag2 * boost**2, dim=(-2, -1))  # [B]
                 return energy
             
-            target_energy = 2.0 * energy_orig  # [B]
+            target_energy = f_energy * energy_orig  # [B]
             # target_energy = 1.5 * energy_orig  # [B]
             g_low = torch.ones(B, device=device)
             g_high = torch.full((B,), 1000.0, device=device)  # límite arbitrario
