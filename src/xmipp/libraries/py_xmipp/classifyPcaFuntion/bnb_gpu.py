@@ -2751,8 +2751,8 @@ class BnBgpu:
                 energy = torch.sum(fft_mag2 * boost**2, dim=(-2, -1))  # [B]
                 return energy
             
-            # target_energy = 2.0 * energy_orig  # [B]
-            target_energy = 1.5 * energy_orig  # [B]
+            target_energy = 2.0 * energy_orig  # [B]
+            # target_energy = 1.5 * energy_orig  # [B]
             g_low = torch.ones(B, device=device)
             g_high = torch.full((B,), 1000.0, device=device)  # límite arbitrario
             
