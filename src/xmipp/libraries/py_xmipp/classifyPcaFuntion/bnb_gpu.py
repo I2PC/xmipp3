@@ -512,6 +512,7 @@ class BnBgpu:
             print("--------SHARPEN-------")
             print(sharpen_power.view(1, len(clk)))
             print("--------HASTA AQUI-------")
+            # clk = self.sharpen_averages_batch_energy_normalized(clk, res_classes, bfactor, sampling)
             # clk = self.sigmoid_highboost_filter(clk, sampling)
             # clk = self.enhance_averages_butterworth_combined_FFT(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
@@ -2716,10 +2717,10 @@ class BnBgpu:
         # === Ajuste dinámico de sharpen_power por resolución ===
         if sharpen_power is None:
             # sharpen_power = (1.5 - 0.1 * resolutions).clamp(min=0.4, max=1.0)  # regla empírica
-            # sharpen_power = (0.1 * resolutions).clamp(min=0.3, max=2.5)
+            sharpen_power = (0.1 * resolutions).clamp(min=0.3, max=2.5)
             # log_scale = 1.0 / torch.log(torch.tensor(8.0, device=resolutions.device))
             # sharpen_power = (torch.log(resolutions) * log_scale).clamp(min=0.4, max=3.0)
-            sharpen_power = (1.2 * torch.log(resolutions) - 1.2).clamp(min=0.4, max=3.0)
+            # sharpen_power = (1.2 * torch.log(resolutions) - 1.2).clamp(min=0.4, max=3.0)
             sharpen_power = sharpen_power.view(B, 1, 1)  # broadcasting por imagen
         else:
             # Modo fijo: mismo valor para todas las imágenes
@@ -2744,12 +2745,12 @@ class BnBgpu:
                 boost = 1.0 + (g - 1.0) * cosine_shape
                 energy = torch.sum(fft_mag2 * boost**2, dim=(-2, -1))  # [B]
                 return energy
-    
-            target_energy = 2.0 * energy_orig  # [B]
-            # target_energy = 3.0 * energy_orig  # [B]
+            
+            # target_energy = 2.0 * energy_orig  # [B]
+            target_energy = 1.5 * energy_orig  # [B]
             g_low = torch.ones(B, device=device)
             g_high = torch.full((B,), 1000.0, device=device)  # límite arbitrario
-    
+            
             for _ in range(max_iter):
                 g_mid = (g_low + g_high) / 2
                 energy_mid = energy_with_gain(g_mid.view(B, 1, 1))
@@ -2757,7 +2758,7 @@ class BnBgpu:
                 mask_too_low = delta > 0
                 g_low = torch.where(mask_too_low, g_mid, g_low)
                 g_high = torch.where(~mask_too_low, g_mid, g_high)
-    
+            
             boost_max = g_mid.view(B, 1, 1)
     
         else:
@@ -2787,6 +2788,77 @@ class BnBgpu:
             filtered = (filtered - mean_filt) / (std_filt + eps) * std_orig + mean_orig
     
         return filtered, boost_max, sharpen_power
+    
+    @torch.no_grad()
+    def sharpen_averages_batch_energy_normalized(self, 
+            images, resolutions, B_factors, pixel_size, normalize=True, eps=1e-6):
+        
+        N, H, W = images.shape
+        device = images.device  # GPU o CPU según images
+    
+        # 1. Frecuencias radiales
+        fy = torch.fft.fftfreq(H, d=pixel_size, device=device)
+        fx = torch.fft.fftfreq(W, d=pixel_size, device=device)
+        u, v = torch.meshgrid(fx, fy, indexing='xy')
+        f = torch.sqrt(u**2 + v**2)                # (H,W)
+        f_batch = f.unsqueeze(0).repeat(N,1,1)     # (N,H,W)
+    
+        # 2. Resolutions y B-factors en el mismo device
+        res_batch = resolutions.view(N,1,1).to(device)
+        B_batch   = B_factors.view(N,1,1).to(device)
+    
+        # 3. Coseno taper con broadcasting
+        f_low  = 0.6 / res_batch
+        f_high = 1.0 / res_batch
+        f_low_expand  = f_low.expand_as(f_batch)
+        f_high_expand = f_high.expand_as(f_batch)
+    
+        # mask = (f_batch > f_low_expand) & (f_batch < f_high_expand)
+        # W_cos = torch.ones_like(f_batch)
+        # W_cos[f_batch >= f_high_expand] = 0.0
+        # W_cos[mask] = 0.5 * (1 + torch.cos(torch.pi * (f_batch[mask]-f_low_expand[mask]) /
+        #                                     (f_high_expand[mask]-f_low_expand[mask])))
+        
+        
+            
+        denom = (f_high_expand - f_low_expand)
+        denom = torch.where(denom.abs() < eps, torch.full_like(denom, eps), denom)
+
+        mask = (f_batch > f_low_expand) & (f_batch < f_high_expand)
+        W_cos = torch.ones_like(f_batch)
+        W_cos[f_batch >= f_high_expand] = 0.0
+        W_cos[mask] = 0.5 * (1 + torch.cos(torch.pi * (f_batch[mask]-f_low_expand[mask]) / denom[mask]))
+
+    
+        # 4. B-factor gain
+        G_B = torch.exp(-(B_batch/4.0)*(2*torch.pi*f_batch)**2)
+        G = G_B * W_cos
+    
+        # 5. Energía global por average (normalizada a [0,1])
+        energy = images.pow(2).sum(dim=(1,2))
+        E = energy / (energy.max() + eps)
+        E = E.view(N,1,1)
+    
+        # 6. Interpolación por energía
+        G_mod = (1 - E) + E * G
+    
+        # 7. FFT y aplicación del filtro (norm='forward')
+        F = torch.fft.fft2(images, norm='forward')
+        F_sharp = F * G_mod
+        # filtered = torch.real(torch.fft.ifft2(F_sharp, norm='forward'))
+        filtered = torch.fft.ifft2(F_sharp, norm='forward').real
+        filtered = torch.nan_to_num(filtered, nan=0.0, posinf=0.0, neginf=0.0)
+    
+        # 8. Normalización final opcional
+        if normalize:
+            mean_orig = images.mean(dim=(-2,-1), keepdim=True)
+            std_orig  = images.std(dim=(-2,-1), keepdim=True)
+            mean_filt = filtered.mean(dim=(-2,-1), keepdim=True)
+            std_filt  = filtered.std(dim=(-2,-1), keepdim=True)
+            filtered = (filtered - mean_filt) / (std_filt + eps) * std_orig + mean_orig
+    
+        return filtered
+
     
     @torch.no_grad()
     def frc_whitening_batch(self, clk, frc_curves, sampling, alpha=0.2, Gmax=1.0, snr_min=0.3):
