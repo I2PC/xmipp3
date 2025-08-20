@@ -2731,6 +2731,11 @@ class BnBgpu:
         # === Filtro en forma de coseno ===
         cos_term = torch.pi * freq_r / (f_cutoff + eps)
         cosine_shape = ((1 - torch.cos(cos_term)) / 2).clamp(min=0.0, max=1.0)
+        #PAra realzar más hasta 20 A
+        f_focus = 1.0 / 20.0
+        bias = torch.clamp((freq_r / f_focus), min=0.0, max=1.0)  # empieza en 0, llega a 1 en 20Å
+        cosine_shape = cosine_shape * (bias ** 2)
+        #---------
         cosine_shape = torch.where(freq_r <= f_cutoff, cosine_shape, torch.ones_like(freq_r))
         cosine_shape = cosine_shape ** sharpen_power  # [B, H, W]
         
