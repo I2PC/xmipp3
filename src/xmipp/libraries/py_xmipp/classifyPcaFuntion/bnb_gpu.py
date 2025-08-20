@@ -2732,7 +2732,7 @@ class BnBgpu:
         cos_term = torch.pi * freq_r / (f_cutoff + eps)
         cosine_shape = ((1 - torch.cos(cos_term)) / 2).clamp(min=0.0, max=1.0)
         #PAra realzar más hasta 20 A
-        f_focus = 1.0 / 20.0
+        f_focus = 1.0 / 25.0
         bias = torch.clamp((freq_r / f_focus), min=0.0, max=1.0)  # empieza en 0, llega a 1 en 20Å
         cosine_shape = cosine_shape * (bias ** 2)
         #---------
