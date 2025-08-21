@@ -492,30 +492,38 @@ class BnBgpu:
         # clk = self.filter_classes_relion_style(newCL, clk, sampling, 6.0)
         
 
+        res_classes, frc_curves = self.frc_resolution_tensor(newCL, sampling)
+        print("--------RESOLUTION-------")
+        print(res_classes) 
+        clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
         # if iter > 10: 
         if iter > 7:
-            res_classes, frc_curves = self.frc_resolution_tensor(newCL, sampling)
-            print("--------RESOLUTION-------")
-            print(res_classes) 
+            # res_classes, frc_curves = self.frc_resolution_tensor(newCL, sampling)
+            # print("--------RESOLUTION-------")
+            # print(res_classes) 
+            # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
+            
             # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             # print(bfactor)
-            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
             # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling)
             # clk = self.enhance_averages_butterworth_normF(clk, sampling)
-            if iter < 12:
-                fe = 3.0
-            else:
-                fe = 1.5
-            clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None)
-            print("--------BOOST-------")
-            print(boost.view(1, len(clk)))
-            print("--------SHARPEN-------")
-            print(sharpen_power.view(1, len(clk)))
-            print("--------HASTA AQUI-------")
+            
+            # if iter < 10:
+            #     fe = 3.0
+            # else:
+            #     fe = 1.5
+            # clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None)
+            # print("--------BOOST-------")
+            # print(boost.view(1, len(clk)))
+            # print("--------SHARPEN-------")
+            # print(sharpen_power.view(1, len(clk)))
+            # print("--------HASTA AQUI-------")
+            clk = self.frc_whitening_batch(clk, frc_curves,sampling)
+
             # clk = self.sharpen_averages_batch_energy_normalized(clk, res_classes, bfactor, sampling)
             # clk = self.sigmoid_highboost_filter(clk, sampling)
             # clk = self.enhance_averages_butterworth_combined_FFT(clk, res_classes, sampling)
@@ -862,7 +870,7 @@ class BnBgpu:
             # clk = self.averages(data, newCL, classes)
             
             clk = self.averages_direct(transforIm, matches, classes)
-            res_classes = self.frc_resolution_tensor_align(transforIm, matches, classes, sampling)
+            res_classes, frc_curves = self.frc_resolution_tensor_align(transforIm, matches, classes, sampling)
             del(transforIm)
             torch.cuda.empty_cache()
             
@@ -878,7 +886,9 @@ class BnBgpu:
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling) 
             # clk = self.enhance_averages_butterworth_normF(clk, sampling)
-            clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, boost_max=None)
+            
+            # clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, boost_max=None)
+            clk = self.frc_whitening_batch(clk, frc_curves, sampling)
             # clk = self.sigmoid_highboost_filter(clk, sampling)
             # clk = self.enhance_averages_butterworth_combined_FFT(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
@@ -1802,7 +1812,7 @@ class BnBgpu:
     
   
     @torch.no_grad()
-    def frc_resolution_tensor(
+    def frc_resolution_tensor_old(
             self,
             newCL,                       # lista de tensores [N_i,H,W]
             pixel_size: float,           # Å/px
@@ -1873,6 +1883,93 @@ class BnBgpu:
         return res_out, frc_curves
     
     @torch.no_grad()
+    def frc_resolution_tensor(
+            self,
+            newCL,                       # lista de tensores [N_i,H,W]
+            pixel_size: float,           # Å/px
+            frc_threshold: float = 0.143,
+            fallback_res: float = 40.0,
+            apply_window: bool = True,
+            smooth: bool = True          # NUEVO: suavizado opcional de FRC
+    ) -> torch.Tensor:
+        """
+        Devuelve tensor [n_classes] con la resolución FRC por clase (Å)
+        y las curvas FRC por clase.
+        """
+    
+        n_classes = len(newCL)
+        h, w = next((imgs.shape[-2], imgs.shape[-1]) for imgs in newCL if imgs.numel() > 0)
+        device    = newCL[0].device
+        Rmax  = min(h, w) // 2
+    
+        res_out   = torch.full((n_classes,), float('nan'), device=device)
+        frc_curves = torch.zeros((n_classes, Rmax), device=device)
+    
+        # --- malla de frecuencias físicas (Å⁻¹) ---
+        fy = torch.fft.fftfreq(h, d=pixel_size, device=device)
+        fx = torch.fft.fftfreq(w, d=pixel_size, device=device)
+        gy, gx = torch.meshgrid(fy, fx, indexing="ij")
+        r = torch.sqrt(gx**2 + gy**2)   # frecuencia radial en Å⁻¹
+    
+        # discretizar radios en bins
+        freq_bins = torch.linspace(0, 0.5/pixel_size, Rmax, device=device)
+        r_bin = torch.bucketize(r.flatten(), freq_bins) - 1
+        r_bin = r_bin.clamp(0, Rmax-1)
+    
+        # --- Ventana Hann (opcional) ---
+        if apply_window:
+            wy = torch.hann_window(h, periodic=False, device=device)
+            wx = torch.hann_window(w, periodic=False, device=device)
+            window = wy[:, None] * wx[None, :]
+            window = window / window.norm() * (h*w)**0.5  # normalización
+    
+        for c, imgs in enumerate(newCL):
+            n = imgs.shape[0]
+            if n < 2:
+                continue  # no se puede partir en mitades
+    
+            # ---- half maps ----
+            perm          = torch.randperm(n, device=device)
+            half1, half2  = torch.chunk(imgs[perm], 2, dim=0)
+            avg1, avg2    = half1.mean(0), half2.mean(0)
+    
+            if apply_window:
+                avg1 = avg1 * window
+                avg2 = avg2 * window
+    
+            # ---- FFT ----
+            fft1 = torch.fft.fft2(avg1, norm="forward")
+            fft2 = torch.fft.fft2(avg2, norm="forward")
+    
+            p1   = (fft1.real**2 + fft1.imag**2)
+            p2   = (fft2.real**2 + fft2.imag**2)
+            prod = (fft1 * fft2.conj()).real
+    
+            # ---- FRC anular ----
+            frc_num = torch.zeros(Rmax, device=device).scatter_add_(0, r_bin, prod.flatten())
+            frc_d1  = torch.zeros(Rmax, device=device).scatter_add_(0, r_bin, p1.flatten())
+            frc_d2  = torch.zeros(Rmax, device=device).scatter_add_(0, r_bin, p2.flatten())
+            frc     = frc_num / (torch.sqrt(frc_d1*frc_d2) + 1e-12)
+    
+            if smooth:
+                # suavizado con media móvil (kernel triangular 3 pts)
+                kernel = torch.tensor([0.25, 0.5, 0.25], device=device).view(1, 1, -1)
+                frc = torch.nn.functional.conv1d(frc.view(1,1,-1), kernel, padding=1).view(-1)
+    
+            frc_curves[c] = frc
+    
+            # ---- resolución = cruce con threshold ----
+            idx = torch.where(frc < frc_threshold)[0]
+            if len(idx) and idx[0] > 0:
+                res_out[c] = 1.0 / freq_bins[idx[0]]
+    
+        # ---- reemplazo de NaN/Inf por fallback ----
+        res_out = torch.nan_to_num(res_out, nan=fallback_res,
+                                   posinf=fallback_res, neginf=fallback_res)
+        return res_out, frc_curves
+    
+    
+    @torch.no_grad()
     def frc_resolution_tensor_align(
             self,
             transforIm,             # tensor [B, H, W]
@@ -1881,7 +1978,8 @@ class BnBgpu:
             pixel_size: float,           
             frc_threshold: float = 0.143,
             fallback_res: float = 40.0,
-            apply_window: bool = True
+            apply_window: bool = True,
+            smooth: bool = True         
         ) -> torch.Tensor:
     
         n_classes = classes
@@ -1889,23 +1987,28 @@ class BnBgpu:
         labels = matches[:, 1]
         
         h, w = transforIm.shape[-2], transforIm.shape[-1]
-        
-        res_out = torch.full((n_classes,), float('nan'), device=device)
-        
-        y, x = torch.meshgrid(torch.arange(h, device=device),
-                              torch.arange(w, device=device),
-                              indexing='ij')
-        r = ((x - w//2)**2 + (y - h//2)**2).sqrt().long()
-        Rmax = min(h, w) // 2
-        r.clamp_(0, Rmax-1)
-        r_flat = r.view(-1)
-        freqs = torch.linspace(0, 0.5 / pixel_size, Rmax, device=device)
+        Rmax  = min(h, w) // 2
+              
+        res_out   = torch.full((n_classes,), float('nan'), device=device)
+        frc_curves = torch.zeros((n_classes, Rmax), device=device)
+    
+        # --- malla de frecuencias físicas (Å⁻¹) ---
+        fy = torch.fft.fftfreq(h, d=pixel_size, device=device)
+        fx = torch.fft.fftfreq(w, d=pixel_size, device=device)
+        gy, gx = torch.meshgrid(fy, fx, indexing="ij")
+        r = torch.sqrt(gx**2 + gy**2)   # frecuencia radial en Å⁻¹
+    
+        # discretizar radios en bins
+        freq_bins = torch.linspace(0, 0.5/pixel_size, Rmax, device=device)
+        r_bin = torch.bucketize(r.flatten(), freq_bins) - 1
+        r_bin = r_bin.clamp(0, Rmax-1)
     
         # Ventana Hann
         if apply_window:
             wy = torch.hann_window(h, periodic=False, device=device)
             wx = torch.hann_window(w, periodic=False, device=device)
             window = wy[:, None] * wx[None, :]
+            window = window / window.norm() * (h*w)**0.5  # normalización
     
         for c in range(n_classes):
             class_mask = labels == c
@@ -1922,24 +2025,33 @@ class BnBgpu:
                 avg1 = avg1 * window
                 avg2 = avg2 * window
     
-            fft1 = torch.fft.fftshift(torch.fft.fft2(avg1, norm="forward"))
-            fft2 = torch.fft.fftshift(torch.fft.fft2(avg2, norm="forward"))
+            fft1 = torch.fft.fft2(avg1, norm="forward")
+            fft2 = torch.fft.fft2(avg2, norm="forward")
     
             p1 = (fft1.real**2 + fft1.imag**2)
             p2 = (fft2.real**2 + fft2.imag**2)
             prod = (fft1 * fft2.conj()).real
+            
+                        # ---- FRC anular ----
+            frc_num = torch.zeros(Rmax, device=device).scatter_add_(0, r_bin, prod.flatten())
+            frc_d1  = torch.zeros(Rmax, device=device).scatter_add_(0, r_bin, p1.flatten())
+            frc_d2  = torch.zeros(Rmax, device=device).scatter_add_(0, r_bin, p2.flatten())
+            frc     = frc_num / (torch.sqrt(frc_d1*frc_d2) + 1e-12)
     
-            frc_num = torch.zeros(Rmax, device=device).scatter_add_(0, r_flat, prod.view(-1))
-            frc_d1 = torch.zeros(Rmax, device=device).scatter_add_(0, r_flat, p1.view(-1))
-            frc_d2 = torch.zeros(Rmax, device=device).scatter_add_(0, r_flat, p2.view(-1))
-            frc = frc_num / (torch.sqrt(frc_d1 * frc_d2) + 1e-12)
-    
+            if smooth:
+                # suavizado con media móvil (kernel triangular 3 pts)
+                kernel = torch.tensor([0.25, 0.5, 0.25], device=device).view(1, 1, -1)
+                frc = torch.nn.functional.conv1d(frc.view(1,1,-1), kernel, padding=1).view(-1)
+                
+            frc_curves[c] = frc
+                
+             # ---- resolución = cruce con threshold ----
             idx = torch.where(frc < frc_threshold)[0]
             if len(idx) and idx[0] > 0:
-                res_out[c] = 1.0 / freqs[idx[0]]
+                res_out[c] = 1.0 / freq_bins[idx[0]]
     
         res_out = torch.nan_to_num(res_out, nan=fallback_res, posinf=fallback_res, neginf=fallback_res)
-        return res_out
+        return res_out, frc_curves
 
 
     
@@ -2871,60 +2983,211 @@ class BnBgpu:
 
     
     @torch.no_grad()
-    def frc_whitening_batch(self, clk, frc_curves, sampling, alpha=0.2, Gmax=1.0, snr_min=0.3):
-        """
-        Realce agresivo de altas frecuencias usando FRC por clase (vectorizado en GPU).
-    
-        clk: tensor [n_classes, h, w] promedios por clase
-        frc_curves: tensor [n_classes, Rmax] con FRC radial
-        sampling: tamaño pixel en Å
-        alpha: pendiente objetivo (0=blanco total, 1=boost moderado)
-        Gmax: ganancia máxima permitida
-        snr_min: SNR mínima para aplicar ganancia
-        """
+    def frc_whitening_batch_old(
+        self,
+        clk: torch.Tensor,
+        frc_curves: torch.Tensor,
+        sampling: float,
+        alpha: float = 1.0,
+        Gmax: float = 12.0,
+        snr_min: float = 0.2,
+        k: float = 10.0,
+        smooth: int = 3,
+        normalize: bool = True
+    ) -> torch.Tensor:
         device = clk.device
         ncls, h, w = clk.shape
-        cy, cx = h // 2, w // 2
-    
-        # Coordenadas radiales (compartidas por todas las clases)
+        
+        # --- Validar / adaptar frc_curves y clk ---
+        if frc_curves.shape[0] == 1 and ncls > 1:
+            frc_curves = frc_curves.repeat(ncls, 1)
+        
+        m = min(ncls, frc_curves.shape[0])
+        frc_curves = frc_curves[:m].to(device)
+        clk = clk[:m]
+        ncls = m
+        
+        # --- Radios de la imagen y de las curvas FRC ---
+        Rimg = int(min(h, w) // 2)
+        Rfrc = int(frc_curves.shape[1])
+        Rmax = min(Rimg, Rfrc)
+        
+        # --- Rejilla radial ---
         yy, xx = torch.meshgrid(torch.arange(h, device=device),
                                 torch.arange(w, device=device),
                                 indexing='ij')
-        r = torch.sqrt((yy - cy)**2 + (xx - cx)**2).long()
-        Rmax = frc_curves.shape[1]
-        r.clamp_(0, Rmax - 1)  # evita indices fuera de rango
-    
-        # FFT de todos los promedios
-        F = torch.fft.fft2(clk, norm='forward')        # [ncls, h, w]
-        mag = torch.abs(F)
-        phase = torch.angle(F)
-    
-        # Potencia radial por clase → [ncls, Rmax]
+        cy, cx = h // 2, w // 2
+        r_float = torch.sqrt((yy - cy).float()**2 + (xx - cx).float()**2)
+        r = torch.floor(r_float).to(torch.int64)
+        r = r.clamp(0, Rmax - 1)  # <-- evitar out-of-bounds
+        
+        # --- FFT y potencia ---
+        F = torch.fft.fft2(clk, norm='forward')
+        pow_spec = torch.abs(F)**2
+        
+        # --- Potencia radial media P[c, rad] ---
         P = torch.zeros((ncls, Rmax), device=device)
-        for rad in range(Rmax):
-            mask = (r == rad)
-            if mask.any():
-                vals = mag[:, mask].pow(2)              # [ncls, Npix_rad]
-                P[:, rad] = vals.mean(dim=1)
-    
-        # SNR y enmascarado por clase
-        snr = frc_curves / (1 - frc_curves + 1e-8)    # [ncls, Rmax]
-        mask_snr = (snr > snr_min).float()
-    
-        # Target slope → broadcast [1, Rmax]
-        freqs = torch.arange(Rmax, device=device) / (h / 2)
-        T = (freqs.clamp(min=1e-3))**alpha
-    
-        # Ganancia radial por clase → [ncls, Rmax]
-        G = (T / (P.sqrt() + 1e-8)).clamp(1.0, Gmax) * mask_snr
-    
-        # Mapear ganancia radial a 2D usando gather correctamente
-        r_b = r.unsqueeze(0).expand(ncls, -1, -1)     # [ncls, h, w]
-        Gmap = G[torch.arange(ncls)[:, None, None], r]
-    
-        # Aplicar en Fourier y reconstruir
-        F_new = (mag * Gmap) * torch.exp(1j * phase)
+        r_flat = r.view(-1)
+        counts = torch.bincount(r_flat, minlength=Rmax).clamp(min=1).float()
+        pow_flat = pow_spec.view(ncls, -1)
+        
+        for c in range(ncls):
+            P[c].scatter_add_(0, r_flat, pow_flat[c])
+        P = P / counts.unsqueeze(0)
+        
+        # --- SNR desde FRC ---
+        frc_curves = frc_curves[:, :Rmax].clamp(0, 0.999999)
+        snr = frc_curves / (1.0 - frc_curves + 1e-12)
+        
+        # --- Espectro objetivo T(f) en Å⁻¹ ---
+        rad = torch.arange(Rmax, device=device)
+        freqs = rad / (Rimg * sampling)
+        freqs = freqs.clamp(min=1e-3)
+        T = freqs**alpha
+        
+        # --- Ganancia radial G[c, rad] ---
+        G = (T.unsqueeze(0) / (P.sqrt() + 1e-8)).clamp(1.0, Gmax)
+        
+        # --- Transición suave por SNR (sigmoid) ---
+        mask = torch.sigmoid(k * (snr - snr_min))
+        G = 1.0 + mask * (G - 1.0)
+        G[:, 0] = 1.0  # no tocar DC
+        
+        # --- Suavizado radial opcional ---
+        if smooth is not None and smooth >= 3:
+            if smooth % 2 == 0:
+                smooth += 1
+            pad = smooth // 2
+            G_pad = torch.nn.functional.pad(G.unsqueeze(1), (pad, pad), mode='reflect')
+            kernel = torch.ones(1, 1, smooth, device=device) / smooth
+            G = torch.nn.functional.conv1d(G_pad, kernel).squeeze(1)
+            # --- recortar G para que tenga exactamente Rmax ---
+            G = G[:, :Rmax]
+        
+        # --- Mapear G a 2D y aplicar ---
+        r_clamped = r.clamp(0, G.shape[1] - 1)
+        Gmap = G[:, r_clamped]
+        F_new = (torch.abs(F) * Gmap) * torch.exp(1j * torch.angle(F))
         out = torch.real(torch.fft.ifft2(F_new, norm='forward'))
+        
+        # --- Normalización opcional ---
+        if normalize:
+            std_in = clk.std(dim=(-2, -1), keepdim=True)
+            std_out = out.std(dim=(-2, -1), keepdim=True) + 1e-8
+            out = out * (std_in / std_out)
+        
+        return out
+    
+    @torch.no_grad()
+    def frc_whitening_batch(
+        self,
+        clk: torch.Tensor,           # [C,H,W]
+        frc_curves: torch.Tensor,    # [C,Rfrc] (o [1,Rfrc] y se repite)
+        sampling: float,             # Å/px
+        # --- realce base ---
+        alpha: float = 1.0,
+        Gmax: float = 12.0,
+        snr_min: float = 0.2,
+        k: float = 10.0,
+        smooth: int = 5,
+        normalize: bool = True,
+        # --- foco > 25 Å ---
+        focus_res: float = 25.0,     # en Å (frecuencias mejores que esto se realzan más)
+        shelf_gain: float = 3.0,     # ganancia adicional de la shelf (1.0 = sin extra)
+        shelf_width: float = 0.12,   # anchura relativa de transición (0.08-0.15)
+        snr_relax: float = 0.08      # relajación de snr_min en la banda enfocada
+    ) -> torch.Tensor:
+        device = clk.device
+        C, H, W = clk.shape
+    
+        # Alinear frc_curves con C
+        if frc_curves.shape[0] == 1 and C > 1:
+            frc_curves = frc_curves.repeat(C, 1)
+        m = min(C, frc_curves.shape[0])
+        frc_curves = frc_curves[:m].to(device)
+        clk = clk[:m]
+        C = m
+    
+        # Radios/índices
+        Rimg = int(min(H, W) // 2)
+        Rfrc = int(frc_curves.shape[1])
+        Rmax = min(Rimg, Rfrc)
+    
+        yy, xx = torch.meshgrid(torch.arange(H, device=device),
+                                torch.arange(W, device=device),
+                                indexing='ij')
+        cy, cx = H // 2, W // 2
+        r_float = torch.sqrt((yy - cy).float()**2 + (xx - cx).float()**2)
+        r = torch.floor(r_float).to(torch.int64).clamp_(0, Rmax - 1)
+        r = r.clamp(0, Rmax - 1)
+    
+        # FFT y potencia
+        F = torch.fft.fft2(clk, norm='forward')
+        pow_spec = torch.abs(F)**2
+    
+        # Potencia radial media P[c,rad]
+        P = torch.zeros((C, Rmax), device=device)
+        r_flat = r.view(-1)
+        pow_flat = pow_spec.view(C, -1)
+        counts = torch.bincount(r_flat, minlength=Rmax).clamp(min=1).float()
+        for c in range(C):
+            P[c].scatter_add_(0, r_flat, pow_flat[c])
+        P = P / counts.unsqueeze(0)
+    
+        # SNR desde FRC
+        frc_curves = frc_curves[:, :Rmax].clamp(0, 0.999999)
+        snr = frc_curves / (1.0 - frc_curves + 1e-12)
+    
+        # Frecuencia física (Å^-1) por anillo: f = r / (min(H,W) * sampling)
+        rad = torch.arange(Rmax, device=device).float()
+        f_phys = rad / (float(min(H, W)) * float(sampling))
+        f_phys = f_phys.clamp(min=1e-4)
+    
+        # Objetivo base (whitening con pendiente alpha)
+        T = f_phys**alpha  # shape [Rmax]
+    
+        # ------- Shelf de realce a partir de focus_res -------
+        f_focus = 1.0 / float(focus_res)             # Å^-1
+        # transición suave (tanh). width relativo al valor de f_focus
+        w = shelf_width * f_focus
+        # curva de activación 0->1 alrededor de f_focus
+        act = 0.5 * (1.0 + torch.tanh((f_phys - f_focus) / (w + 1e-12)))
+        # shelf: 1 debajo de f_focus, 1 + shelf_gain*act por encima (sube suave)
+        shelf = 1.0 + shelf_gain * act
+        # aplicar shelf sobre T (más empuje por encima de 25 Å)
+        T = T * shelf
+    
+        # ------- Relajar SNR por encima de focus_res -------
+        # baja snr_min de forma local donde act~1 para permitir más ganancia
+        snr_min_vec = (snr_min - snr_relax * act).clamp(min=0.0)
+        # Ganancia radial sin SNR
+        G = (T.unsqueeze(0) / (P.sqrt() + 1e-8)).clamp(1.0, Gmax)
+    
+        # Transición por SNR (ahora dependiente de f)
+        # mask[c,rad] = σ(k*(snr[c,rad] - snr_min_vec[rad]))
+        mask = torch.sigmoid(k * (snr - snr_min_vec.unsqueeze(0)))
+        G = 1.0 + mask * (G - 1.0)
+        G[:, 0] = 1.0
+    
+        # Suavizado radial opcional
+            
+        if smooth is not None and smooth >= 3:
+            if smooth % 2 == 0:
+                smooth += 1
+            pad = smooth // 2
+            kernel = torch.ones(1, 1, smooth, device=device) / smooth
+            # salida con misma longitud que la entrada (Rmax):
+            G = torch.nn.functional.conv1d(G.unsqueeze(1), kernel, padding=pad).squeeze(1)
+    
+        # Mapear a 2D y aplicar
+        Gmap = G[:, r]
+        F_new = (torch.abs(F) * Gmap) * torch.exp(1j * torch.angle(F))
+        out = torch.real(torch.fft.ifft2(F_new, norm='forward'))
+    
+        if normalize:
+            std_in = clk.std(dim=(-2, -1), keepdim=True)
+            std_out = out.std(dim=(-2, -1), keepdim=True) + 1e-8
+            out = out * (std_in / std_out)
     
         return out
     
