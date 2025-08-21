@@ -492,17 +492,12 @@ class BnBgpu:
         # clk = self.filter_classes_relion_style(newCL, clk, sampling, 6.0)
         
 
-        res_classes, frc_curves = self.frc_resolution_tensor(newCL, sampling)
-        print("--------RESOLUTION-------")
-        print(res_classes) 
-        clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
         # if iter > 10: 
         if iter > 7:
-            # res_classes, frc_curves = self.frc_resolution_tensor(newCL, sampling)
-            # print("--------RESOLUTION-------")
-            # print(res_classes) 
-            # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
-            
+            res_classes, frc_curves = self.frc_resolution_tensor(newCL, sampling)
+            print("--------RESOLUTION-------")
+            print(res_classes) 
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             # print(bfactor)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
@@ -512,17 +507,17 @@ class BnBgpu:
             # clk = self.enhance_averages_butterworth(clk, sampling)
             # clk = self.enhance_averages_butterworth_normF(clk, sampling)
             
-            # if iter < 10:
-            #     fe = 3.0
-            # else:
-            #     fe = 1.5
-            # clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None)
-            # print("--------BOOST-------")
-            # print(boost.view(1, len(clk)))
-            # print("--------SHARPEN-------")
-            # print(sharpen_power.view(1, len(clk)))
-            # print("--------HASTA AQUI-------")
-            clk = self.frc_whitening_batch(clk, frc_curves,sampling)
+            if iter < 10:
+                fe = 3.0
+            else:
+                fe = 1.5
+            clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None)
+            print("--------BOOST-------")
+            print(boost.view(1, len(clk)))
+            print("--------SHARPEN-------")
+            print(sharpen_power.view(1, len(clk)))
+            print("--------HASTA AQUI-------")
+            # clk = self.frc_whitening_batch(clk, frc_curves,sampling)
 
             # clk = self.sharpen_averages_batch_energy_normalized(clk, res_classes, bfactor, sampling)
             # clk = self.sigmoid_highboost_filter(clk, sampling)
@@ -887,8 +882,8 @@ class BnBgpu:
             # clk = self.enhance_averages_butterworth(clk, sampling) 
             # clk = self.enhance_averages_butterworth_normF(clk, sampling)
             
-            # clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, boost_max=None)
-            clk = self.frc_whitening_batch(clk, frc_curves, sampling)
+            clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, boost_max=None)
+            # clk = self.frc_whitening_batch(clk, frc_curves, sampling)
             # clk = self.sigmoid_highboost_filter(clk, sampling)
             # clk = self.enhance_averages_butterworth_combined_FFT(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
