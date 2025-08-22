@@ -511,7 +511,7 @@ class BnBgpu:
                 fe = 3.0
             else:
                 fe = 1.5
-            clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None)
+            clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None, sharpen_power=0.5)
             print("--------BOOST-------")
             print(boost.view(1, len(clk)))
             print("--------SHARPEN-------")
@@ -882,7 +882,7 @@ class BnBgpu:
             # clk = self.enhance_averages_butterworth(clk, sampling) 
             # clk = self.enhance_averages_butterworth_normF(clk, sampling)
             
-            clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, boost_max=None)
+            clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, boost_max=None, sharpen_power=0.5)
             # clk = self.frc_whitening_batch(clk, frc_curves, sampling)
             # clk = self.sigmoid_highboost_filter(clk, sampling)
             # clk = self.enhance_averages_butterworth_combined_FFT(clk, res_classes, sampling)
@@ -2802,7 +2802,8 @@ class BnBgpu:
         resolutions: torch.Tensor,      # [B] en Å
         pixel_size: float,              # tamaño del píxel en Å/pix
         f_energy: float = 1.5,
-        boost_max: float = None,        # si None, se ajusta para duplicar energía
+        R_high: float = 25.0,
+        boost_max: float = None,        # si None, se ajusta para energía
         sharpen_power: float = None,    # si None, se ajusta automáticamente según resolución
         # sharpen_power: float = 2.0,
         eps: float = 1e-8,
@@ -2844,7 +2845,7 @@ class BnBgpu:
         cos_term = torch.pi * freq_r / (f_cutoff + eps)
         cosine_shape = ((1 - torch.cos(cos_term)) / 2).clamp(min=0.0, max=1.0)
         #PAra realzar más hasta 20 A
-        f_focus = 1.0 / 25.0
+        f_focus = 1.0 / R_high
         bias = torch.clamp((freq_r / f_focus), min=0.0, max=1.0)  # empieza en 0, llega a 1 en 20Å
         cosine_shape = cosine_shape * (bias ** 2)
         #---------
