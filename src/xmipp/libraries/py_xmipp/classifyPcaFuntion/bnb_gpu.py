@@ -442,10 +442,8 @@ class BnBgpu:
             
             if mask:
                 # if iter < 15:
-                if iter < 10 and iter % 2 == 1:                    
-                    sigma = 32
-                else:
-                    sigma = 42
+                sigma = 32 if (iter < 10 and iter % 2 == 1) else 52 if iter < 10 else 42
+                
                 transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
             else:
                 transforIm = transforIm * self.create_circular_mask(transforIm)
