@@ -512,7 +512,7 @@ class BnBgpu:
             if iter < 10:
                 fe = 3.0
             else:
-                fe = 1.5
+                fe = 2.0
             clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None, sharpen_power=None)
             print("--------BOOST-------")
             print(boost.view(1, len(clk)))
@@ -2803,7 +2803,7 @@ class BnBgpu:
         averages: torch.Tensor,         # [B, H, W]
         resolutions: torch.Tensor,      # [B] en Å
         pixel_size: float,              # tamaño del píxel en Å/pix
-        f_energy: float = 1.5,
+        f_energy: float = 2.0,
         R_high: float = 25.0,
         boost_max: float = None,        # si None, se ajusta para energía
         sharpen_power: float = None,    # si None, se ajusta automáticamente según resolución
