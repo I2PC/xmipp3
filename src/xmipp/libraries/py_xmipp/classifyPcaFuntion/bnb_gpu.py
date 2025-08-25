@@ -512,7 +512,7 @@ class BnBgpu:
             if iter < 10:
                 fe = 3.0
             else:
-                fe = 2.0
+                fe = 1.5
             clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None, sharpen_power=1.0)
             print("--------BOOST-------")
             print(boost.view(1, len(clk)))
