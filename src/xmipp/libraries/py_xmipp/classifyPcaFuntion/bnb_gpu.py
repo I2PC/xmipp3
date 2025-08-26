@@ -442,7 +442,7 @@ class BnBgpu:
             
             if mask:
                 # if iter < 15:
-                sigma = 32 if (iter < 10 and iter % 2 == 1) else 52# if iter < 10 else 42
+                sigma = 32 if (iter < 10 and iter % 2 == 1) else 52 if iter < 10 else 42
                 
                 transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
             else:
@@ -2804,7 +2804,7 @@ class BnBgpu:
         resolutions: torch.Tensor,      # [B] en Å
         pixel_size: float,              # tamaño del píxel en Å/pix
         f_energy: float = 2.0,
-        R_high: float = 25.0,
+        # R_high: float = 25.0,
         boost_max: float = None,        # si None, se ajusta para energía
         sharpen_power: float = None,    # si None, se ajusta automáticamente según resolución
         # sharpen_power: float = 1.5,
@@ -2847,9 +2847,9 @@ class BnBgpu:
         cos_term = torch.pi * freq_r / (f_cutoff + eps)
         cosine_shape = ((1 - torch.cos(cos_term)) / 2).clamp(min=0.0, max=1.0)
         #PAra realzar más hasta 20 A
-        f_focus = 1.0 / R_high
-        bias = torch.clamp((freq_r / f_focus), min=0.0, max=1.0)  # empieza en 0, llega a 1 en 20Å
-        cosine_shape = cosine_shape * (bias ** 2)
+        # f_focus = 1.0 / R_high
+        # bias = torch.clamp((freq_r / f_focus), min=0.0, max=1.0)  # empieza en 0, llega a 1 en 20Å
+        # cosine_shape = cosine_shape * (bias ** 2)
         #---------
         cosine_shape = torch.where(freq_r <= f_cutoff, cosine_shape, torch.ones_like(freq_r))
         cosine_shape = cosine_shape ** sharpen_power  # [B, H, W]
