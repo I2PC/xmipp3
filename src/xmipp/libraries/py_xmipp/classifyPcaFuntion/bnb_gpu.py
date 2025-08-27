@@ -442,9 +442,10 @@ class BnBgpu:
             
             if mask:
                 # if iter < 15:
-                sigma = 32 if (iter < 10 and iter % 2 == 1) else 52 if iter < 10 else 42
+                # sigma_gauss = (0.75*sigma) if (iter < 10 and iter % 2 == 1) else (1.25*sigma) if iter < 10 else sigma
+                sigma_gauss = (0.75*sigma) if (iter < 10 and iter % 2 == 1) else (sigma)# if iter < 10 else sigma
                 
-                transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
+                transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma_gauss)
             else:
                 transforIm = transforIm * self.create_circular_mask(transforIm)
                 
@@ -509,10 +510,11 @@ class BnBgpu:
             # clk = self.enhance_averages_butterworth(clk, sampling)
             # clk = self.enhance_averages_butterworth_normF(clk, sampling)
             
-            if iter < 10:
-                fe = 3.0
-            else:
-                fe = 2.0
+            # if iter < 10:
+            #     fe = 3.0
+            # else:
+            #     fe = 2.0
+            fe = 2.0
             clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None, sharpen_power=None)
             print("--------BOOST-------")
             print(boost.view(1, len(clk)))
