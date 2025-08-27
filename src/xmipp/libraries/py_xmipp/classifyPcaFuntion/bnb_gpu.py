@@ -515,7 +515,7 @@ class BnBgpu:
             # else:
             #     fe = 2.0
             fe = 2.0
-            clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None, sharpen_power=None)
+            clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None)
             print("--------BOOST-------")
             print(boost.view(1, len(clk)))
             print("--------SHARPEN-------")
@@ -886,7 +886,7 @@ class BnBgpu:
             # clk = self.enhance_averages_butterworth(clk, sampling) 
             # clk = self.enhance_averages_butterworth_normF(clk, sampling)
             
-            clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, boost_max=None, sharpen_power=None)
+            clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, boost_max=None)
             # clk = self.frc_whitening_batch(clk, frc_curves, sampling)
             # clk = self.sigmoid_highboost_filter(clk, sampling)
             # clk = self.enhance_averages_butterworth_combined_FFT(clk, res_classes, sampling)
@@ -2808,8 +2808,8 @@ class BnBgpu:
         f_energy: float = 2.0,
         # R_high: float = 25.0,
         boost_max: float = None,        # si None, se ajusta para energía
-        sharpen_power: float = None,    # si None, se ajusta automáticamente según resolución
-        # sharpen_power: float = 1.5,
+        # sharpen_power: float = None,    # si None, se ajusta automáticamente según resolución
+        sharpen_power: float = 0.5,
         eps: float = 1e-8,
         normalize: bool = True,
         max_iter: int = 20
