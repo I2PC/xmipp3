@@ -224,7 +224,7 @@ void ProgAngularProjectLibrary::project_angle_vector (int my_init, int my_end, b
         for (std::size_t i = 0; i < numberOfRotTilt; ++i)
         {
             const auto index = my_init + i;
-            const auto n = psiIndex*numberOfRotTilt + i;
+            const auto n = psiIndex*numberOfRotTilt + index;
             if (verbose)
                 progress_bar(n);
             
