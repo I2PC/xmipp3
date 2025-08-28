@@ -241,10 +241,12 @@ void ProgTransformGeometry::processImage(const FileName &fnImg,
 
     if (checkParam("--shift_to"))
 	{
-    	double rot, tilt, psi;
+    	double rot, tilt, psi, sx, sy;
     	rowIn.getValue(MDL_ANGLE_ROT, rot);
     	rowIn.getValue(MDL_ANGLE_TILT, tilt);
         rowIn.getValue(MDL_ANGLE_PSI, psi);
+    	rowIn.getValue(MDL_SHIFT_X, sx);
+    	rowIn.getValue(MDL_SHIFT_Y, sy);
     	Matrix1D<double> pos, posp;
     	pos.initZeros(3);
     	posp.initZeros(3);
@@ -256,16 +258,16 @@ void ProgTransformGeometry::processImage(const FileName &fnImg,
 		if (checkParam("--inverse"))
 			R = R.inv();
 		posp = R * pos;
-		rowOut.setValue(MDL_SHIFT_X, -posp(0));
-		rowOut.setValue(MDL_SHIFT_Y, -posp(1));
+		rowOut.setValue(MDL_SHIFT_X, sx + posp(0));
+		rowOut.setValue(MDL_SHIFT_Y, sy + posp(1));
 		T.initIdentity(3);
 		int nx;
 		rowIn.getValue(MDL_XCOOR, nx);
-		nx += int(-posp(0));
+		nx += int(sx + posp(0));
 		rowOut.setValue(MDL_XCOOR, nx);
 		int ny;
 		rowIn.getValue(MDL_YCOOR, ny);
-		ny += int(-posp(1));
+		ny += int(sy + posp(1));
 		rowOut.setValue(MDL_YCOOR, ny);
 		geo2TransformationMatrix(rowOut, T, true);
     }
@@ -279,6 +281,33 @@ void ProgTransformGeometry::processImage(const FileName &fnImg,
         applyGeometry(splineDegree, imgOut(), img(), T, xmipp_transformation::IS_NOT_INV, wrap, 0.);
         imgOut.write(fnImgOut);
         rowOut.resetGeo(false);
+
+    	// When param shift_to is passed, only shifts are applied. Therefore, we should keep any other alignment information
+    	// in the original images to no loose it
+    	if (checkParam("--shift_to")) {
+    		double rot, tilt, psi;
+    		rowIn.getValue(MDL_ANGLE_ROT, rot);
+    		rowIn.getValue(MDL_ANGLE_TILT, tilt);
+    		rowIn.getValue(MDL_ANGLE_PSI, psi);
+    		rowOut.setValue(MDL_ANGLE_ROT, rot);
+    		rowOut.setValue(MDL_ANGLE_TILT, tilt);
+    		rowOut.setValue(MDL_ANGLE_PSI, psi);
+
+    		Matrix1D<double> pos, posp;
+    		pos.initZeros(3);
+    		posp.initZeros(3);
+    		pos(0) = getDoubleParam("--shift_to", 0);
+    		pos(1) = getDoubleParam("--shift_to", 1);
+    		pos(2) = getDoubleParam("--shift_to", 2);
+    		R.initIdentity(3);
+    		Euler_angles2matrix(rot, tilt, psi, R, false);
+    		if (checkParam("--inverse"))
+    			R = R.inv();
+    		posp = R * pos;
+
+    		rowOut.setValue(MDL_SHIFT_X, -posp(0));
+    		rowOut.setValue(MDL_SHIFT_Y, -posp(1));
+    	}
     }
     else
     {

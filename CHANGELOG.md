@@ -6,7 +6,7 @@
       - tomo_calculate_landmark_residuals: to calculate residuals in TS
       - tomo_detect_misalignment_residuals: to detect misalignment from residuals in TS
       - batch_tomo_misalignment_resid_statistics: Python script to calculate statistical metrics from a set of residuals
-      - tomo_tiltseries_detect_misalignment_corr: (legacy) for calculating relative shifts between tilt images, as a prealignment strategy
+      - tomo_tiltseries_detect_misalignment_corr: (to legacy) for calculating relative shifts between tilt images, as a prealignment strategy
 
    - Programs updated
       - Particle subtraction: now generates a single stack + includes noise power estimation
@@ -23,7 +23,7 @@
    - Enhanced data collection steps (context suggests improvements in reproducibility or logging)
      
    ### More Xmipp  
-   - DLTK environments: channels limited to conda-forge and pip. Updated deepEMhancer version and models
+   - DLTK environments: channels limited to conda-forge and pip. Updated deepEMhancer version and models, update all enviroments
    - Allowing to skip sorting in metadata_vec::split
 
 ## Release 3.24.12.0 - Poseidon
@@ -35,7 +35,7 @@
         - angular_continuous_assign2_gpu: Make a continuous angular assignment with GPU
         - cuda_fourier_projection
         - predict_deep_center
-        - cl2d_clustering.py
+        - cl2d_clustering
 
    - Programs updated
       - tomogram_reconstruction:  averaging with gold standard, tigre with internal interpolation, enviroment of tigre updated

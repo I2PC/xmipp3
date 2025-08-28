@@ -1285,6 +1285,67 @@ Image_applyCTF(PyObject *obj, PyObject *args, PyObject *kwargs)
     return nullptr;
 }
 
+/* Apply CTF to this image */
+PyObject *
+xmipp_getPSF(PyObject *obj, PyObject *args, PyObject *kwargs)
+{
+    import_array();
+    PyObject *inputCTF = nullptr;
+    double Ts=0.5;
+    size_t rowId=0;
+
+    try
+    {
+        PyArg_ParseTuple(args, "O|dk", &inputCTF,&Ts,&rowId);
+        if (inputCTF != nullptr)
+        {
+			PyObject *pyStr;
+			if (PyUnicode_Check(inputCTF) || MetaData_Check(inputCTF))
+			{
+				CTFDescription ctf;
+				ctf.enable_CTF=true;
+				ctf.enable_CTFnoise=false;
+				if (MetaData_Check(inputCTF))
+					ctf.readFromMetadataRow(MetaData_Value(inputCTF), rowId );
+				else
+			    {
+				   pyStr = PyObject_Str(inputCTF);
+				   FileName fnCTF = (char*)PyUnicode_AsUTF8(pyStr);
+				   ctf.read(fnCTF);
+			    }
+			    ctf.Tm=Ts;
+				ctf.produceSideInfo();
+
+				MultidimArray<double> psfProfile(512);
+				MultidimArray<std::complex<double> > ctfProfile(256);
+				double resolutionStep=1/(2*Ts*256);
+				for (int k=0; k<256; k++)
+				{
+                   ctf.precomputeValues(k*resolutionStep,0.0);
+                   dAi(ctfProfile, k)=ctf.getValueAt();
+				}
+
+                FourierTransformer fft;
+                fft.inverseFourierTransform(ctfProfile, psfProfile);
+                CenterFFT(psfProfile, true);
+
+                npy_intp dims[1];
+                dims[0] = MULTIDIM_SIZE(psfProfile);
+                auto * arr = (PyArrayObject*) PyArray_SimpleNew(1, dims, NPY_DOUBLE);
+                void * data = PyArray_DATA(arr);
+                void *mymem = psfProfile.getArrayPointer();
+                memcpy(data, mymem, MULTIDIM_SIZE(psfProfile)*sizeof(double));
+                return (PyObject*)arr;
+			}
+		}
+    }
+    catch (XmippError &xe)
+    {
+        PyErr_SetString(PyXmippError, xe.what());
+    }
+    return nullptr;
+}
+
 /* projectVolumeDouble */
 PyObject *
 Image_projectVolumeDouble(PyObject *obj, PyObject *args, PyObject *kwargs)
@@ -1434,6 +1495,8 @@ xmipp_methods[] =
 		  "I2aligned=image_align(I1,I2), align I2 to resemble I1." },
 		{ "applyCTF", (PyCFunction) Image_applyCTF, METH_VARARGS,
 		  "Apply CTF to this image. Ts is the sampling rate of the image." },
+		{ "getPSF", (PyCFunction) xmipp_getPSF, METH_VARARGS,
+		  "Get PSF from a CTF. default Ts=0.5A" },
 		{ "projectVolumeDouble", (PyCFunction) Image_projectVolumeDouble, METH_VARARGS,
 		  "project a volume using Euler angles" },
         { nullptr } /* Sentinel */

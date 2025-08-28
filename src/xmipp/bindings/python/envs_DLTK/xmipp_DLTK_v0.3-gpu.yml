@@ -9,6 +9,8 @@ channels:
 dependencies:
   - python=3.7
   - libstdcxx-ng # To be compatible with scipion env
+  - cudnn=7.6
+  - cudatoolkit==10.0.130
   - pip
   - pip:
       - tensorflow-gpu==1.15.0

@@ -255,6 +255,16 @@ class CondaEnvManager(object):
         env['PYTHONWARNINGS'] = 'ignore::FutureWarning'  # to skip warnings
         return env
 
+    def getCondaEnvTargetFilename(self, name):
+        env = CondaEnvManager.XMIPP_CONDA_ENVS[name]
+
+        if "versionId" in env:
+            target = f'{name}-{env["versionId"]}.yml'
+        else:
+            target = f'{name}.yml'
+
+        return target
+
     @staticmethod
     def getCondaActivationCmd():
         """ This method takes the command to activate conda
