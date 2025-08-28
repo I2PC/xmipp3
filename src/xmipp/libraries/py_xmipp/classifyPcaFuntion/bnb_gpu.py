@@ -2808,8 +2808,8 @@ class BnBgpu:
         f_energy: float = 2.0,
         # R_high: float = 25.0,
         boost_max: float = None,        # si None, se ajusta para energía
-        # sharpen_power: float = None,    # si None, se ajusta automáticamente según resolución
-        sharpen_power: float = 0.5,
+        sharpen_power: float = None,    # si None, se ajusta automáticamente según resolución
+        # sharpen_power: float = 0.5,
         eps: float = 1e-8,
         normalize: bool = True,
         max_iter: int = 20
@@ -2834,7 +2834,8 @@ class BnBgpu:
         # === Ajuste dinámico de sharpen_power por resolución ===
         if sharpen_power is None:
             # sharpen_power = (1.5 - 0.1 * resolutions).clamp(min=0.4, max=1.0)  # regla empírica
-            sharpen_power = (0.1 * resolutions).clamp(min=0.3, max=2.5)
+            # sharpen_power = (0.1 * resolutions).clamp(min=0.3, max=2.5)
+            sharpen_power = (0.08 * resolutions).clamp(min=0.3, max=2.0)
             # log_scale = 1.0 / torch.log(torch.tensor(8.0, device=resolutions.device))
             # sharpen_power = (torch.log(resolutions) * log_scale).clamp(min=0.4, max=3.0)
             # sharpen_power = (1.2 * torch.log(resolutions) - 1.2).clamp(min=0.4, max=3.0)
