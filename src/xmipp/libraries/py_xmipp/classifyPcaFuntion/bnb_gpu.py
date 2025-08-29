@@ -529,7 +529,7 @@ class BnBgpu:
             # clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_combined_cos_FFT(clk, res_classes, sampling)
             # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
-            clk = self.unsharp_mask_norm(clk)
+            # clk = self.unsharp_mask_norm(clk)
     
 
             # clk = self.unsharp_mask_adaptive_gaussian(clk)
@@ -537,6 +537,7 @@ class BnBgpu:
             # clk = self.apply_consistency_masks_vector(clk, mask_C) 
         
         # clk = self.gaussian_lowpass_filter_2D(clk, 6.0, sampling)
+        clk = self.unsharp_mask_norm(clk)
         
 
         # if iter in [10, 13]:
@@ -1507,7 +1508,7 @@ class BnBgpu:
         return masks
     
     @torch.no_grad()
-    def unsharp_mask_norm(self, imgs, kernel_size=5, strength=2.0):
+    def unsharp_mask_norm(self, imgs, kernel_size=5, strength=1.0):
         N, H, W = imgs.shape
         
         mean0 = imgs.mean(dim=(1, 2), keepdim=True)
