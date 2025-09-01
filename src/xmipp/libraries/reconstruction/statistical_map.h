@@ -55,6 +55,7 @@ class ProgStatisticalMap: public XmippProgram
     FileName fn_oroot;                      // Location for saving output maps
     double sampling_rate;                   // Sampling rate of input maps
     double protein_radius;                  // Protein radius
+    double significance_thr;                // Significance Z-score threshold
 
     // Side info variables
     FileName fn_out_avg_map;
@@ -68,13 +69,15 @@ class ProgStatisticalMap: public XmippProgram
     size_t Ndim;
 
     // Data variables
-    FileName fn_V;                                  // Filename for each input volume from pool
-    Image<double> V;                                // Each input volume from pool
-    Image<double> V_Zscores;                        // Each z-scores map from pool
-    Image<double> avgVolume;                        // Average volume
-    Image<double> stdVolume;                        // Standard deviation volume
-    Image<double> avgDiffVolume;                    // Average difference volume
-    MultidimArray<int> proteinRadiusMask;           // Mask for focus analysis if protein radius provided
+    FileName fn_V;                          // Filename for each input volume from pool
+    Image<double> V;                        // Each input volume from pool
+    Image<double> V_Zscores;                // Each z-scores map from pool
+    Image<double> avgVolume;                // Average volume
+    Image<double> stdVolume;                // Standard deviation volume
+    Image<double> avgDiffVolume;            // Average difference volume
+    MultidimArray<int> proteinRadiusMask;   // Mask for focus analysis if protein radius provided
+    MultidimArray<int> concidentMask;       // Mask for coincident regions between each input map and the statiscal pool
+    MultidimArray<int> differentMask;       // Mask for different regions between each input map and the statiscal pool
 
     // Histogram equalization
     double percentileThr = 99.99;  // *** Esto vamos a querer que sea un parametro, lo estoy viendo venir

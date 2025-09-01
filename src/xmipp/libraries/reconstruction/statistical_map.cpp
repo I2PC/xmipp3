@@ -44,6 +44,7 @@ void ProgStatisticalMap::readParams()
     fn_oroot = getParam("--oroot");
     sampling_rate = getDoubleParam("--sampling_rate");
     protein_radius = getDoubleParam("--protein_radius");
+    significance_thr = getDoubleParam("--significance_thr");
 }
 
 void ProgStatisticalMap::show() const
@@ -55,7 +56,8 @@ void ProgStatisticalMap::show() const
 	<< "Input metadata with map pool for statistical map calculation:\t" << fn_mapPool_statistical << std::endl
 	<< "Output location for statistical volumes:\t" << fn_oroot << std::endl
 	<< "Sampling rate:\t" << sampling_rate << std::endl
-	<< "Protein radius:\t" << protein_radius << std::endl;
+	<< "Protein radius:\t" << protein_radius << std::endl
+	<< "Significance Z-score threshold:\t" << significance_thr << std::endl;
 }
 
 void ProgStatisticalMap::defineParams()
@@ -65,11 +67,12 @@ void ProgStatisticalMap::defineParams()
                   to new map pool to characterize the likelyness of its densities.");
 
     //Parameters
-    addParamsLine("-i <i=\"\">                              : Input metadata containing volumes to analyze against the calculated statical map.");
-    addParamsLine("--input_mapPool <input_mapPool=\"\">     : Input metadata containing map pool for statistical map calculation.");
-    addParamsLine("--oroot <oroot=\"\">                     : Location for saving output.");
-    addParamsLine("--sampling_rate <sampling_rate=1.0>      : Sampling rate of the input of maps.");
-    addParamsLine("[--protein_radius <protein_radius=-1>]   : Protein raius (in Angstroms). This is used to restrain the number of pixeles considered in the analysis. By default no pixel is removed from analysis.");
+    addParamsLine("-i <i=\"\">                                : Input metadata containing volumes to analyze against the calculated statical map.");
+    addParamsLine("--input_mapPool <input_mapPool=\"\">       : Input metadata containing map pool for statistical map calculation.");
+    addParamsLine("--oroot <oroot=\"\">                       : Location for saving output.");
+    addParamsLine("--sampling_rate <sampling_rate=1.0>        : Sampling rate of the input of maps.");
+    addParamsLine("[--protein_radius <protein_radius=-1>]     : Protein raius (in Angstroms). This is used to restrain the number of pixeles considered in the analysis. By default no pixel is removed from analysis.");
+    addParamsLine("[--significance_thr <significance_thr=3>] : Z-score threshold to consider a region significantly different.");
 }
 
 void ProgStatisticalMap::writeStatisticalMap() 
@@ -204,6 +207,7 @@ void ProgStatisticalMap::run()
         preprocessMap(fn_V);
 
         V_Zscores().initZeros(Zdim, Ydim, Xdim);
+
         calculateZscoreMap();
         writeZscoresMap(fn_V);
 
@@ -250,6 +254,9 @@ void ProgStatisticalMap::run()
         preprocessMap(fn_V);
 
         V_Zscores().initZeros(Zdim, Ydim, Xdim);
+        concidentMask().initZeros(Zdim, Ydim, Xdim);
+        differentMask().initZeros(Zdim, Ydim, Xdim);
+
         calculateZscoreMap();
         // calculateDixonMap();
         writeZscoresMap(fn_V);
@@ -472,6 +479,11 @@ void ProgStatisticalMap::calculateZscoreMap()
         if (zscore > 0)
         {
             DIRECT_MULTIDIM_ELEM(V_Zscores(),n) = zscore;
+
+            if (zscore > significance_thr)
+            {
+                DIRECT_MULTIDIM_ELEM(differentMask,n) = 1;
+            }
         }
 
         // // Convert z-score to one-tailed p-value using standard normal CDF
