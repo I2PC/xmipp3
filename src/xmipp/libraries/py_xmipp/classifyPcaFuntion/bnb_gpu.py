@@ -496,7 +496,8 @@ class BnBgpu:
         
 
         # if iter > 10: 
-        if iter > 7:
+        # if iter > 7:
+        if iter > 1:
             res_classes, frc_curves = self.frc_resolution_tensor(newCL, sampling)
             print("--------RESOLUTION-------")
             print(res_classes) 
@@ -537,9 +538,13 @@ class BnBgpu:
             # clk = self.apply_consistency_masks_vector(clk, mask_C) 
         
         # clk = self.gaussian_lowpass_filter_2D(clk, 6.0, sampling)
-        else:
-            print("HAGO UNSHARP")
-            clk = self.unsharp_mask_norm(clk)
+        # else:
+        #     print("HAGO UNSHARP")
+        #     clk = self.unsharp_mask_norm(clk)
+            
+        #Sort classes        
+        if iter < 17:
+            clk = clk[torch.argsort(torch.tensor([len(cls_list) for cls_list in newCL], device=clk.device), descending=True)]
         
 
         # if iter in [10, 13]:
@@ -1028,8 +1033,8 @@ class BnBgpu:
     def averages_createClasses(self, mmap, iter, newCL): 
         
         # if iter < 10:
-        if iter <= 7:
-            newCL = sorted(newCL, key=len, reverse=True)    
+        # if iter <= 7:
+        #     newCL = sorted(newCL, key=len, reverse=True)    
         # element = list(map(len, newCL))   
         classes = len(newCL)       
   
