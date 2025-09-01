@@ -609,7 +609,14 @@ void ProgStatisticalMap::weightMap()
         {
             double num = (DIRECT_MULTIDIM_ELEM(V(),n) * DIRECT_MULTIDIM_ELEM(avgVolume(), n));
             double dem = sqrt((DIRECT_MULTIDIM_ELEM(V(),n) * DIRECT_MULTIDIM_ELEM(V(), n)) + (DIRECT_MULTIDIM_ELEM(avgVolume(),n) * DIRECT_MULTIDIM_ELEM(avgVolume(), n)));
-            DIRECT_MULTIDIM_ELEM(V(),n) = num / dem;
+            double div = num / dem;
+            DIRECT_MULTIDIM_ELEM(V(),n) = div;
+
+            if (div > significance_thr)
+            {
+                DIRECT_MULTIDIM_ELEM(coincidentMask,n) = 1;
+            }
+            
         }        
     }
 }
