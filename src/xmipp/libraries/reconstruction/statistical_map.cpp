@@ -208,6 +208,12 @@ void ProgStatisticalMap::run()
 
         V_Zscores().initZeros(Zdim, Ydim, Xdim);
 
+        // *** Esto no hace falta porque no nos interesa la mascara aqui pero es que si no
+        // peta porque los dos rellenan a coincidentMask
+        differentMask.initZeros(Zdim, Ydim, Xdim);
+        coincidentMask.initZeros(Zdim, Ydim, Xdim);
+        differentMask.initZeros(Zdim, Ydim, Xdim);
+
         calculateZscoreMap();
         writeZscoresMap(fn_V);
 
@@ -254,8 +260,8 @@ void ProgStatisticalMap::run()
         preprocessMap(fn_V);
 
         V_Zscores().initZeros(Zdim, Ydim, Xdim);
-        concidentMask().initZeros(Zdim, Ydim, Xdim);
-        differentMask().initZeros(Zdim, Ydim, Xdim);
+        coincidentMask.initZeros(Zdim, Ydim, Xdim);
+        differentMask.initZeros(Zdim, Ydim, Xdim);
 
         calculateZscoreMap();
         // calculateDixonMap();
@@ -480,7 +486,7 @@ void ProgStatisticalMap::calculateZscoreMap()
         {
             DIRECT_MULTIDIM_ELEM(V_Zscores(),n) = zscore;
 
-            if (zscore > significance_thr)
+            if (zscore > significance_thr * equalizationParam)
             {
                 DIRECT_MULTIDIM_ELEM(differentMask,n) = 1;
             }
@@ -597,7 +603,14 @@ void ProgStatisticalMap::weightMap()
     // Reweight z-score map based on the transofmration that put all z-score under z<1 
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
-        DIRECT_MULTIDIM_ELEM(V(),n) =  DIRECT_MULTIDIM_ELEM(V_Zscores(),n) / equalizationParam;
+        // DIRECT_MULTIDIM_ELEM(V(),n) =  DIRECT_MULTIDIM_ELEM(V_Zscores(),n) / equalizationParam;
+
+        if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask,n) > 0)
+        {
+            double num = (DIRECT_MULTIDIM_ELEM(V(),n) * DIRECT_MULTIDIM_ELEM(avgVolume(), n));
+            double dem = sqrt((DIRECT_MULTIDIM_ELEM(V(),n) * DIRECT_MULTIDIM_ELEM(V(), n)) + (DIRECT_MULTIDIM_ELEM(avgVolume(),n) * DIRECT_MULTIDIM_ELEM(avgVolume(), n)));
+            DIRECT_MULTIDIM_ELEM(V(),n) = num / dem;
+        }        
     }
 }
 

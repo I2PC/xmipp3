@@ -76,7 +76,7 @@ class ProgStatisticalMap: public XmippProgram
     Image<double> stdVolume;                // Standard deviation volume
     Image<double> avgDiffVolume;            // Average difference volume
     MultidimArray<int> proteinRadiusMask;   // Mask for focus analysis if protein radius provided
-    MultidimArray<int> concidentMask;       // Mask for coincident regions between each input map and the statiscal pool
+    MultidimArray<int> coincidentMask;       // Mask for coincident regions between each input map and the statiscal pool
     MultidimArray<int> differentMask;       // Mask for different regions between each input map and the statiscal pool
 
     // Histogram equalization
