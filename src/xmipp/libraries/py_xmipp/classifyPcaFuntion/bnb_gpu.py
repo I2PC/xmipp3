@@ -506,8 +506,8 @@ class BnBgpu:
             # print(bfactor)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
             # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
-            clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
-            # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
+            # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
+            clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling)
             # clk = self.enhance_averages_butterworth_normF(clk, sampling)
             
@@ -888,9 +888,9 @@ class BnBgpu:
             bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
-            clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
+            # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
-            # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
+            clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling) 
             # clk = self.enhance_averages_butterworth_normF(clk, sampling)
             
