@@ -28,11 +28,12 @@
  #include "core/multidim_array.h"
  #include "core/xmipp_image_base.h"
  #include "core/xmipp_fftw.h"
+ #include "data/filters.h"
  #include <iostream>
  #include <string>
  #include <chrono>
  #include <cmath>
-#include <numeric>
+ #include <numeric>
 
 
 
@@ -560,6 +561,29 @@ void ProgStatisticalMap::calculateZscoreMap()
     //     //     DIRECT_MULTIDIM_ELEM(V_Zscores(),n) = pValue;
     //     // }
     // }
+
+    MultidimArray<double> differentMask_double;
+    differentMask_double.initZeros(Zdim, Ydim, Xdim);
+
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(differentMask)
+    {
+        DIRECT_MULTIDIM_ELEM(differentMask_double, n) = 1.0 * DIRECT_MULTIDIM_ELEM(differentMask, n);
+    }
+
+    removeSmallComponents(differentMask_double, 5);
+
+    double epsilon = 1e-5;
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(differentMask_double)
+    {
+        if (DIRECT_MULTIDIM_ELEM(differentMask_double, n) > epsilon)
+        {
+            DIRECT_MULTIDIM_ELEM(differentMask, n) = 1;
+        }
+        else
+        {
+            DIRECT_MULTIDIM_ELEM(differentMask, n) = 0;
+        }
+    }
 }
 
 void ProgStatisticalMap::weightMap()
