@@ -79,10 +79,11 @@ class ProgStatisticalMap: public XmippProgram
     MultidimArray<int> coincidentMask;       // Mask for coincident regions between each input map and the statiscal pool
     MultidimArray<int> differentMask;       // Mask for different regions between each input map and the statiscal pool
 
-    // Histogram equalization
+    // Calculated parameters
     double percentileThr = 99.99;  // *** Esto vamos a querer que sea un parametro, lo estoy viendo venir
     std::vector<double> histogramEqualizationParameters;
     double equalizationParam;
+    double partialOccupancyFactor;
 
     // Particle metadata
     MetaDataVec mapPoolMD;

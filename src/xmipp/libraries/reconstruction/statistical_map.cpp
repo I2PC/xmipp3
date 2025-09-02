@@ -599,12 +599,15 @@ void ProgStatisticalMap::weightMap()
     //     DIRECT_MULTIDIM_ELEM(V(),n) =  1 - normal_cdf(DIRECT_MULTIDIM_ELEM(V_Zscores(),n));
     // }
 
-
     // Reweight z-score map based on the transofmration that put all z-score under z<1 
+    // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+    // {
+    //     DIRECT_MULTIDIM_ELEM(V(),n) =  DIRECT_MULTIDIM_ELEM(V_Zscores(),n) / equalizationParam;   
+    // }
+
+    // Mask common region between new map and pool
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
-        // DIRECT_MULTIDIM_ELEM(V(),n) =  DIRECT_MULTIDIM_ELEM(V_Zscores(),n) / equalizationParam;
-
         if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask,n) > 0)
         {
             double num = (DIRECT_MULTIDIM_ELEM(V(),n) * DIRECT_MULTIDIM_ELEM(avgVolume(), n));
@@ -619,6 +622,20 @@ void ProgStatisticalMap::weightMap()
             
         }        
     }
+
+    // Compare intesities between coincident and different regions
+    double coincident_avg;
+    double different_avg;
+    double unused_std;
+
+    V().computeAvgStdev_within_binary_mask(coincidentMask, coincident_avg, unused_std);
+    V().computeAvgStdev_within_binary_mask(differentMask, different_avg, unused_std);
+
+    partialOccupancyFactor = different_avg / coincident_avg;
+
+    std::cout << "coincident_avg ---------------------> " << coincident_avg << std::endl;
+    std::cout << "different_avg ---------------------> " << different_avg << std::endl;
+    std::cout << "partialOccupancyFactor ---------------------> " << partialOccupancyFactor << std::endl;
 }
 
 double ProgStatisticalMap::t_cdf(double t, int nu) {
