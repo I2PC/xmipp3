@@ -684,6 +684,14 @@ void ProgStatisticalMap::weightMap()
     std::cout << "coincident_avg ---------------------> " << coincident_avg << std::endl;
     std::cout << "different_avg ---------------------> " << different_avg << std::endl;
     std::cout << "partialOccupancyFactor ---------------------> " << partialOccupancyFactor << std::endl;
+
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+    {
+        if (DIRECT_MULTIDIM_ELEM(differentMask,n) > 0)
+        {
+            DIRECT_MULTIDIM_ELEM(V(),n) *=  (1 / partialOccupancyFactor);
+        }        
+    }
 }
 
 double ProgStatisticalMap::t_cdf(double t, int nu) {
