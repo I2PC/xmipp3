@@ -29,6 +29,7 @@
  #include "core/xmipp_image_base.h"
  #include "core/xmipp_fftw.h"
  #include "data/filters.h"
+ #include "data/morphology.h"
  #include <iostream>
  #include <string>
  #include <chrono>
@@ -572,6 +573,12 @@ void ProgStatisticalMap::calculateZscoreMap()
 
     removeSmallComponents(differentMask_double, 5);
 
+    MultidimArray<double> differentMask_double_tmp = differentMask_double;
+    int neig = 6;   // Neighbourhood
+    int count = 0;  // Min number of empty elements in neighbourhood
+    int size = 1;   // Number of iterations or erosion 
+    closing3D(differentMask_double_tmp, differentMask_double, neig, count, size);
+
     double epsilon = 1e-5;
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(differentMask_double)
     {
@@ -679,7 +686,7 @@ void ProgStatisticalMap::weightMap()
     V().computeAvgStdev_within_binary_mask(coincidentMask, coincident_avg, unused_std);
     V().computeAvgStdev_within_binary_mask(differentMask, different_avg, unused_std);
 
-    partialOccupancyFactor = different_avg / coincident_avg;
+    partialOccupancyFactor = coincident_avg /different_avg;
 
     std::cout << "coincident_avg ---------------------> " << coincident_avg << std::endl;
     std::cout << "different_avg ---------------------> " << different_avg << std::endl;
@@ -689,7 +696,7 @@ void ProgStatisticalMap::weightMap()
     {
         if (DIRECT_MULTIDIM_ELEM(differentMask,n) > 0)
         {
-            DIRECT_MULTIDIM_ELEM(V(),n) *=  (1 / partialOccupancyFactor);
+            DIRECT_MULTIDIM_ELEM(V(),n) *=  partialOccupancyFactor;
         }        
     }
 }
