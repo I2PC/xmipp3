@@ -124,6 +124,20 @@ void ProgStatisticalMap::writeWeightedMap(FileName fnIn)
     V.write(fnOut);
 }
 
+void ProgStatisticalMap::writeMask() 
+{
+    Image<double> saveMask;
+    saveMask() = coincidentMask;
+    saveMask.write(fn_out_coincident_maks);
+    saveMask() = differentMask
+    saveMask.write(fn_out_different_maks);
+
+    #ifdef DEBUG_WRITE_OUTPUT
+    std::cout << "Coincident mask saved at : " << fn_out_coincident_maks <<std::endl;
+    std::cout << "Different mask saved at : " << fn_out_different_maks <<std::endl;
+    #endif
+}
+
 
 // Main method ===================================================================
 void ProgStatisticalMap::run()
@@ -672,6 +686,8 @@ void ProgStatisticalMap::generateSideInfo()
 
     fn_out_avg_map = fn_oroot + "statsMap_avg.mrc";
     fn_out_std_map = fn_oroot + "statsMap_std.mrc";
+    fn_out_coincident_maks = fn_oroot + "mask_coincident.mrc";
+    fn_out_different_maks = fn_oroot + "mask_different.mrc";
 
     if (protein_radius > 0) // Only if mas radius is provided
         createRadiusMask();

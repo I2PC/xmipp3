@@ -60,6 +60,8 @@ class ProgStatisticalMap: public XmippProgram
     // Side info variables
     FileName fn_out_avg_map;
     FileName fn_out_std_map;
+    FileName fn_out_coincident_maks;
+    FileName fn_out_different_maks;
 
     // Volume dimensions
     bool dimInitialized = false;
@@ -76,7 +78,7 @@ class ProgStatisticalMap: public XmippProgram
     Image<double> stdVolume;                // Standard deviation volume
     Image<double> avgDiffVolume;            // Average difference volume
     MultidimArray<int> proteinRadiusMask;   // Mask for focus analysis if protein radius provided
-    MultidimArray<int> coincidentMask;       // Mask for coincident regions between each input map and the statiscal pool
+    MultidimArray<int> coincidentMask;      // Mask for coincident regions between each input map and the statiscal pool
     MultidimArray<int> differentMask;       // Mask for different regions between each input map and the statiscal pool
 
     // Calculated parameters
@@ -107,6 +109,8 @@ public:
     void writeZscoresMap(FileName fnIn);
     // Write weighted map
     void writeWeightedMap(FileName fnIn);
+    // Write maks
+    void writeMask(FileName fnIn);
 
     // ----------------------- MAIN METHODS ------------------------------
     void run();
