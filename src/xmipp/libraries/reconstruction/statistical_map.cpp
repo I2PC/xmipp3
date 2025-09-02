@@ -124,8 +124,17 @@ void ProgStatisticalMap::writeWeightedMap(FileName fnIn)
     V.write(fnOut);
 }
 
-void ProgStatisticalMap::writeMask() 
+void ProgStatisticalMap::writeMask(FileName fnIn) 
 {
+    size_t lastSlashPos = fnIn.find_last_of("/\\");
+    size_t lastDotPos = fnIn.find_last_of('.');
+
+    FileName newFileName;
+    newFileName = fnIn.substr(lastSlashPos + 1, lastDotPos - lastSlashPos - 1) + "_coincidentMask.mrc";
+    FileName fn_out_coincident_maks = fn_oroot + (fn_oroot.back() == '/' || fn_oroot.back() == '\\' ? "" : "/") + newFileName;
+    newFileName = fnIn.substr(lastSlashPos + 1, lastDotPos - lastSlashPos - 1) + "_differentMask.mrc";
+    FileName fn_out_different_maks = fn_oroot + (fn_oroot.back() == '/' || fn_oroot.back() == '\\' ? "" : "/") + newFileName;
+
     Image<int> saveMask;
     saveMask() = coincidentMask;
     saveMask.write(fn_out_coincident_maks);
@@ -283,6 +292,7 @@ void ProgStatisticalMap::run()
 
         weightMap();
         writeWeightedMap(fn_V);
+        writeMask(fn_V);
     }
 
     #ifdef DEBUG_WEIGHT_MAP
@@ -686,8 +696,6 @@ void ProgStatisticalMap::generateSideInfo()
 
     fn_out_avg_map = fn_oroot + "statsMap_avg.mrc";
     fn_out_std_map = fn_oroot + "statsMap_std.mrc";
-    fn_out_coincident_maks = fn_oroot + "mask_coincident.mrc";
-    fn_out_different_maks = fn_oroot + "mask_different.mrc";
 
     if (protein_radius > 0) // Only if mas radius is provided
         createRadiusMask();

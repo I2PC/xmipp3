@@ -60,8 +60,6 @@ class ProgStatisticalMap: public XmippProgram
     // Side info variables
     FileName fn_out_avg_map;
     FileName fn_out_std_map;
-    FileName fn_out_coincident_maks;
-    FileName fn_out_different_maks;
 
     // Volume dimensions
     bool dimInitialized = false;
@@ -110,7 +108,7 @@ public:
     // Write weighted map
     void writeWeightedMap(FileName fnIn);
     // Write maks
-    void writeMask();
+    void writeMask(FileName fnIn);
 
     // ----------------------- MAIN METHODS ------------------------------
     void run();
