@@ -110,7 +110,7 @@ public:
     // Write weighted map
     void writeWeightedMap(FileName fnIn);
     // Write maks
-    void writeMask(FileName fnIn);
+    void writeMask();
 
     // ----------------------- MAIN METHODS ------------------------------
     void run();

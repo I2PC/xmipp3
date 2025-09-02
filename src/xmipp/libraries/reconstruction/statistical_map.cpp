@@ -126,10 +126,10 @@ void ProgStatisticalMap::writeWeightedMap(FileName fnIn)
 
 void ProgStatisticalMap::writeMask() 
 {
-    Image<double> saveMask;
+    Image<int> saveMask;
     saveMask() = coincidentMask;
     saveMask.write(fn_out_coincident_maks);
-    saveMask() = differentMask
+    saveMask() = differentMask;
     saveMask.write(fn_out_different_maks);
 
     #ifdef DEBUG_WRITE_OUTPUT
