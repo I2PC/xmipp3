@@ -121,6 +121,7 @@ public:
     void computeStatisticalMaps();
     void calculateAvgDiffMap();
     void calculateZscoreMap();
+    void calculateZscoreMap_GlobalSigma();
     void calculateDixonMap();
     void weightMap();
 

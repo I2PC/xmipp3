@@ -288,12 +288,13 @@ void ProgStatisticalMap::run()
         coincidentMask.initZeros(Zdim, Ydim, Xdim);
         differentMask.initZeros(Zdim, Ydim, Xdim);
 
-        calculateZscoreMap();
+        // calculateZscoreMap();
+        calculateZscoreMap_GlobalSigma();
         // calculateDixonMap();
         writeZscoresMap(fn_V);
 
-        weightMap();
-        writeWeightedMap(fn_V);
+        // weightMap();
+        // writeWeightedMap(fn_V);
         writeMask(fn_V);
     }
 
@@ -573,11 +574,11 @@ void ProgStatisticalMap::calculateZscoreMap()
 
     removeSmallComponents(differentMask_double, 5);
 
-    MultidimArray<double> differentMask_double_tmp = differentMask_double;
-    int neig = 6;   // Neighbourhood
-    int count = 0;  // Min number of empty elements in neighbourhood
-    int size = 1;   // Number of iterations or erosion 
-    closing3D(differentMask_double_tmp, differentMask_double, neig, count, size);
+    // MultidimArray<double> differentMask_double_tmp = differentMask_double;
+    // int neig = 6;   // Neighbourhood
+    // int count = 0;  // Min number of empty elements in neighbourhood
+    // int size = 1;   // Number of iterations or erosion 
+    // closing3D(differentMask_double_tmp, differentMask_double, neig, count, size);
 
     double epsilon = 1e-5;
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(differentMask_double)
@@ -590,6 +591,47 @@ void ProgStatisticalMap::calculateZscoreMap()
         {
             DIRECT_MULTIDIM_ELEM(differentMask, n) = 0;
         }
+    }
+}
+
+void ProgStatisticalMap::calculateZscoreMap_GlobalSigma()
+{
+    std::cout << "    Calculating Zscore map..." << std::endl;
+
+    // Mask common region between new map and pool using "cosine average"
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+    {
+        if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask,n) > 0)
+        {
+            double num = (DIRECT_MULTIDIM_ELEM(V(),n) * DIRECT_MULTIDIM_ELEM(avgVolume(), n));
+            double dem = sqrt((DIRECT_MULTIDIM_ELEM(V(),n) * DIRECT_MULTIDIM_ELEM(V(), n)) + (DIRECT_MULTIDIM_ELEM(avgVolume(),n) * DIRECT_MULTIDIM_ELEM(avgVolume(), n)));
+            double div = num / dem;
+
+            // Only for debug lets see how is the map from which the mask is extracted
+            // DIRECT_MULTIDIM_ELEM(V(),n) = div;
+
+            if (div > significance_thr)
+            {
+                DIRECT_MULTIDIM_ELEM(coincidentMask,n) = 1;
+            }            
+        }
+    }
+
+    double v_avg;
+    double v_std;
+
+    V().computeAvgStdev_within_binary_mask(proteinRadiusMask, v_avg, v_std);
+
+    std::cout << "Average of the coincident region: " << v_avg << std::endl;
+    std::cout << "Std of the coincident region: " << v_std << std::endl;
+
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+    {
+        // Classic Z-score
+        double zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / sqrt(v_std*v_std + DIRECT_MULTIDIM_ELEM(stdVolume(),n)*DIRECT_MULTIDIM_ELEM(stdVolume(),n));
+
+        DIRECT_MULTIDIM_ELEM(V_Zscores(),n) = zscore;
+
     }
 }
 
@@ -660,7 +702,7 @@ void ProgStatisticalMap::weightMap()
     //     DIRECT_MULTIDIM_ELEM(V(),n) =  DIRECT_MULTIDIM_ELEM(V_Zscores(),n) / equalizationParam;   
     // }
 
-    // Mask common region between new map and pool
+    // Mask common region between new map and pool using "cosine average"
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
         if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask,n) > 0)
@@ -668,16 +710,17 @@ void ProgStatisticalMap::weightMap()
             double num = (DIRECT_MULTIDIM_ELEM(V(),n) * DIRECT_MULTIDIM_ELEM(avgVolume(), n));
             double dem = sqrt((DIRECT_MULTIDIM_ELEM(V(),n) * DIRECT_MULTIDIM_ELEM(V(), n)) + (DIRECT_MULTIDIM_ELEM(avgVolume(),n) * DIRECT_MULTIDIM_ELEM(avgVolume(), n)));
             double div = num / dem;
-            DIRECT_MULTIDIM_ELEM(V(),n) = div;
+
+            // Only for debug lets see how is the map from which the mask is extracted
+            // DIRECT_MULTIDIM_ELEM(V(),n) = div;
 
             if (div > significance_thr)
             {
                 DIRECT_MULTIDIM_ELEM(coincidentMask,n) = 1;
-            }
-            
-        }        
+            }            
+        }
     }
-
+    
     // Compare intesities between coincident and different regions
     double coincident_avg;
     double different_avg;
