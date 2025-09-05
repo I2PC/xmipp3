@@ -213,56 +213,56 @@ void ProgStatisticalMap::run()
     
     writeStatisticalMap();
 
-    // Calculate Z-score maps from statistical map pool for histogram equalization
-    #ifdef VERBOSE_OUTPUT
-    std::cout << "\n\n---Analyzing input map pool for histogram equalization---" << std::endl;
-    #endif
+    // // Calculate Z-score maps from statistical map pool for histogram equalization
+    // #ifdef VERBOSE_OUTPUT
+    // std::cout << "\n\n---Analyzing input map pool for histogram equalization---" << std::endl;
+    // #endif
 
-    for (const auto& row : mapPoolMD)
-	{
-        row.getValue(MDL_IMAGE, fn_V);
+    // for (const auto& row : mapPoolMD)
+	// {
+    //     row.getValue(MDL_IMAGE, fn_V);
 
-        #ifdef DEBUG_WEIGHT_MAP
-        std::cout << "Anayzing volume " << fn_V << " against statistical map for histogram equalization..." << std::endl;
-        #endif
+    //     #ifdef DEBUG_WEIGHT_MAP
+    //     std::cout << "Anayzing volume " << fn_V << " against statistical map for histogram equalization..." << std::endl;
+    //     #endif
 
-        V.clear();
-        V.read(fn_V);
+    //     V.clear();
+    //     V.read(fn_V);
 
-        preprocessMap(fn_V);
+    //     preprocessMap(fn_V);
 
-        V_Zscores().initZeros(Zdim, Ydim, Xdim);
+    //     V_Zscores().initZeros(Zdim, Ydim, Xdim);
 
-        // *** Esto no hace falta porque no nos interesa la mascara aqui pero es que si no
-        // peta porque los dos rellenan a coincidentMask
-        differentMask.initZeros(Zdim, Ydim, Xdim);
-        coincidentMask.initZeros(Zdim, Ydim, Xdim);
-        differentMask.initZeros(Zdim, Ydim, Xdim);
+    //     // *** Esto no hace falta porque no nos interesa la mascara aqui pero es que si no
+    //     // peta porque los dos rellenan a coincidentMask
+    //     differentMask.initZeros(Zdim, Ydim, Xdim);
+    //     coincidentMask.initZeros(Zdim, Ydim, Xdim);
+    //     differentMask.initZeros(Zdim, Ydim, Xdim);
 
-        calculateZscoreMap();
-        writeZscoresMap(fn_V);
+    //     calculateZscoreMap();
+    //     writeZscoresMap(fn_V);
 
-        // double p = percentile(V_Zscores(), percentileThr);
-        // histogramEqualizationParameters.push_back(p);        
+    //     // double p = percentile(V_Zscores(), percentileThr);
+    //     // histogramEqualizationParameters.push_back(p);        
 
-        double min;
-        double max;
-        V_Zscores().computeDoubleMinMax(min, max);
+    //     double min;
+    //     double max;
+    //     V_Zscores().computeDoubleMinMax(min, max);
 
-        #ifdef DEBUG_PERCENTILE
-        std::cout << "Max value in Z-score map: " << max << std::endl;
-        #endif
+    //     #ifdef DEBUG_PERCENTILE
+    //     std::cout << "Max value in Z-score map: " << max << std::endl;
+    //     #endif
 
-        histogramEqualizationParameters.push_back(max);        
-    }
+    //     histogramEqualizationParameters.push_back(max);        
+    // }
 
-    // Calculate average transformation
-    double sum = std::accumulate(histogramEqualizationParameters.begin(), histogramEqualizationParameters.end(), 0.0);
-    equalizationParam =  sum / histogramEqualizationParameters.size();
+    // // Calculate average transformation
+    // double sum = std::accumulate(histogramEqualizationParameters.begin(), histogramEqualizationParameters.end(), 0.0);
+    // equalizationParam =  sum / histogramEqualizationParameters.size();
 
-    #ifdef DEBUG_PERCENTILE
-    std::cout << "Equalization parameter: " << equalizationParam << std::endl;
-    #endif
+    // #ifdef DEBUG_PERCENTILE
+    // std::cout << "Equalization parameter: " << equalizationParam << std::endl;
+    // #endif
 
     // Compare input maps against statistical map
     #ifdef VERBOSE_OUTPUT
@@ -293,8 +293,8 @@ void ProgStatisticalMap::run()
         // calculateDixonMap();
         writeZscoresMap(fn_V);
 
-        // weightMap();
-        // writeWeightedMap(fn_V);
+        weightMap();
+        writeWeightedMap(fn_V);
         writeMask(fn_V);
     }
 
@@ -632,6 +632,10 @@ void ProgStatisticalMap::calculateZscoreMap_GlobalSigma()
 
         DIRECT_MULTIDIM_ELEM(V_Zscores(),n) = zscore;
 
+        if (zscore > significance_thr)
+        {
+            DIRECT_MULTIDIM_ELEM(differentMask,n) = 1;
+        }
     }
 }
 
@@ -702,24 +706,24 @@ void ProgStatisticalMap::weightMap()
     //     DIRECT_MULTIDIM_ELEM(V(),n) =  DIRECT_MULTIDIM_ELEM(V_Zscores(),n) / equalizationParam;   
     // }
 
-    // Mask common region between new map and pool using "cosine average"
-    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
-    {
-        if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask,n) > 0)
-        {
-            double num = (DIRECT_MULTIDIM_ELEM(V(),n) * DIRECT_MULTIDIM_ELEM(avgVolume(), n));
-            double dem = sqrt((DIRECT_MULTIDIM_ELEM(V(),n) * DIRECT_MULTIDIM_ELEM(V(), n)) + (DIRECT_MULTIDIM_ELEM(avgVolume(),n) * DIRECT_MULTIDIM_ELEM(avgVolume(), n)));
-            double div = num / dem;
+    // // Mask common region between new map and pool using "cosine average"
+    // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+    // {
+    //     if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask,n) > 0)
+    //     {
+    //         double num = (DIRECT_MULTIDIM_ELEM(V(),n) * DIRECT_MULTIDIM_ELEM(avgVolume(), n));
+    //         double dem = sqrt((DIRECT_MULTIDIM_ELEM(V(),n) * DIRECT_MULTIDIM_ELEM(V(), n)) + (DIRECT_MULTIDIM_ELEM(avgVolume(),n) * DIRECT_MULTIDIM_ELEM(avgVolume(), n)));
+    //         double div = num / dem;
 
-            // Only for debug lets see how is the map from which the mask is extracted
-            // DIRECT_MULTIDIM_ELEM(V(),n) = div;
+    //         // Only for debug lets see how is the map from which the mask is extracted
+    //         // DIRECT_MULTIDIM_ELEM(V(),n) = div;
 
-            if (div > significance_thr)
-            {
-                DIRECT_MULTIDIM_ELEM(coincidentMask,n) = 1;
-            }            
-        }
-    }
+    //         if (div > significance_thr)
+    //         {
+    //             DIRECT_MULTIDIM_ELEM(coincidentMask,n) = 1;
+    //         }            
+    //     }
+    // }
     
     // Compare intesities between coincident and different regions
     double coincident_avg;
