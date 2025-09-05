@@ -637,6 +637,35 @@ void ProgStatisticalMap::calculateZscoreMap_GlobalSigma()
             DIRECT_MULTIDIM_ELEM(differentMask,n) = 1;
         }
     }
+
+    MultidimArray<double> differentMask_double;
+    differentMask_double.initZeros(Zdim, Ydim, Xdim);
+
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(differentMask)
+    {
+        DIRECT_MULTIDIM_ELEM(differentMask_double, n) = 1.0 * DIRECT_MULTIDIM_ELEM(differentMask, n);
+    }
+
+    removeSmallComponents(differentMask_double, 5);
+
+    // MultidimArray<double> differentMask_double_tmp = differentMask_double;
+    // int neig = 6;   // Neighbourhood
+    // int count = 0;  // Min number of empty elements in neighbourhood
+    // int size = 1;   // Number of iterations or erosion 
+    // closing3D(differentMask_double_tmp, differentMask_double, neig, count, size);
+
+    double epsilon = 1e-5;
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(differentMask_double)
+    {
+        if (DIRECT_MULTIDIM_ELEM(differentMask_double, n) > epsilon)
+        {
+            DIRECT_MULTIDIM_ELEM(differentMask, n) = 1;
+        }
+        else
+        {
+            DIRECT_MULTIDIM_ELEM(differentMask, n) = 0;
+        }
+    }
 }
 
 void ProgStatisticalMap::weightMap()
