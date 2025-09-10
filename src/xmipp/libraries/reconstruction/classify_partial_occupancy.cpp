@@ -803,23 +803,23 @@ void ProgClassifyPartialOccupancy::compareRegions(double &ll_I, double &ll_IsubP
 		std::cout << "numberOfPx " 	<< numberOfPx << std::endl;
 		#endif
 
-		// Fix scale previous to FT
-		double scallignFactor = (Xdim * Ydim) / (numberOfPx);
+		// // Fix scale previous to FT
+		// double scallignFactor = (Xdim * Ydim) / (numberOfPx);
 
-		for (int i = minY[value]; i <= maxY[value]; ++i) 
-		{
-			for (int j = minX[value]; j <= maxX[value]; ++j) 
-			{
-				int newI = centerY - height / 2 + (i - minY[value]);
-				int newJ = centerX - width / 2 + (j - minX[value]);
+		// for (int i = minY[value]; i <= maxY[value]; ++i) 
+		// {
+		// 	for (int j = minX[value]; j <= maxX[value]; ++j) 
+		// 	{
+		// 		int newI = centerY - height / 2 + (i - minY[value]);
+		// 		int newJ = centerX - width / 2 + (j - minX[value]);
 				
-				if (DIRECT_A2D_ELEM(PmaskRoiLabel, i, j) > 0)
-				{
-					DIRECT_A2D_ELEM(centeredLigand, newI, newJ) *= scallignFactor;
-					DIRECT_A2D_ELEM(centeredLigandSubP, newI, newJ) *= scallignFactor;
-				}
-			}
-		}
+		// 		if (DIRECT_A2D_ELEM(PmaskRoiLabel, i, j) > 0)
+		// 		{
+		// 			DIRECT_A2D_ELEM(centeredLigand, newI, newJ) *= scallignFactor;
+		// 			DIRECT_A2D_ELEM(centeredLigandSubP, newI, newJ) *= scallignFactor;
+		// 		}
+		// 	}
+		// }
 
 		#ifdef DEBUG_REGIONS_COMPARISON
 		size_t lastindex = fnImgOut.find_last_of(".");
