@@ -404,7 +404,7 @@ class BnBgpu:
         
         # if iter > 3 and iter < 7: # and cycles == 0:
         if iter > 1 and iter < 7:# and cycles == 0:
-            print("--------", iter, "-----------")
+            # print("--------", iter, "-----------")
             thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches, threshold=2.0)
         # elif iter >= 10:
         #     print("--------", iter, "-----------")
@@ -498,15 +498,16 @@ class BnBgpu:
         # if iter > 10: 
         # if iter > 7:
         if iter > 1:
-            res_classes, frc_curves = self.frc_resolution_tensor(newCL, sampling)
-            print("--------RESOLUTION-------")
-            print(res_classes) 
+            # res_classes, frc_curves, freq_bins = self.frc_resolution_tensor(newCL, sampling)
+            res_classes = self.frc_resolution_tensor(newCL, sampling)
+            # print("--------RESOLUTION-------")
+            # print(res_classes) 
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
-            bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
+            # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             # print(bfactor)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
             # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
-            clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
+            # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes, frc_c=frc_curves, fBins=freq_bins)
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling)
             # clk = self.enhance_averages_butterworth_normF(clk, sampling)
@@ -515,8 +516,9 @@ class BnBgpu:
             #     fe = 3.0
             # else:
             #     fe = 2.0
-            # fe = 2.0
+            fe = 2.0
             # clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None)
+            clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None)
             # print("--------BOOST-------")
             # print(boost.view(1, len(clk)))
             # print("--------SHARPEN-------")
@@ -877,7 +879,8 @@ class BnBgpu:
             # clk = self.averages(data, newCL, classes)
             
             clk = self.averages_direct(transforIm, matches, classes)
-            res_classes, frc_curves = self.frc_resolution_tensor_align(transforIm, matches, classes, sampling)
+            # res_classes, frc_curves, freq_bins = self.frc_resolution_tensor_align(transforIm, matches, classes, sampling)
+            res_classes = self.frc_resolution_tensor_align(transforIm, matches, classes, sampling)
             del(transforIm)
             torch.cuda.empty_cache()
             
@@ -885,16 +888,17 @@ class BnBgpu:
             
             
             # res_classes = self.frc_resolution_tensor(newCL, sampling)
-            bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
+            # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
-            clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
+            # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes, frc_c=frc_curves, fBins=freq_bins)
             # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling) 
             # clk = self.enhance_averages_butterworth_normF(clk, sampling)
             
             # clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, boost_max=None)
+            clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling, boost_max=None)
             
             # clk = self.frc_whitening_batch(clk, frc_curves, sampling)
             # clk = self.sigmoid_highboost_filter(clk, sampling)
@@ -1911,7 +1915,7 @@ class BnBgpu:
         Rmax  = min(h, w) // 2
     
         res_out   = torch.full((n_classes,), float('nan'), device=device)
-        frc_curves = torch.zeros((n_classes, Rmax), device=device)
+        # frc_curves = torch.zeros((n_classes, Rmax), device=device)
     
         # --- malla de frecuencias físicas (Å⁻¹) ---
         fy = torch.fft.fftfreq(h, d=pixel_size, device=device)
@@ -1964,7 +1968,7 @@ class BnBgpu:
                 kernel = torch.tensor([0.25, 0.5, 0.25], device=device).view(1, 1, -1)
                 frc = torch.nn.functional.conv1d(frc.view(1,1,-1), kernel, padding=1).view(-1)
     
-            frc_curves[c] = frc
+            # frc_curves[c] = frc
     
             # ---- resolución = cruce con threshold ----
             idx = torch.where(frc < frc_threshold)[0]
@@ -1974,7 +1978,7 @@ class BnBgpu:
         # ---- reemplazo de NaN/Inf por fallback ----
         res_out = torch.nan_to_num(res_out, nan=fallback_res,
                                    posinf=fallback_res, neginf=fallback_res)
-        return res_out, frc_curves
+        return res_out#, frc_curves, freq_bins
     
     
     @torch.no_grad()
@@ -1998,7 +2002,7 @@ class BnBgpu:
         Rmax  = min(h, w) // 2
               
         res_out   = torch.full((n_classes,), float('nan'), device=device)
-        frc_curves = torch.zeros((n_classes, Rmax), device=device)
+        # frc_curves = torch.zeros((n_classes, Rmax), device=device)
     
         # --- malla de frecuencias físicas (Å⁻¹) ---
         fy = torch.fft.fftfreq(h, d=pixel_size, device=device)
@@ -2051,7 +2055,7 @@ class BnBgpu:
                 kernel = torch.tensor([0.25, 0.5, 0.25], device=device).view(1, 1, -1)
                 frc = torch.nn.functional.conv1d(frc.view(1,1,-1), kernel, padding=1).view(-1)
                 
-            frc_curves[c] = frc
+            # frc_curves[c] = frc
                 
              # ---- resolución = cruce con threshold ----
             idx = torch.where(frc < frc_threshold)[0]
@@ -2059,7 +2063,7 @@ class BnBgpu:
                 res_out[c] = 1.0 / freq_bins[idx[0]]
     
         res_out = torch.nan_to_num(res_out, nan=fallback_res, posinf=fallback_res, neginf=fallback_res)
-        return res_out, frc_curves
+        return res_out#, frc_curves, freq_bins
 
 
     
@@ -2173,7 +2177,7 @@ class BnBgpu:
 
     
     @torch.no_grad()
-    def sharpen_averages_batch(self, averages, pixel_size, B_factors, res_cutoffs, eps=1e-6, normalize: bool = True):
+    def sharpen_averages_batch(self, averages, pixel_size, B_factors, res_cutoffs, frc_c=None, fBins=None, wmax: float = 10.0, eps=1e-2, normalize: bool = True):
         N, H, W = averages.shape
         device = averages.device
         
@@ -2204,20 +2208,39 @@ class BnBgpu:
     
         # Frecuencia de corte y Nyquist
         f_cutoff = (1.0 / res_cutoffs).unsqueeze(1).unsqueeze(2)  # [N,1,1]
+        f_cutoff_exp = f_cutoff.expand_as(freq_r)
         f_nyquist = 1.0 / (2.0 * pixel_size)
         
 
         #Transición coseno  
         # taper = create_taper(freq_r, f_cutoff, v0=0.3, vc=1.0)
-        f_cutoff_exp = f_cutoff.expand_as(freq_r)
         taper = torch.ones_like(freq_r) 
         # taper[freq_r > f_cutoff_exp] = 0.0  
         
         # taper = (freq_r <= f_cutoff_exp).float()                
-    
+        
+            # --- Peso FRC/SNR (si está disponible) ---
+        if frc_c is not None and fBins is not None:    
+            frc_interp = torch.stack([
+                torch.from_numpy(
+                    np.interp(freq_r[c].flatten().cpu().numpy(), fBins.cpu().numpy(), frc_c[c].cpu().numpy())
+                ).to(device).view(H, W)
+                for c in range(N)
+            ], dim=0)  # [N,H,W]
+
+
+            # w = frc_interp / (1.0 - frc_interp + eps)
+            # w = torch.clamp(w, 0, wmax)
+            # w = torch.sqrt(w)
+        
+            w = torch.sqrt(frc_interp.clamp(0.0, 1.0))
+            print(w)
+        else:
+            w = 1.0
+            
         # Filtro de realce con B y taper hasta f_cutoff
         #Para hacer sharp hay que poner (-B_exp / 4) 
-        filt = torch.exp((-B_exp / 4) * (freq_r ** 2)) * taper 
+        filt = torch.exp((-B_exp / 4) * (freq_r ** 2)) * taper * w
     
         fft_sharp = fft * filt
         fft_sharp = torch.where(freq_r <= f_cutoff_exp, fft_sharp, fft)
@@ -2919,7 +2942,7 @@ class BnBgpu:
             std_filt = filtered.std(dim=(-2, -1), keepdim=True)
             filtered = (filtered - mean_filt) / (std_filt + eps) * std_orig + mean_orig
     
-        return filtered, boost_max, sharpen_power
+        return filtered#, boost_max, sharpen_power
     
     @torch.no_grad()
     def sharpen_averages_batch_energy_normalized(self, 

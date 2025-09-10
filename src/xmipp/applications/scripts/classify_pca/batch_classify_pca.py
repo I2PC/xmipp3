@@ -332,7 +332,7 @@ if __name__=="__main__":
                             )
                             grid_flat = flatGrid(freqBn, coef, nBand)
                     
-                            print(iter , maxRes , coef)    
+                            # print(iter , maxRes , coef)    
      
                     
                     #update classes        
@@ -352,8 +352,8 @@ if __name__=="__main__":
                                          freqBn, coef, cvecs, mask, sigma, sampling)
     
                     # save classes
-                    file = output+"_%s_%s_%s.mrcs"%(initBatch,iter+1,cycles)
-                    save_images(cl.cpu().detach().numpy(), sampling, file)
+                    # file = output+"_%s_%s_%s.mrcs"%(initBatch,iter+1,cycles)
+                    # save_images(cl.cpu().detach().numpy(), sampling, file)
     
     
                     if cycles == num_cycles-1 and mode == "create_classes" and iter == niter-1:
@@ -407,9 +407,10 @@ if __name__=="__main__":
     file_final = output+".mrcs"
     save_images(cl.cpu().detach().numpy(), sampling, file_final)
     
-    print("Adjust contrast")
+    # print("Adjust contrast")
+    # cl = bnb.normalize_particles_batch(cl)
+    
     # cl = bnb.increase_contrast_sigmoid(cl, 8, 0.6)
-    cl = bnb.normalize_particles_batch(cl)
     # cl = bnb.apply_leaky_relu(cl)
     # cl = bnb.normalize_particles_global(cl)
     # cl = bnb.process_images_iteratively(cl, 10)
