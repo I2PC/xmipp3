@@ -764,18 +764,7 @@ void ProgSubtractProjection::processImage(const FileName &fnImg, const FileName 
 
 	double b = (meanI - meanP) / Nelems;
 
-	// FORCE NO ADJUSTMENT*** REMOVED WHE TEST FINISHED!!!!!!!!!!
-	b=0;
-	////////////////////////////////////////////////////
-
 	I() -= b;
-	// FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(I())
-	// 	DIRECT_MULTIDIM_ELEM(I(), n) -= b;
-
-		// if(DIRECT_MULTIDIM_ELEM(PmaskImg(), n) > 0)
-		// {
-		// 		DIRECT_MULTIDIM_ELEM(I(), n) -= b;
-		// }
 
 	// Compute estimation images: IiM = I*iM and PiM = P*iM	
 	IiMFourier = computeEstimationImage(I(), &(iM()), transformerIiM);
@@ -817,10 +806,6 @@ void ProgSubtractProjection::processImage(const FileName &fnImg, const FileName 
 		disable = true;
 	}
 
-	// FORCE NO ADJUSTMENT*** REMOVED WHE TEST FINISHED!!!!!!!!!!
-	beta00=1;
-	////////////////////////////////////////////////////
-
 	// Apply adjustment order 0: PFourier0 = T(w) * PFourier = beta00 * PFourier
 	PFourier0 = PFourier;
 	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(PFourier0)
@@ -841,11 +826,6 @@ void ProgSubtractProjection::processImage(const FileName &fnImg, const FileName 
 	double beta01 = betas1(0);
 	double beta1 = betas1(1);
 
-	// FORCE NO ADJUSTMENT*** REMOVED WHE TEST FINISHED!!!!!!!!!!
-	beta01=1;
-	beta1=0;
-	////////////////////////////////////////////////////
-
 	// Apply adjustment order 1: PFourier1 = T(w) * PFourier = (beta01 + beta1*w) * PFourier
 	PFourier1 = PFourier;
 	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(PFourier1)
@@ -857,10 +837,6 @@ void ProgSubtractProjection::processImage(const FileName &fnImg, const FileName 
 
 	double beta0save;
 	double beta1save;
-
-	// FORCE NO ADJUSTMENT*** REMOVED WHE TEST FINISHED!!!!!!!!!!
-	R2adj(1) == 0;
-	////////////////////////////////////////////////////
 
 	if (R2adj(1) == 0)
 	{
