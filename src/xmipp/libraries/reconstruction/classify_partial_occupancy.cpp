@@ -720,8 +720,7 @@ void ProgClassifyPartialOccupancy::compareRegions(double &ll_I, double &ll_IsubP
 	// Por ahora solo consideramos ajuste de orden 0. 
 	// Si queremos considerar el del orden 1 hay que que comprobar que b1 > 0
 	// y ajustar por frecuencia
-	// IsubP() = (I() - adjustParams.b) - (P() * adjustParams.b0);
-	IsubP() = I() - P();
+	IsubP() = (I() - adjustParams.b) - (P() * adjustParams.b0);
 
 	#ifdef DEBUG_REGIONS_COMPARISON
 	saveImage = IsubP;
