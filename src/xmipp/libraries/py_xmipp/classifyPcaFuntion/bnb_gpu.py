@@ -492,10 +492,9 @@ class BnBgpu:
         
         clk = self.averages_createClasses(mmap, iter, newCL)
         
-        # clk = self.filter_classes_relion_style(newCL, clk, sampling, 6.0)
+        clk = self.filter_classes_relion_style(newCL, clk, sampling, 8.0)
         
 
-        # if iter > 10: 
         # if iter > 7:
         if iter > 1:
             # res_classes, frc_curves, freq_bins = self.frc_resolution_tensor(newCL, sampling)
@@ -885,7 +884,6 @@ class BnBgpu:
             torch.cuda.empty_cache()
             
 
-            
             
             # res_classes = self.frc_resolution_tensor(newCL, sampling)
             # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
@@ -1688,8 +1686,8 @@ class BnBgpu:
         H, W = class_avg.shape
     
         # FFTs sin shift
-        fft_imgs = torch.fft.fft2(images_tensor)  # [N, H, W]
-        fft_avg = torch.fft.fft2(class_avg)       # [H, W]
+        fft_imgs = torch.fft.fft2(images_tensor, norm="forward")  # [N, H, W]
+        fft_avg = torch.fft.fft2(class_avg, norm="forward")       # [H, W]
     
         # Magnitudes al cuadrado (espectro de potencia)
         pspec_imgs = torch.abs(fft_imgs) ** 2
@@ -1733,7 +1731,7 @@ class BnBgpu:
         fft_filtered = filt_map * fft_avg_shift
         fft_filtered = torch.fft.ifftshift(fft_filtered)
     
-        filtered = torch.fft.ifft2(fft_filtered).real
+        filtered = torch.fft.ifft2(fft_filtered, norm="forward").real
     
         # Normalización
         mean_orig, std_orig = class_avg.mean(), class_avg.std()
