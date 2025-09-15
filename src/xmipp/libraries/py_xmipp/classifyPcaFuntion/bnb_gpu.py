@@ -496,7 +496,7 @@ class BnBgpu:
         
 
         # if iter > 7:
-        if iter > 1:
+        if iter > 3:
             # res_classes, frc_curves, freq_bins = self.frc_resolution_tensor(newCL, sampling)
             res_classes = self.frc_resolution_tensor(newCL, sampling)
             # print("--------RESOLUTION-------")
