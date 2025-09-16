@@ -2867,11 +2867,10 @@ class BnBgpu:
         # === Ajuste dinámico de sharpen_power por resolución ===
         if sharpen_power is None:
             # sharpen_power = (1.5 - 0.1 * resolutions).clamp(min=0.4, max=1.0)  # regla empírica
-            sharpen_power = (0.1 * resolutions).clamp(min=0.3, max=2.5)
+            # sharpen_power = (0.1 * resolutions).clamp(min=0.3, max=2.5)
             # sharpen_power = (0.08 * resolutions).clamp(min=0.3, max=2.0)
-            # log_scale = 1.0 / torch.log(torch.tensor(8.0, device=resolutions.device))
-            # sharpen_power = (torch.log(resolutions) * log_scale).clamp(min=0.4, max=3.0)
-            # sharpen_power = (1.2 * torch.log(resolutions) - 1.2).clamp(min=0.4, max=3.0)
+            sharpen_power = (4 / resolutions).clamp(min=0.1, max=1)
+  
             sharpen_power = sharpen_power.view(B, 1, 1)  # broadcasting por imagen
         else:
             # Modo fijo: mismo valor para todas las imágenes
