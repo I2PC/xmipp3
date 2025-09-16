@@ -494,17 +494,17 @@ class BnBgpu:
         
         # clk = self.filter_classes_relion_style(newCL, clk, sampling, 8.0)
         
-        res_classes = self.frc_resolution_tensor(newCL, sampling)
-        clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
+        # res_classes = self.frc_resolution_tensor(newCL, sampling)
+        # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
         
 
         # if iter > 7:
-        if iter > 3:
+        if iter > 1:
             # res_classes, frc_curves, freq_bins = self.frc_resolution_tensor(newCL, sampling)
-            # res_classes = self.frc_resolution_tensor(newCL, sampling)
+            res_classes = self.frc_resolution_tensor(newCL, sampling)
             # print("--------RESOLUTION-------")
             # print(res_classes) 
-            # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             # print(bfactor)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
@@ -2868,8 +2868,8 @@ class BnBgpu:
         if sharpen_power is None:
             # sharpen_power = (1.5 - 0.1 * resolutions).clamp(min=0.4, max=1.0)  # regla empírica
             # sharpen_power = (0.1 * resolutions).clamp(min=0.3, max=2.5)
+            sharpen_power = (0.1 * resolutions).clamp(min=0.3, max=1.5)
             # sharpen_power = (0.08 * resolutions).clamp(min=0.3, max=2.0)
-            sharpen_power = (4 / resolutions).clamp(min=0.1, max=1)
   
             sharpen_power = sharpen_power.view(B, 1, 1)  # broadcasting por imagen
         else:
