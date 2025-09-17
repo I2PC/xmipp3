@@ -762,7 +762,7 @@ void ProgStatisticalMap::weightMap()
     V().computeAvgStdev_within_binary_mask(coincidentMask, coincident_avg, unused_std);
     V().computeAvgStdev_within_binary_mask(differentMask, different_avg, unused_std);
 
-    partialOccupancyFactor = coincident_avg /different_avg;
+    partialOccupancyFactor = different_avg / coincident_avg;
 
     std::cout << "coincident_avg ---------------------> " << coincident_avg << std::endl;
     std::cout << "different_avg ---------------------> " << different_avg << std::endl;
@@ -780,7 +780,7 @@ void ProgStatisticalMap::weightMap()
     // Subtract weighted average map 
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
-        DIRECT_MULTIDIM_ELEM(V(),n) -=  DIRECT_MULTIDIM_ELEM(avgVolume(),n); 
+        DIRECT_MULTIDIM_ELEM(V(),n) -=  (DIRECT_MULTIDIM_ELEM(avgVolume(),n) * partialOccupancyFactor);
     }
 }
 
