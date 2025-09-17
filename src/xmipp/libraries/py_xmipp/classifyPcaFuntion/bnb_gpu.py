@@ -502,8 +502,8 @@ class BnBgpu:
         if iter > 1:
             # res_classes, frc_curves, freq_bins = self.frc_resolution_tensor(newCL, sampling)
             res_classes = self.frc_resolution_tensor(newCL, sampling)
-            # print("--------RESOLUTION-------")
-            # print(res_classes) 
+            print("--------RESOLUTION-------")
+            print(res_classes) 
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             # print(bfactor)
@@ -519,13 +519,13 @@ class BnBgpu:
             # else:
             #     fe = 2.0
             fe = 2.0
-            # clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None)
-            clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None)
-            # print("--------BOOST-------")
-            # print(boost.view(1, len(clk)))
-            # print("--------SHARPEN-------")
-            # print(sharpen_power.view(1, len(clk)))
-            # print("--------HASTA AQUI-------")
+            clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None)
+            # clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None)
+            print("--------BOOST-------")
+            print(boost.view(1, len(clk)))
+            print("--------SHARPEN-------")
+            print(sharpen_power.view(1, len(clk)))
+            print("--------HASTA AQUI-------")
             # clk = self.frc_whitening_batch(clk, frc_curves,sampling)
 
             # clk = self.sharpen_averages_batch_energy_normalized(clk, res_classes, bfactor, sampling)
@@ -2868,8 +2868,7 @@ class BnBgpu:
         if sharpen_power is None:
             # sharpen_power = (1.5 - 0.1 * resolutions).clamp(min=0.4, max=1.0)  # regla empírica
             # sharpen_power = (0.1 * resolutions).clamp(min=0.3, max=2.5)
-            sharpen_power = (0.1 * resolutions).clamp(min=0.3, max=1.5)
-            # sharpen_power = (0.08 * resolutions).clamp(min=0.3, max=2.0)
+            sharpen_power = (0.08 * resolutions).clamp(min=0.3, max=2.0)
   
             sharpen_power = sharpen_power.view(B, 1, 1)  # broadcasting por imagen
         else:
@@ -2920,20 +2919,20 @@ class BnBgpu:
             A = fft_mag2.sum(dim=(-2, -1))  # [B]
             Bcoef = 2.0 * (fft_mag2 * cosine_shape).sum(dim=(-2, -1))  # [B]
             Ccoef = (fft_mag2 * cosine_shape**2).sum(dim=(-2, -1))     # [B]
-    
+            
             const_term = (1.0 - f_energy) * A
             disc = Bcoef**2 - 4.0 * Ccoef * const_term
             disc = torch.clamp(disc, min=0.0)
-    
+            
             sqrt_disc = torch.sqrt(disc + eps)
             den = 2.0 * Ccoef + eps
-    
+            
             t_pos = (-Bcoef + sqrt_disc) / den
             t_neg = (-Bcoef - sqrt_disc) / den
-    
+            
             t = torch.where(t_pos >= 0, t_pos, t_neg)
             t = torch.where(torch.isfinite(t), t, torch.zeros_like(t))  # fallback
-    
+            
             g = (1.0 + t).clamp(min=1.0)
             boost_max = g.view(B, 1, 1)
     
@@ -2963,7 +2962,7 @@ class BnBgpu:
             std_filt = filtered.std(dim=(-2, -1), keepdim=True)
             filtered = (filtered - mean_filt) / (std_filt + eps) * std_orig + mean_orig
     
-        return filtered#, boost_max, sharpen_power
+        return filtered, boost_max, sharpen_power
     
     @torch.no_grad()
     def sharpen_averages_batch_energy_normalized(self, 
