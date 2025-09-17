@@ -2867,8 +2867,8 @@ class BnBgpu:
         # === Ajuste dinámico de sharpen_power por resolución ===
         if sharpen_power is None:
             # sharpen_power = (1.5 - 0.1 * resolutions).clamp(min=0.4, max=1.0)  # regla empírica
-            # sharpen_power = (0.1 * resolutions).clamp(min=0.3, max=2.5)
-            sharpen_power = (0.08 * resolutions).clamp(min=0.3, max=2.0)
+            sharpen_power = (0.1 * resolutions).clamp(min=0.3, max=2.5)
+            # sharpen_power = (0.08 * resolutions).clamp(min=0.3, max=2.0)
   
             sharpen_power = sharpen_power.view(B, 1, 1)  # broadcasting por imagen
         else:
