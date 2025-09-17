@@ -768,12 +768,19 @@ void ProgStatisticalMap::weightMap()
     std::cout << "different_avg ---------------------> " << different_avg << std::endl;
     std::cout << "partialOccupancyFactor ---------------------> " << partialOccupancyFactor << std::endl;
 
+    // Dumpen density in different mask
+    // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+    // {
+    //     if (DIRECT_MULTIDIM_ELEM(differentMask,n) > 0)
+    //     {
+    //         DIRECT_MULTIDIM_ELEM(V(),n) *=  partialOccupancyFactor;
+    //     }        
+    // }
+
+    // Subtract weighted average map 
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
-        if (DIRECT_MULTIDIM_ELEM(differentMask,n) > 0)
-        {
-            DIRECT_MULTIDIM_ELEM(V(),n) *=  partialOccupancyFactor;
-        }        
+        DIRECT_MULTIDIM_ELEM(V(),n) -=  DIRECT_MULTIDIM_ELEM(avgVolume(),n); 
     }
 }
 
