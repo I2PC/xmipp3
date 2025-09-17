@@ -780,7 +780,7 @@ void ProgStatisticalMap::weightMap()
     // Subtract weighted average map 
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
-        DIRECT_MULTIDIM_ELEM(V(),n) -=  (DIRECT_MULTIDIM_ELEM(avgVolume(),n) * partialOccupancyFactor);
+        DIRECT_MULTIDIM_ELEM(V(),n) -=  DIRECT_MULTIDIM_ELEM(avgVolume(),n) * (1-partialOccupancyFactor);
     }
 }
 
