@@ -1226,7 +1226,7 @@ class BnBgpu:
     
     @torch.no_grad()
     def gaussian_lowpass_filter_2D_adaptive(self, imgs, res_angstrom, pixel_size,
-                                            floor_res=25.0, clamp_exp=80.0,
+                                            floor_res=100.0, clamp_exp=80.0,
                                             hard_cut=False, nyquist_margin=0.95, normalize = True):
         B, H, W = imgs.shape
         device, eps = imgs.device, 1e-8
@@ -1901,8 +1901,8 @@ class BnBgpu:
             newCL,                       # lista de tensores [N_i,H,W]
             pixel_size: float,           # Å/px
             frc_threshold: float = 0.143,
-            fallback_res: float = 40.0,
-            apply_window: bool = True,
+            fallback_res: float = 100, #40.0,
+            apply_window: bool = False, #True,
             smooth: bool = True          # NUEVO: suavizado opcional de FRC
     ) -> torch.Tensor:
         """
@@ -1990,8 +1990,8 @@ class BnBgpu:
             classes,                # int, número de clases
             pixel_size: float,           
             frc_threshold: float = 0.143,
-            fallback_res: float = 40.0,
-            apply_window: bool = True,
+            fallback_res: float = 100.0,
+            apply_window: bool = False, #True,
             smooth: bool = True         
         ) -> torch.Tensor:
     
