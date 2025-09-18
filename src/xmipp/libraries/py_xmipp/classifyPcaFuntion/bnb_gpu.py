@@ -2895,46 +2895,46 @@ class BnBgpu:
     
         # === Ajuste automático de boost_max para duplicar energía ===
         if boost_max is None:
-            # def energy_with_gain(g: torch.Tensor) -> torch.Tensor:
-            #     boost = 1.0 + (g - 1.0) * cosine_shape
-            #     energy = torch.sum(fft_mag2 * boost**2, dim=(-2, -1))  # [B]
-            #     return energy
+            def energy_with_gain(g: torch.Tensor) -> torch.Tensor:
+                boost = 1.0 + (g - 1.0) * cosine_shape
+                energy = torch.sum(fft_mag2 * boost**2, dim=(-2, -1))  # [B]
+                return energy
+            
+            target_energy = f_energy * energy_orig  # [B]
+            # target_energy = 1.5 * energy_orig  # [B]
+            g_low = torch.ones(B, device=device)
+            g_high = torch.full((B,), 1000.0, device=device)  # límite arbitrario
+            
+            for _ in range(max_iter):
+                g_mid = (g_low + g_high) / 2
+                energy_mid = energy_with_gain(g_mid.view(B, 1, 1))
+                delta = target_energy - energy_mid
+                mask_too_low = delta > 0
+                g_low = torch.where(mask_too_low, g_mid, g_low)
+                g_high = torch.where(~mask_too_low, g_mid, g_high)
+            
+            boost_max = g_mid.view(B, 1, 1)
+            
+            
+            # A = fft_mag2.sum(dim=(-2, -1))  # [B]
+            # Bcoef = 2.0 * (fft_mag2 * cosine_shape).sum(dim=(-2, -1))  # [B]
+            # Ccoef = (fft_mag2 * cosine_shape**2).sum(dim=(-2, -1))     # [B]
             #
-            # target_energy = f_energy * energy_orig  # [B]
-            # # target_energy = 1.5 * energy_orig  # [B]
-            # g_low = torch.ones(B, device=device)
-            # g_high = torch.full((B,), 1000.0, device=device)  # límite arbitrario
+            # const_term = (1.0 - f_energy) * A
+            # disc = Bcoef**2 - 4.0 * Ccoef * const_term
+            # disc = torch.clamp(disc, min=0.0)
             #
-            # for _ in range(max_iter):
-            #     g_mid = (g_low + g_high) / 2
-            #     energy_mid = energy_with_gain(g_mid.view(B, 1, 1))
-            #     delta = target_energy - energy_mid
-            #     mask_too_low = delta > 0
-            #     g_low = torch.where(mask_too_low, g_mid, g_low)
-            #     g_high = torch.where(~mask_too_low, g_mid, g_high)
+            # sqrt_disc = torch.sqrt(disc + eps)
+            # den = 2.0 * Ccoef + eps
             #
-            # boost_max = g_mid.view(B, 1, 1)
-            
-            
-            A = fft_mag2.sum(dim=(-2, -1))  # [B]
-            Bcoef = 2.0 * (fft_mag2 * cosine_shape).sum(dim=(-2, -1))  # [B]
-            Ccoef = (fft_mag2 * cosine_shape**2).sum(dim=(-2, -1))     # [B]
-            
-            const_term = (1.0 - f_energy) * A
-            disc = Bcoef**2 - 4.0 * Ccoef * const_term
-            disc = torch.clamp(disc, min=0.0)
-            
-            sqrt_disc = torch.sqrt(disc + eps)
-            den = 2.0 * Ccoef + eps
-            
-            t_pos = (-Bcoef + sqrt_disc) / den
-            t_neg = (-Bcoef - sqrt_disc) / den
-            
-            t = torch.where(t_pos >= 0, t_pos, t_neg)
-            t = torch.where(torch.isfinite(t), t, torch.zeros_like(t))  # fallback
-            
-            g = (1.0 + t).clamp(min=1.0)
-            boost_max = g.view(B, 1, 1)
+            # t_pos = (-Bcoef + sqrt_disc) / den
+            # t_neg = (-Bcoef - sqrt_disc) / den
+            #
+            # t = torch.where(t_pos >= 0, t_pos, t_neg)
+            # t = torch.where(torch.isfinite(t), t, torch.zeros_like(t))  # fallback
+            #
+            # g = (1.0 + t).clamp(min=1.0)
+            # boost_max = g.view(B, 1, 1)
     
         else:
             if not torch.is_tensor(boost_max):
@@ -3440,7 +3440,7 @@ class BnBgpu:
             labels = distances.argmin(dim=1)
     
             # Compute new centroids with scatter
-            counts = torch.bincount(labels, minlength=num_clusters).clamp(min=1).unsqueeze(1)  # avoid division by 0
+            counts = torch.bincount(labels, minlength=num_clusters).clamp(min=1).unsqueeze(1)  
             centroids_sum = torch.zeros_like(centroids).scatter_add_(0, labels.unsqueeze(1).expand(-1, D), X)
             centroids = centroids_sum / counts
     
