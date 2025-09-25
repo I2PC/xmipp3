@@ -294,9 +294,10 @@ class CondaEnvManager(object):
         return condaActCmd
 
     @staticmethod
-    def yieldInstallAllCmds(useGpu):
+    def yieldInstallAllCmds(useGpu, pathInstallation):
         for name, env in CondaEnvManager.XMIPP_CONDA_ENVS.items():
             yield CondaEnvManager.installEnvironCmd(
+	            pathInstallation=pathInstallation,
                 name=name, 
                 versionId=env.get('versionId', None), 
                 requirementsFn=env['requirements'], 
@@ -324,7 +325,7 @@ class CondaEnvManager(object):
         return dependency+'=='+defaultVersion if defaultVersion else dependency
 
     @staticmethod
-    def installEnvironCmd(name: str,requirementsFn: str,  versionId: int = None, gpu=False):
+    def installEnvironCmd(name: str,requirementsFn: str,  versionId: int = None, gpu=False, pathInstallation: str = ''):
         # Consider the gpu version if requested
         if gpu:
             root, ext = os.path.splitext(requirementsFn)
@@ -338,9 +339,14 @@ class CondaEnvManager(object):
         else:
             target = f'{name}.yml'
 
-        commands = [] 
-        commands.append('conda env create -f %s || conda env update -f %s' % (requirementsFn, requirementsFn))
-        commands.append('conda env export -f %s' % target)
+        commands = []
+        if not os.path.isfile(os.path.join(pathInstallation, target)):
+            commands.append(
+		        'conda env create -f %s || conda remove --name %s --all -y && conda env create -f %s' % (
+			        requirementsFn, name, requirementsFn))
+            commands.append('conda env export -f %s' % target)
+
+        #commands.append('conda env create -f %s || conda env update -f %s' % (requirementsFn, requirementsFn))
         return ' && '.join(commands), target
 
 def getModel(*modelPath, **kwargs):
