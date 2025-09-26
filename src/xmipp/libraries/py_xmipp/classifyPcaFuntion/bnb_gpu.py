@@ -15,6 +15,7 @@ import kornia
 import mrcfile
 
 
+
 class BnBgpu:
     
     def __init__(self, nBand):
@@ -62,7 +63,7 @@ class BnBgpu:
     
        
     
-    def precShiftBand(self, ft, freq_band, grid_flat, coef, shift):
+    def precShiftBand_old(self, ft, freq_band, grid_flat, coef, shift):
         
         fourier_band = self.selectFourierBands(ft, freq_band, coef)
         nRef = fourier_band[0].size(dim=0)
@@ -80,10 +81,37 @@ class BnBgpu:
                 temp = fourier_band[n][i].repeat(nShift,1)
                                
                 band_shifted_complex = torch.mul(temp, filter)
-                band_shifted_complex[:, int(coef[n] / 2):] = 0.0                
+                band_shifted_complex[:, int(coef[n] / 2):] = 0.0 
                 band_shifted[n][i*nShift : (i*nShift)+nShift] = torch.cat((band_shifted_complex.real, band_shifted_complex.imag), dim=1)
-                     
+
         return(band_shifted)
+    
+    
+    def precShiftBand(self, ft, freq_band, grid_flat, coef, shift):
+        fourier_band = self.selectFourierBands(ft, freq_band, coef)
+        nRef = fourier_band[0].size(0)
+        nShift = shift.size(0)
+    
+        band_shifted = [torch.zeros((nRef*nShift, coef[n]), device=self.cuda) for n in range(self.nBand)]
+        ONE = torch.tensor(1, dtype=torch.float32, device=self.cuda)
+    
+        for n in range(self.nBand):
+            # --- Filtro de fase ---
+            angles = shift @ grid_flat[n]           # (nShift, coef[n])
+            filter = torch.polar(ONE, angles)      # (nShift, coef[n])
+    
+            band_shifted_complex = fourier_band[n][None, :, :] * filter[:, None, :]  # (nShift, nRef, coef[n])
+            # band_shifted_complex[:, :, int(coef[n]/2):] = 0.0
+    
+            # --- Concatenar real e imaginario ---
+            band_shifted_flat = torch.cat(
+                (band_shifted_complex.real, band_shifted_complex.imag), dim=2
+            )  
+            band_shifted_flat = band_shifted_flat.transpose(0, 1)
+    
+            band_shifted[n] = band_shifted_flat.reshape(nShift*nRef, coef[n])  # (nShift*nRef, 2*coef[n])
+    
+        return band_shifted
 
     
   
@@ -492,7 +520,7 @@ class BnBgpu:
         
         clk = self.averages_createClasses(mmap, iter, newCL)
         
-        # clk = self.filter_classes_relion_style(newCL, clk, sampling, 8.0)
+        # clk = self.filter_classes_relion_style(newCL, clk, sampling, gamma=1.0, B_factor=0.0)
         
         # res_classes = self.frc_resolution_tensor(newCL, sampling)
         # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
@@ -930,6 +958,7 @@ class BnBgpu:
             clk = cl  
             
         return (clk, tMatrix, batch_projExp_cpu) 
+    
            
     
     def center_particles_inverse_save_matrix(self, data, tMatrix, update_rot, update_shifts, centerxy):
@@ -970,6 +999,83 @@ class BnBgpu:
         del(Texp)
         
         return(transforIm, M)
+    
+    
+    
+    
+    
+    
+    def fourier_shift_batch(self, imgs, shifts_x, shifts_y):
+        """
+        Traslada un batch de imágenes en Fourier (vectorizado).
+        imgs: (n,h,w) tensor
+        shifts_x, shifts_y: (n,) traslaciones en píxeles
+        """
+        n, h, w = imgs.shape
+        ky = torch.fft.fftfreq(h, d=1.0, device=imgs.device).reshape(1, h, 1)
+        kx = torch.fft.fftfreq(w, d=1.0, device=imgs.device).reshape(1, 1, w)
+    
+        # expandimos shifts a (n,1,1) para broadcast
+        sx = shifts_x.view(n, 1, 1)
+        sy = shifts_y.view(n, 1, 1)
+    
+        phase = torch.exp(-2j * torch.pi * (kx * sx + ky * sy))  # (n,h,w)
+        F = torch.fft.fft2(imgs)  # (n,h,w)
+        shifted = torch.fft.ifft2(F * phase).real
+        return shifted
+    
+    def center_particles_inverse_save_matrix2(self, data, tMatrix, update_rot, update_shifts, centerxy):
+        """
+        Aplica acumuladamente traslaciones y rotaciones:
+        1) Traslación acumulada previa + nueva traslación (vectorizada, Fourier)
+        2) Rotación acumulada previa + nueva rotación (Kornia)
+        
+        Devuelve imágenes transformadas y M_combined 2x3
+        """
+        device = self.cuda
+        n, h, w = data.shape
+        batchsize = update_rot.numel()
+    
+        # --- Matriz previa ---
+        # Extender tMatrix 2x3 a 2x2 + t_prev
+        R_prev = tMatrix[:, :2, :2]           # (n,2,2)
+        t_prev = tMatrix[:, :2, 2]            # (n,2)
+    
+        # --- Shift total en Fourier ---
+        # total_shift = t_prev + R_prev @ update_shifts
+        total_shift = t_prev + torch.bmm(R_prev, update_shifts.unsqueeze(-1)).squeeze(-1)
+    
+        # Aplicar shift total en Fourier
+        imgs = torch.from_numpy(data.astype(np.float32)).to(device)
+        shifted = self.fourier_shift_batch(imgs, total_shift[:,0], total_shift[:,1])
+    
+        # --- Rotación acumulada ---
+        # Convertir grados a radianes
+        theta = torch.deg2rad(update_rot).view(-1)
+        cos = torch.cos(theta)
+        sin = torch.sin(theta)
+        R_update = torch.stack([
+            torch.stack([cos, -sin], dim=1),
+            torch.stack([sin,  cos], dim=1)
+        ], dim=1)  # (n,2,2)
+    
+        R_total = torch.bmm(R_update, R_prev)  # rotación acumulada
+    
+        # Construir matriz final que incluya rotación + traslación total
+        M_combined = torch.cat([R_total, total_shift.unsqueeze(-1)], dim=2)  # (n,2,3)
+        
+        # Aplicar rotación acumulada en Kornia
+        rotated = kornia.geometry.warp_affine(
+            shifted.unsqueeze(1), 
+            torch.cat([R_total, torch.zeros_like(total_shift).unsqueeze(-1)], dim=2), 
+            dsize=(h, w),
+            mode='bilinear', padding_mode='zeros'
+            )[:,0]
+    
+        return rotated, M_combined
+
+    
+    
     
     
     def averages_increaseClas(self, mmap, iter, newCL, classes): 
@@ -1661,7 +1767,7 @@ class BnBgpu:
         return mean_radial  # [R]
     
 
-    def relion_filter_from_image_list(self, images_list, class_avg,
+    def relion_filter_from_image_list_2(self, images_list, class_avg,
                                        sampling, resolution_angstrom, eps=1e-8):
         """
         Aplica un filtro tipo RELION a class_avg en Fourier, adaptado al espectro
@@ -1747,20 +1853,138 @@ class BnBgpu:
     
         return normalized
     
+    
+    def relion_filter_frc_relion_style(self, images_list, class_avg,
+                                       sampling, gamma: float = 1.0, B_factor: float = 0.0,
+                                       eps=1e-8, smooth_sigma: float = 1.5):
+        """
+        Filtro tipo RELION basado en FRC/SNR → Wiener → optional gamma/B-factor.
+        """
+        import torch.nn.functional as F
+    
+        # Convierte a tensor si es lista
+        if isinstance(images_list, list):
+            images_list = torch.stack(images_list)
+        elif isinstance(images_list, torch.Tensor):
+            if images_list.ndim == 2:
+                images_list = images_list[None]
+            elif images_list.ndim != 3:
+                raise ValueError("images_list debe tener shape [N,H,W]")
+        else:
+            raise TypeError("images_list debe ser lista o tensor")
+    
+        if images_list.numel() == 0:
+            return class_avg
+    
+        device = class_avg.device
+        images_tensor = images_list.float().to(device)
+        class_avg = class_avg.float().to(device)
+        N, Himg, Wimg = images_tensor.shape
+    
+        # FFTs
+        fft_imgs = torch.fft.fft2(images_tensor, norm="forward")
+        fft_avg = torch.fft.fft2(class_avg, norm="forward")
+    
+        # Radios
+        y = torch.arange(Himg, device=device) - Himg//2
+        x = torch.arange(Wimg, device=device) - Wimg//2
+        r = torch.sqrt(x[None,:]**2 + y[:,None]**2).long()
+        max_r = min(Himg,Wimg)//2
+        r = r.clamp(0,max_r-1)
+        flat_r = r.flatten()
+    
+        # Half-set / leave-one-out FRC
+        frc_all = torch.zeros((N,max_r), device=device)
+        for j in range(N):
+            avg_loo = (fft_avg * N - fft_imgs[j]) / max(1,N-1)
+            Fj = fft_imgs[j]
+    
+            num = (Fj * torch.conj(avg_loo)).real.flatten()
+            den = torch.sqrt((torch.abs(Fj)**2).flatten() * (torch.abs(avg_loo)**2).flatten() + eps)
+    
+            corr = torch.zeros(max_r, device=device)
+            norm = torch.zeros(max_r, device=device)
+            corr.index_add_(0, flat_r, num)
+            norm.index_add_(0, flat_r, den)
+            frc_shell = corr / (norm + eps)
+            frc_all[j] = torch.clamp(frc_shell, 0.0, 0.999)
+    
+        frc_avg = torch.median(frc_all, dim=0).values
+    
+        # SNR → Wiener
+        snr = frc_avg / (1 - frc_avg + eps)
+        W = snr / (1 + snr)
+    
+        # Suavizado inicial antes de gamma
+        radius = max(1, int(3*smooth_sigma))
+        kernel_idx = torch.arange(-radius, radius+1, device=device).float()
+        kernel = torch.exp(-0.5 * (kernel_idx / smooth_sigma)**2)
+        kernel /= kernel.sum()
+        W_pad = F.pad(W.view(1,1,-1), (radius,radius), mode='reflect')
+        W = F.conv1d(W_pad, kernel.view(1,1,-1)).view(-1)
+    
+        # Gamma
+        if gamma != 1.0:
+            W = torch.clamp(W, 0.0, 1.0) ** gamma
+    
+        # Suavizado final
+        W_pad = F.pad(W.view(1,1,-1), (radius,radius), mode='reflect')
+        W = F.conv1d(W_pad, kernel.view(1,1,-1)).view(-1)
+    
+        # Decay suave en lugar de corte FSC=0.143
+        cutoff_idx = (frc_avg < 0.143).nonzero(as_tuple=False)
+        if len(cutoff_idx) > 0:
+            decay_len = int(len(W) - cutoff_idx[0])
+            if decay_len > 0:
+                decay = torch.exp(-0.5 * (torch.arange(decay_len, device=device)/5.0)**2)
+                W[cutoff_idx[0]:] *= decay
+    
+    
+        # Crear mapa 2D
+        filt_map = W[r]
+    
+        # Aplicar filtro
+        fft_avg_shift = torch.fft.fftshift(fft_avg)
+        fft_filtered = fft_avg_shift * filt_map
+    
+        # B-factor moderado
+        if B_factor != 0.0:
+            y_f = (torch.arange(Himg, device=device) - Himg//2) / (Himg*sampling)
+            x_f = (torch.arange(Wimg, device=device) - Wimg//2) / (Wimg*sampling)
+            s = torch.sqrt(x_f[None,:]**2 + y_f[:,None]**2)
+            fft_filtered *= torch.exp(-B_factor * s**2)
+    
+        fft_filtered = torch.fft.ifftshift(fft_filtered)
+        filtered = torch.fft.ifft2(fft_filtered, norm="forward").real
+    
+        # Normalización
+        mean_orig, std_orig = class_avg.mean(), class_avg.std()
+        mean_filt, std_filt = filtered.mean(), filtered.std()
+        normalized = (filtered - mean_filt)/(std_filt+eps)*std_orig + mean_orig
+    
+        del fft_imgs, fft_avg, fft_filtered
+        torch.cuda.empty_cache()
+    
+        return normalized
+
+    
     @torch.no_grad()
-    def filter_classes_relion_style(self, newCL, clk, sampling, resolution_angstrom):
+    def filter_classes_relion_style(self, newCL, clk, sampling, gamma: float = 1.0, B_factor: float = 0.0):
         """
         Aplica filtro RELION-like a cada clase usando imágenes que la componen.
         """
         filtered_classes = []
+
         for class_imgs, class_avg in zip(newCL, clk):
-            filtered = self.relion_filter_from_image_list(
+            filtered= self.relion_filter_frc_relion_style(
                 class_imgs, class_avg,
                 sampling=sampling,
-                resolution_angstrom=resolution_angstrom
+                gamma=gamma,
+                B_factor=B_factor
             )
             filtered_classes.append(filtered)
-            torch.cuda.empty_cache()  # Asegura limpieza entre iteraciones
+    
+            torch.cuda.empty_cache()
     
         return torch.stack(filtered_classes)
     
