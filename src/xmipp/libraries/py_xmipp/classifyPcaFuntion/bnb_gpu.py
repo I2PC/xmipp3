@@ -472,8 +472,7 @@ class BnBgpu:
                 # if iter < 15:
                 # sigma_gauss = (0.75*sigma) if (iter < 10 and iter % 2 == 1) else (1.25*sigma) if iter < 10 else sigma
                 sigma_gauss = (0.75*sigma) if (iter < 10 and iter % 2 == 1) else (sigma)# if iter < 10 else sigma
-                if iter < 17:
-                    transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma_gauss)
+                transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma_gauss)
             else:
                 transforIm = transforIm * self.create_circular_mask(transforIm)
                 
@@ -879,8 +878,8 @@ class BnBgpu:
         del rotBatch,translations, centerxy 
         
         if mask:
-            if iter < 2:
-                transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
+            # if iter < 2:
+            transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
         else: 
             transforIm = transforIm * self.create_circular_mask(transforIm)
         # if mask:
@@ -961,7 +960,7 @@ class BnBgpu:
     
            
     
-    def center_particles_inverse_save_matrix(self, data, tMatrix, update_rot, update_shifts, centerxy):
+    def center_particles_inverse_save_matrix2(self, data, tMatrix, update_rot, update_shifts, centerxy):
           
         
         rotBatch = update_rot.view(-1)
@@ -1024,58 +1023,88 @@ class BnBgpu:
         shifted = torch.fft.ifft2(F * phase).real
         return shifted
     
-    def center_particles_inverse_save_matrix2(self, data, tMatrix, update_rot, update_shifts, centerxy):
-        """
-        Aplica acumuladamente traslaciones y rotaciones:
-        1) Traslación acumulada previa + nueva traslación (vectorizada, Fourier)
-        2) Rotación acumulada previa + nueva rotación (Kornia)
+    
+    def center_particles_inverse_save_matrix(self, data, tMatrix, update_rot, update_shifts, centerxy):
+          
         
-        Devuelve imágenes transformadas y M_combined 2x3
-        """
-        device = self.cuda
-        n, h, w = data.shape
-        batchsize = update_rot.numel()
-    
-        # --- Matriz previa ---
-        # Extender tMatrix 2x3 a 2x2 + t_prev
-        R_prev = tMatrix[:, :2, :2]           # (n,2,2)
-        t_prev = tMatrix[:, :2, 2]            # (n,2)
-    
-        # --- Shift total en Fourier ---
-        # total_shift = t_prev + R_prev @ update_shifts
-        total_shift = t_prev + torch.bmm(R_prev, update_shifts.unsqueeze(-1)).squeeze(-1)
-    
-        # Aplicar shift total en Fourier
-        imgs = torch.from_numpy(data.astype(np.float32)).to(device)
-        shifted = self.fourier_shift_batch(imgs, total_shift[:,0], total_shift[:,1])
-    
-        # --- Rotación acumulada ---
-        # Convertir grados a radianes
-        theta = torch.deg2rad(update_rot).view(-1)
-        cos = torch.cos(theta)
-        sin = torch.sin(theta)
-        R_update = torch.stack([
-            torch.stack([cos, -sin], dim=1),
-            torch.stack([sin,  cos], dim=1)
-        ], dim=1)  # (n,2,2)
-    
-        R_total = torch.bmm(R_update, R_prev)  # rotación acumulada
-    
-        # Construir matriz final que incluya rotación + traslación total
-        M_combined = torch.cat([R_total, total_shift.unsqueeze(-1)], dim=2)  # (n,2,3)
-        
-        # Aplicar rotación acumulada en Kornia
-        rotated = kornia.geometry.warp_affine(
-            shifted.unsqueeze(1), 
-            torch.cat([R_total, torch.zeros_like(total_shift).unsqueeze(-1)], dim=2), 
-            dsize=(h, w),
-            mode='bilinear', padding_mode='zeros'
-            )[:,0]
-    
-        return rotated, M_combined
+        rotBatch = update_rot.view(-1)
+        batchsize = rotBatch.size(dim=0)
 
+        scale = torch.tensor([[1.0, 1.0]], device=self.cuda).expand(batchsize, -1)      
+        
+        translations = update_shifts.view(batchsize,2,1)
+        
+        translation_matrix = torch.eye(3, device=self.cuda).unsqueeze(0).repeat(batchsize, 1, 1)
+        translation_matrix[:, :2, 2] = translations.squeeze(-1)
+
+        rotation_matrix = kornia.geometry.get_rotation_matrix2d(centerxy.expand(batchsize, -1), rotBatch, scale)
+        del(scale)
+        
+        M = torch.matmul(rotation_matrix, translation_matrix)
+        del(rotation_matrix, translation_matrix)       
+        
+        M = torch.cat((M, torch.zeros((batchsize, 1, 3), device=self.cuda)), dim=1)
+        M[:, 2, 2] = 1.0      
+
+                         
+        #combined matrix
+        tMatrixLocal = torch.cat((tMatrix, torch.zeros((batchsize, 1, 3), device=self.cuda)), dim=1)
+        tMatrixLocal[:, 2, 2] = 1.0
+        
+        M = torch.matmul(M, tMatrixLocal)
+        M = M[:, :2, :] 
+        del(tMatrixLocal)  
+    
+        Texp = torch.from_numpy(data.astype(np.float32)).to(self.cuda)
+        
+        n, h, w = Texp.shape       
+        
+        # Rotación y traslación
+        
+        initial_shift = torch.tensor([
+            [1.0, 0.0, -w/2],
+            [0.0, 1.0, -h/2],
+            [0.0, 0.0, 1.0]
+        ], device=self.cuda).unsqueeze(0).expand(batchsize, -1, -1)
+        
+        Mt = torch.cat((M, torch.zeros((M.size(0), 1, 3), device=M.device)), dim=1)
+        Mt[:, 2, 2] = 1.0
+        Mt = torch.matmul(initial_shift, Mt)
+        Mt = torch.matmul(Mt, torch.inverse(initial_shift))
+        
+        R = Mt[:, :2, :2]
+        t_fourier = Mt[:, :2, 2]
+        
+        #Inv sign angles
+        R[:, 0, 1] *= -1
+        R[:, 1, 0] *= -1
+        
+        #T+R 
+        # shifted = self.fourier_shift_batch(Texp, t_fourier[:,0], t_fourier[:,1])
+        #
+        # zeros = torch.zeros((n,2,1), device=Texp.device)
+        # M_rot = torch.cat([R, zeros], dim=2)  # (n,2,3)
+        #
+        # grid = F.affine_grid(M_rot, shifted.unsqueeze(1).size(), align_corners=True)  # (n,h,w,2)
+        # transforIm = F.grid_sample(shifted.unsqueeze(1), grid, align_corners=True, padding_mode="zeros").squeeze(1)
+        
+        #R+T
+        zeros = torch.zeros((n,2,1), device=Texp.device)
+        M_rot = torch.cat([R, zeros], dim=2)  # (n,2,3)
+        
+        grid = F.affine_grid(M_rot, Texp.unsqueeze(1).size(), align_corners=True)  # (n,h,w,2)
+        rotate = F.grid_sample(Texp.unsqueeze(1), grid, align_corners=True, padding_mode="zeros").squeeze(1)
+        
+        transforIm = self.fourier_shift_batch(rotate, t_fourier[:,0], t_fourier[:,1])
+        
+
+        
+        del(Texp)
+        
+        return(transforIm, M)
     
     
+ 
     
     
     def averages_increaseClas(self, mmap, iter, newCL, classes): 
