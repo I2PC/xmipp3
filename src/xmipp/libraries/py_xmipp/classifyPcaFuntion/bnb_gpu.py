@@ -1004,7 +1004,7 @@ class BnBgpu:
     
     
     
-    def fourier_shift_batch(self, imgs, shifts_x, shifts_y):
+    def fourier_shift_batch2(self, imgs, shifts_x, shifts_y):
         """
         Traslada un batch de imágenes en Fourier (vectorizado).
         imgs: (n,h,w) tensor
@@ -1024,6 +1024,36 @@ class BnBgpu:
         del(F)
         return shifted
         # return torch.fft.ifft2(F * phase).real
+        
+        
+    def fourier_shift_batch(self, imgs, shifts_x, shifts_y):
+
+        n, h, w = imgs.shape
+        device = imgs.device
+    
+        # Coordenadas de frecuencia
+        # ky = torch.fft.rfftfreq(h, d=1.0, device=device).reshape(1, h, 1)
+        # kx = torch.fft.rfftfreq(w, d=1.0, device=device).reshape(1, 1, w//2 + 1)
+        ky = torch.fft.fftfreq(h, d=1.0, device=device).reshape(1, h, 1)
+        kx = torch.fft.rfftfreq(w, d=1.0, device=device).reshape(1, 1, w//2 + 1)
+    
+        # Expandir shifts
+        sx = shifts_x.view(n, 1, 1)
+        sy = shifts_y.view(n, 1, 1)
+    
+        # Transformada real
+        F = torch.fft.rfft2(imgs)  # (n,h,w//2+1), compleja
+    
+        # Fase para shift
+        phase = torch.exp(-2j * torch.pi * (kx * sx + ky * sy))
+        F.mul_(phase)  # inplace, ahorra memoria
+        del phase
+    
+        # Transformada inversa real
+        shifted = torch.fft.irfft2(F, s=(h, w))  # devuelve real
+        del F
+    
+        return shifted
     
     @torch.no_grad()
     def center_particles_inverse_save_matrix(self, data, tMatrix, update_rot, update_shifts, centerxy):
