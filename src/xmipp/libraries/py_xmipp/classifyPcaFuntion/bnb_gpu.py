@@ -1020,8 +1020,10 @@ class BnBgpu:
     
         phase = torch.exp(-2j * torch.pi * (kx * sx + ky * sy))  # (n,h,w)
         F = torch.fft.fft2(imgs)  # (n,h,w)
-        shifted = torch.fft.ifft2(F * phase).real
-        return shifted
+        # shifted = torch.fft.ifft2(F * phase).real
+        # del(F)
+        # return shifted
+        return torch.fft.ifft2(F * phase).real
     
     
     def center_particles_inverse_save_matrix(self, data, tMatrix, update_rot, update_shifts, centerxy):
@@ -1030,30 +1032,24 @@ class BnBgpu:
         rotBatch = update_rot.view(-1)
         batchsize = rotBatch.size(dim=0)
 
-        scale = torch.tensor([[1.0, 1.0]], device=self.cuda).expand(batchsize, -1)      
+        scale = torch.ones((batchsize, 2), device=self.cuda) 
         
-        translations = update_shifts.view(batchsize,2,1)
+        translations = update_shifts.view(batchsize,2)
         
         translation_matrix = torch.eye(3, device=self.cuda).unsqueeze(0).repeat(batchsize, 1, 1)
-        translation_matrix[:, :2, 2] = translations.squeeze(-1)
+        translation_matrix[:, :2, 2] = translations
 
         rotation_matrix = kornia.geometry.get_rotation_matrix2d(centerxy.expand(batchsize, -1), rotBatch, scale)
         del(scale)
         
-        M = torch.matmul(rotation_matrix, translation_matrix)
+        M = rotation_matrix @ translation_matrix
         del(rotation_matrix, translation_matrix)       
         
-        M = torch.cat((M, torch.zeros((batchsize, 1, 3), device=self.cuda)), dim=1)
-        M[:, 2, 2] = 1.0      
-
-                         
-        #combined matrix
-        tMatrixLocal = torch.cat((tMatrix, torch.zeros((batchsize, 1, 3), device=self.cuda)), dim=1)
-        tMatrixLocal[:, 2, 2] = 1.0
         
-        M = torch.matmul(M, tMatrixLocal)
-        M = M[:, :2, :] 
-        del(tMatrixLocal)  
+        tMatrix_h = torch.eye(3, device=self.cuda).unsqueeze(0).repeat(batchsize, 1, 1)
+        tMatrix_h[:, :2, :] = tMatrix
+        M = M @ tMatrix_h
+        
     
         Texp = torch.from_numpy(data.astype(np.float32)).to(self.cuda)
         
@@ -1079,27 +1075,20 @@ class BnBgpu:
         R[:, 0, 1] *= -1
         R[:, 1, 0] *= -1
         
-        #T+R 
-        # shifted = self.fourier_shift_batch(Texp, t_fourier[:,0], t_fourier[:,1])
-        #
-        # zeros = torch.zeros((n,2,1), device=Texp.device)
-        # M_rot = torch.cat([R, zeros], dim=2)  # (n,2,3)
-        #
-        # grid = F.affine_grid(M_rot, shifted.unsqueeze(1).size(), align_corners=True)  # (n,h,w,2)
-        # transforIm = F.grid_sample(shifted.unsqueeze(1), grid, align_corners=True, padding_mode="zeros").squeeze(1)
         
         #R+T
         zeros = torch.zeros((n,2,1), device=Texp.device)
         M_rot = torch.cat([R, zeros], dim=2)  # (n,2,3)
+        del(R)
         
         grid = F.affine_grid(M_rot, Texp.unsqueeze(1).size(), align_corners=True)  # (n,h,w,2)
+        del(M_rot)
         rotate = F.grid_sample(Texp.unsqueeze(1), grid, align_corners=True, padding_mode="zeros").squeeze(1)
+        del(Texp)
         
         transforIm = self.fourier_shift_batch(rotate, t_fourier[:,0], t_fourier[:,1])
-        
-
-        
-        del(Texp)
+    
+        del(rotate, t_fourier)
         
         return(transforIm, M)
     
