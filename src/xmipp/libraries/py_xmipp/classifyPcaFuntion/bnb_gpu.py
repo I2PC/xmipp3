@@ -471,7 +471,10 @@ class BnBgpu:
             if mask:
                 # if iter < 15:
                 # sigma_gauss = (0.75*sigma) if (iter < 10 and iter % 2 == 1) else (1.25*sigma) if iter < 10 else sigma
-                sigma_gauss = (0.75*sigma) if (iter < 10 and iter % 2 == 1) else (sigma)# if iter < 10 else sigma
+                # sigma_gauss = (0.75*sigma) if (iter < 10 and iter % 2 == 1) else (sigma)# if iter < 10 else sigma
+                sigma_gauss = (0.75 * sigma if (iter < 10 and iter % 2 == 1)
+                               else 1.25 * sigma if iter > 15
+                               else sigma)
                 transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma_gauss)
             else:
                 transforIm = transforIm * self.create_circular_mask(transforIm)
@@ -879,7 +882,9 @@ class BnBgpu:
         
         if mask:
             # if iter < 2:
-            transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
+            sigma_gauss = ( 1.25 * sigma if iter == 2
+               else sigma)
+            transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma_gauss)
         else: 
             transforIm = transforIm * self.create_circular_mask(transforIm)
         # if mask:
@@ -2271,6 +2276,9 @@ class BnBgpu:
         # ---- reemplazo de NaN/Inf por fallback ----
         res_out = torch.nan_to_num(res_out, nan=fallback_res,
                                    posinf=fallback_res, neginf=fallback_res)
+        
+        res_out = torch.where(res_out > 25.0, torch.tensor(100.0, device=res_out.device), res_out)
+        
         return res_out#, frc_curves, freq_bins
     
     
