@@ -531,7 +531,8 @@ class BnBgpu:
         # if iter > 7:
         if iter > 1:
             # res_classes, frc_curves, freq_bins = self.frc_resolution_tensor(newCL, sampling)
-            res_classes = self.frc_resolution_tensor(newCL, sampling)
+            cut = 25 if iter < 5 else 20 if iter < 10 else 15
+            res_classes = self.frc_resolution_tensor(newCL, sampling, rcut=cut)
             print("--------RESOLUTION-------")
             print(res_classes) 
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
@@ -884,7 +885,7 @@ class BnBgpu:
             # if iter < 2:
             # sigma_gauss = ( 1.25 * sigma if iter == 2
             #    else sigma)
-            transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma_gauss)
+            transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
         else: 
             transforIm = transforIm * self.create_circular_mask(transforIm)
         # if mask:
@@ -2181,7 +2182,8 @@ class BnBgpu:
             newCL,                       # lista de tensores [N_i,H,W]
             pixel_size: float,           # Å/px
             frc_threshold: float = 0.143,
-            fallback_res: float = 100, #40.0,
+            fallback_res: float = 100.0, #40.0,
+            rcut: float = 100,
             apply_window: bool = False, #True,
             smooth: bool = True          # NUEVO: suavizado opcional de FRC
     ) -> torch.Tensor:
@@ -2260,7 +2262,7 @@ class BnBgpu:
         res_out = torch.nan_to_num(res_out, nan=fallback_res,
                                    posinf=fallback_res, neginf=fallback_res)
         
-        res_out = torch.where(res_out > 25.0, torch.tensor(100.0, device=res_out.device), res_out)
+        res_out = torch.where(res_out > rcut, torch.tensor(100.0, device=res_out.device), res_out)
         
         return res_out#, frc_curves, freq_bins
     
