@@ -583,11 +583,8 @@ class BnBgpu:
         
 
         # if iter in [10, 13]:
-        if iter in [10, 13]:
-        # if iter == 10:
-            # clk = clk * self.approximate_otsu_threshold(clk, percentile=10)
-            clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
-                                intensity_percentile=50, contrast_weight=1.5, intensity_weight=1.0, smooth_sigma=1.0)
+        #     clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
+        #                         intensity_percentile=50, contrast_weight=1.5, intensity_weight=1.0, smooth_sigma=1.0)
         # if 3 < iter < 7 and iter % 2 == 0:
         # if 3 < iter < 7 and iter % 2 == 0:
         if 1 < iter < 7 and iter % 2 == 0:
@@ -2182,7 +2179,7 @@ class BnBgpu:
             newCL,                       # lista de tensores [N_i,H,W]
             pixel_size: float,           # Å/px
             frc_threshold: float = 0.143,
-            fallback_res: float = 100.0, #40.0,
+            fallback_res: float = 40.0, #40.0,
             rcut: float = 100,
             apply_window: bool = False, #True,
             smooth: bool = True          # NUEVO: suavizado opcional de FRC
