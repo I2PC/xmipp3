@@ -471,10 +471,10 @@ class BnBgpu:
             if mask:
                 # if iter < 15:
                 # sigma_gauss = (0.75*sigma) if (iter < 10 and iter % 2 == 1) else (1.25*sigma) if iter < 10 else sigma
-                # sigma_gauss = (0.75*sigma) if (iter < 10 and iter % 2 == 1) else (sigma)# if iter < 10 else sigma
-                sigma_gauss = (0.75 * sigma if (iter < 10 and iter % 2 == 1)
-                               else 1.25 * sigma if iter > 15
-                               else sigma)
+                sigma_gauss = (0.75*sigma) if (iter < 10 and iter % 2 == 1) else (sigma)# if iter < 10 else sigma
+                # sigma_gauss = (0.75 * sigma if (iter < 10 and iter % 2 == 1)
+                #                else 1.25 * sigma if iter > 15
+                #                else sigma)
                 transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma_gauss)
             else:
                 transforIm = transforIm * self.create_circular_mask(transforIm)
@@ -882,8 +882,8 @@ class BnBgpu:
         
         if mask:
             # if iter < 2:
-            sigma_gauss = ( 1.25 * sigma if iter == 2
-               else sigma)
+            # sigma_gauss = ( 1.25 * sigma if iter == 2
+            #    else sigma)
             transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma_gauss)
         else: 
             transforIm = transforIm * self.create_circular_mask(transforIm)
@@ -1037,8 +1037,6 @@ class BnBgpu:
         device = imgs.device
     
         # Coordenadas de frecuencia
-        # ky = torch.fft.rfftfreq(h, d=1.0, device=device).reshape(1, h, 1)
-        # kx = torch.fft.rfftfreq(w, d=1.0, device=device).reshape(1, 1, w//2 + 1)
         ky = torch.fft.fftfreq(h, d=1.0, device=device).reshape(1, h, 1)
         kx = torch.fft.rfftfreq(w, d=1.0, device=device).reshape(1, 1, w//2 + 1)
     
@@ -1063,9 +1061,6 @@ class BnBgpu:
     @torch.no_grad()
     def center_particles_inverse_save_matrix(self, data, tMatrix, update_rot, update_shifts, centerxy):
           
-        
-        # rotBatch = update_rot.view(-1)
-        # batchsize = rotBatch.size(dim=0)
         batchsize = update_rot.numel()
 
         scale = torch.ones((batchsize, 2), device=self.cuda) 
@@ -1084,11 +1079,6 @@ class BnBgpu:
         # Aplicar traslación
         M = M @ translation_matrix
         del translation_matrix
-        
-        # M = rotation_matrix @ translation_matrix
-        # del(rotation_matrix, translation_matrix)   
-        # print(M.shape)    
-        
         
         tMatrix_h = torch.eye(3, device=self.cuda).unsqueeze(0).repeat(batchsize, 1, 1)
         tMatrix_h[:, :2, :] = tMatrix
@@ -1112,12 +1102,7 @@ class BnBgpu:
         initial_shift_inv = initial_shift.clone()
         initial_shift_inv[:, 0, 2] *= -1
         initial_shift_inv[:, 1, 2] *= -1
-        
-        
-        # Mt = torch.cat((M, torch.zeros((M.size(0), 1, 3), device=M.device)), dim=1)
-        # Mt[:, 2, 2] = 1.0
-        # Mt = torch.matmul(initial_shift, Mt)
-        # Mt = torch.matmul(Mt, torch.inverse(initial_shift))
+
         Mt = initial_shift @ M @ initial_shift_inv
         
         R = Mt[:, :2, :2]
@@ -1129,8 +1114,6 @@ class BnBgpu:
         
         
         #R+T
-        # zeros = torch.zeros((n,2,1), device=Texp.device)
-        # M_rot = torch.cat([R, zeros], dim=2)  # (n,2,3)
         M_rot = torch.zeros((batchsize, 2, 3), device=self.cuda)
         M_rot[:, :, :2] = R
         del(R)
