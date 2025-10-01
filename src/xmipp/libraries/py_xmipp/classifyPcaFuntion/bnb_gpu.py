@@ -582,9 +582,9 @@ class BnBgpu:
             clk = clk[torch.argsort(torch.tensor([len(cls_list) for cls_list in newCL], device=clk.device), descending=True)]
         
 
-        # if iter in [10, 13]:
-        #     clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
-        #                         intensity_percentile=50, contrast_weight=1.5, intensity_weight=1.0, smooth_sigma=1.0)
+        if iter in [10, 13]:
+            clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
+                                intensity_percentile=50, contrast_weight=1.5, intensity_weight=1.0, smooth_sigma=1.0)
         # if 3 < iter < 7 and iter % 2 == 0:
         # if 3 < iter < 7 and iter % 2 == 0:
         if 1 < iter < 7 and iter % 2 == 0:
@@ -2179,7 +2179,7 @@ class BnBgpu:
             newCL,                       # lista de tensores [N_i,H,W]
             pixel_size: float,           # Å/px
             frc_threshold: float = 0.143,
-            fallback_res: float = 40.0, #40.0,
+            fallback_res: float = 100.0, #40.0,
             rcut: float = 100,
             apply_window: bool = False, #True,
             smooth: bool = True          # NUEVO: suavizado opcional de FRC
@@ -2259,7 +2259,7 @@ class BnBgpu:
         res_out = torch.nan_to_num(res_out, nan=fallback_res,
                                    posinf=fallback_res, neginf=fallback_res)
         
-        res_out = torch.where(res_out > rcut, torch.tensor(100.0, device=res_out.device), res_out)
+        res_out = torch.where(res_out > rcut, torch.tensor(40.0, device=res_out.device), res_out)
         
         return res_out#, frc_curves, freq_bins
     
