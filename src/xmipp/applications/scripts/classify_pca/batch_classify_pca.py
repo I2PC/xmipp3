@@ -408,7 +408,7 @@ if __name__=="__main__":
     save_images(cl.cpu().detach().numpy(), sampling, file_final)
     
     # print("Adjust contrast")
-    # cl = bnb.normalize_particles_batch(cl)
+    cl = bnb.normalize_particles_batch(cl)
     
     # cl = bnb.increase_contrast_sigmoid(cl, 8, 0.6)
     # cl = bnb.apply_leaky_relu(cl)
