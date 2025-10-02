@@ -537,8 +537,9 @@ class BnBgpu:
             print("--------RESOLUTION-------")
             print(res_classes) 
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling, normalize=True)
-            bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
-            # print(bfactor)
+            # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
+            bfactor = self.estimate_bfactor_from_particles_fast(newCL, sampling)
+            print(bfactor)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
             # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes, frc_c=frc_curves, fBins=freq_bins)
@@ -2250,6 +2251,115 @@ class BnBgpu:
     
         b_factors = torch.nan_to_num(b_factors, nan=0.0, posinf=0.0, neginf=0.0)
         return b_factors
+    
+    
+    @torch.no_grad()
+    def estimate_bfactor_from_particles_fast(self,
+    classes_particles,        # lista de tensores: cada uno (n_i,H,W)
+    pixel_size: float,
+    freq_min: float = 0.02,   # Å^-1
+    res_cutoff: float = 25.0, # Å
+    num_bins: int = 200,
+    use_median: bool = False,
+    apply_window: bool = True,
+    min_points: int = 6,
+    eps: float = 1e-12
+    ):
+        device = classes_particles[0].device
+        n_classes = len(classes_particles)
+        H, W = classes_particles[0].shape[-2:]
+    
+        # === ventana única ===
+        if apply_window:
+            wy = torch.hann_window(H, periodic=False, device=device)
+            wx = torch.hann_window(W, periodic=False, device=device)
+            window = wy[:, None] * wx[None, :]
+        else:
+            window = torch.ones((H, W), device=device)
+    
+        # === precomputar freqs y bin_idx ===
+        fy = torch.fft.fftfreq(H, d=pixel_size, device=device) 
+        kx = torch.fft.rfftfreq(W, d=pixel_size, device=device)
+        gy, gx = torch.meshgrid(fy, kx, indexing='ij')
+        freq_r = torch.sqrt(gx**2 + gy**2)
+    
+        fmax = 0.5 / pixel_size
+        freq_bins = torch.linspace(0.0, fmax, num_bins+1, device=device)
+        freq_centers = 0.5 * (freq_bins[:-1] + freq_bins[1:])   # (num_bins,)
+    
+        bin_idx = torch.bucketize(freq_r.reshape(-1), freq_bins) - 1
+        bin_idx = bin_idx.clamp(0, num_bins-1)   # (n_pix,)
+        n_pix = bin_idx.numel()
+    
+        # === FFT todas las partículas ===
+        parts_all = [p * window for p in classes_particles if p.numel() > 0]
+        if len(parts_all) == 0:
+            return torch.zeros(n_classes, device=device)
+    
+        all_imgs = torch.cat(parts_all, dim=0).float()   # (N_tot,H,W)
+        F = torch.fft.rfft2(all_imgs)                    # (N_tot,H,W//2+1)
+        P = (F.real**2 + F.imag**2)                      # (N_tot,H,W//2+1)
+        P_flat = P.reshape(P.size(0), -1)                # (N_tot,n_pix)
+    
+        # === asignar partículas a clase ===
+        class_sizes = [p.size(0) for p in classes_particles]
+        class_ids = torch.repeat_interleave(
+            torch.arange(n_classes, device=device),
+            torch.tensor(class_sizes, device=device)
+        )  # (N_tot,)
+    
+        # --- mean o median por clase ---
+        if use_median:
+            P_class = torch.zeros((n_classes, n_pix), device=device)
+            for c in range(n_classes):  # ⚠️ mediana no vectorizable fácil
+                mask = (class_ids == c)
+                if mask.any():
+                    P_class[c] = torch.median(P_flat[mask], dim=0).values
+        else:
+            # usamos scatter_add para media en paralelo
+            sums = torch.zeros((n_classes, n_pix), device=device)
+            counts = torch.zeros((n_classes, 1), device=device)
+            sums.index_add_(0, class_ids, P_flat)
+            counts.index_add_(0, class_ids, torch.ones((class_ids.size(0),1), device=device))
+            P_class = sums / (counts + eps)   # (n_classes,n_pix)
+    
+        # === radial average vectorizado ===
+        idx_expand = bin_idx.unsqueeze(0).expand(n_classes, -1)   # (n_classes,n_pix)
+        sums = torch.zeros((n_classes, num_bins), device=device)
+        counts = torch.zeros((n_classes, num_bins), device=device)
+        sums.scatter_add_(1, idx_expand, P_class)
+        counts.scatter_add_(1, idx_expand, torch.ones_like(P_class))
+        radial_profiles = sums / (counts + eps)                   # (n_classes,num_bins)
+    
+        # === máscara de frecuencias válidas ===
+        cutoff_freq = 1.0 / float(res_cutoff)
+        valid_mask = (freq_centers > freq_min) & (freq_centers <= cutoff_freq)
+        freq_valid = freq_centers[valid_mask]                     # (n_valid,)
+        x = freq_valid**2                                         # (n_valid,)
+    
+        # --- aplicar log y máscara ---
+        Y = torch.log(radial_profiles[:, valid_mask] + eps)       # (n_classes,n_valid)
+        W = counts[:, valid_mask]                                 # pesos (n_classes,n_valid)
+    
+        # --- excluir clases sin suficientes puntos ---
+        valid_counts = (radial_profiles[:, valid_mask] > 0).sum(dim=1)
+        mask_enough = valid_counts >= min_points
+    
+        # --- weighted regression en paralelo ---
+        w_sum = W.sum(dim=1, keepdim=True) + eps
+        x_mean = (W * x).sum(dim=1, keepdim=True) / w_sum
+        y_mean = (W * Y).sum(dim=1, keepdim=True) / w_sum
+        cov_xy = (W * (x - x_mean) * (Y - y_mean)).sum(dim=1) / w_sum.squeeze(1)
+        var_x = (W * (x - x_mean)**2).sum(dim=1) / w_sum.squeeze(1)
+    
+        slope = cov_xy / (var_x + eps)
+        B_out = -4.0 * slope
+        B_out[~mask_enough] = 0.0
+    
+        return B_out
+
+
+
 
     @torch.no_grad()
     def sharpen_averages_batch_nq(self, averages, pixel_size, B_factors, eps=1e-6, normalize: bool = True):
