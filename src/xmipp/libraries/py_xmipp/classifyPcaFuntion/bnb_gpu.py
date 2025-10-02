@@ -537,11 +537,12 @@ class BnBgpu:
             print("--------RESOLUTION-------")
             print(res_classes) 
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling, normalize=True)
-            # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
+            bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             # print(bfactor)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
             # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes, frc_c=frc_curves, fBins=freq_bins)
+            clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling)
             # clk = self.enhance_averages_butterworth_normF(clk, sampling)
@@ -550,14 +551,14 @@ class BnBgpu:
             #     fe = 3.0
             # else:
             #     fe = 2.0
-            fe = 2.0
-            clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None, normalize=True)
-            # clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None)
-            print("--------BOOST-------")
-            print(boost.view(1, len(clk)))
-            print("--------SHARPEN-------")
-            print(sharpen_power.view(1, len(clk)))
-            print("--------HASTA AQUI-------")
+            # fe = 2.0
+            # clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None, normalize=True)
+            # # clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None)
+            # print("--------BOOST-------")
+            # print(boost.view(1, len(clk)))
+            # print("--------SHARPEN-------")
+            # print(sharpen_power.view(1, len(clk)))
+            # print("--------HASTA AQUI-------")
             # clk = self.frc_whitening_batch(clk, frc_curves,sampling)
 
             # clk = self.sharpen_averages_batch_energy_normalized(clk, res_classes, bfactor, sampling)
@@ -748,16 +749,17 @@ class BnBgpu:
 
             
             # res_classes = self.frc_resolution_tensor(newCL, sampling)
-            # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
+            bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling, normalize=True)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes, frc_c=frc_curves, fBins=freq_bins)
+            clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling) 
             # clk = self.enhance_averages_butterworth_normF(clk, sampling)
             
-            clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, boost_max=None, normalize=True)
+            # clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, boost_max=None, normalize=True)
             # clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling, boost_max=None)
             
             # clk = self.frc_whitening_batch(clk, frc_curves, sampling)
@@ -2305,7 +2307,7 @@ class BnBgpu:
             return taper
     
         B_factors = torch.nan_to_num(B_factors, nan=0.0, posinf=0.0, neginf=0.0)
-        B_exp = B_factors.unsqueeze(1).unsqueeze(2).clamp(min=-300.0, max=100.0)
+        B_exp = B_factors.unsqueeze(1).unsqueeze(2).clamp(min=-500.0, max=100.0)
     
         # FFT
         fft = torch.fft.fft2(averages, norm="forward")
