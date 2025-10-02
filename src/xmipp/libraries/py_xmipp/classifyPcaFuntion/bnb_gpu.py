@@ -2181,7 +2181,7 @@ class BnBgpu:
 
     
     @torch.no_grad()
-    def estimate_bfactor_batch(self, averages, pixel_size, res_cutoff, freq_min=0.05, min_points=5):
+    def estimate_bfactor_batch(self, averages, pixel_size, res_cutoff, freq_min=0.025, min_points=5):
         N, H, W = averages.shape
         device = averages.device
     
@@ -2428,7 +2428,7 @@ class BnBgpu:
             return taper
     
         B_factors = torch.nan_to_num(B_factors, nan=0.0, posinf=0.0, neginf=0.0)
-        B_exp = B_factors.unsqueeze(1).unsqueeze(2).clamp(min=-300.0, max=100.0)
+        B_exp = B_factors.unsqueeze(1).unsqueeze(2).clamp(min=-500.0, max=100.0)
     
         # FFT
         fft = torch.fft.fft2(averages, norm="forward")

@@ -260,6 +260,7 @@ if __name__=="__main__":
             
             expImages = mmap.data[initBatch:endBatch].astype(np.float32)
             Texp = torch.from_numpy(expImages).float().to(cuda)
+            # Texp = bnb.normalize_mean_cero(Texp)
             # Texp = Texp * bnb.create_circular_mask(Texp)
                   
             if i < initStep:          
