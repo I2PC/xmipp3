@@ -2293,7 +2293,7 @@ class BnBgpu:
     
         # === FFT todas las partículas ===
         # parts_all = [p * window for p in classes_particles if p.numel() > 0]
-        max_particles = 1000
+        max_particles = 500
         parts_all = []
         class_sizes = []
         for p in classes_particles:
