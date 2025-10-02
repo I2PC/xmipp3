@@ -2292,8 +2292,8 @@ class BnBgpu:
         n_pix = bin_idx.numel()
     
         # === FFT todas las partículas ===
-        parts_all = [p * window for p in classes_particles if p.numel() > 0]
-        
+        # parts_all = [p * window for p in classes_particles if p.numel() > 0]
+        max_particles = 1000
         parts_all = []
         class_sizes = []
         for p in classes_particles:
@@ -2302,7 +2302,7 @@ class BnBgpu:
                 continue
             n = p.size(0)
             if n > max_particles:
-                idx_sample = torch.randperm(n, device=device)[:1000]
+                idx_sample = torch.randperm(n, device=device)[:max_particles]
                 p = p[idx_sample]
                 n = max_particles
             parts_all.append(p * window)
