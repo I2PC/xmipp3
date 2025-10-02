@@ -61,17 +61,21 @@ void applyTransformation(const MultidimArray<double> &V2,
     Matrix1D<double> r(3);
     Matrix2D<double> A, Aaux;
 
-    double greyScale = p[0];
-    double greyShift = p[1];
-    double rot       = p[2];
-    double tilt      = p[3];
-    double psi       = p[4];
-    double scale     = p[5];
-    ZZ(r)            = p[6];
-    YY(r)            = p[7];
-    XX(r)            = p[8];
+    double flip      = p[0];
+    double greyScale = p[1];
+    double greyShift = p[2];
+    double rot       = p[3];
+    double tilt      = p[4];
+    double psi       = p[5];
+    double scale     = p[6];
+    ZZ(r)            = p[7];
+    YY(r)            = p[8];
+    XX(r)            = p[9];
 
     Euler_angles2matrix(rot, tilt, psi, A, true);
+    for (int i = 0; i < 3; i++)
+        MAT_ELEM(A,i,0) *= flip;
+
     translation3DMatrix(r,Aaux);
     A = A * Aaux;
     scale3DMatrix(vectorR3(scale, scale, scale),Aaux);
@@ -106,7 +110,11 @@ double fitness(double *p)
 
 double wrapperFitness(double *p, void *params)
 {
-    return fitness(p+1);
+    const double flip = *static_cast<double*>(params);
+    std::array<double,10> pp;
+    pp[0] = flip;
+    std::copy_n(p+1, 9, &pp[1]);
+    return fitness(pp.data());
 }
 
 
@@ -122,6 +130,7 @@ public:
     double   z0, zF, y0, yF, x0, xF, step_z, step_y, step_x;
     double   grey_scale0, grey_scaleF, step_grey;
     double   grey_shift0, grey_shiftF, step_grey_shift;
+    bool     consider_mirror;
     int      tell;
     bool     apply;
     FileName fnOut, fnGeo, fnGray, fnStore;
@@ -150,6 +159,7 @@ public:
         addParamsLine("  [-z <z0=0> <zF=0> <step_z=1>] : Z position in pixels");
         addParamsLine("  [-y <y0=0> <yF=0> <step_y=1>] : Y position in pixels");
         addParamsLine("  [-x <x0=0> <xF=0> <step_x=1>] : X position in pixels");
+        addParamsLine("  [--consider_mirror] : Consider the mirror volume");
         addParamsLine("  [--show_fit]      : Show fitness values");
         addParamsLine("  [--apply <file=\"\">] : Apply best movement to --i2 and store results in this file");
         addParamsLine("  [--covariance]    : Covariance fitness criterion");
@@ -216,6 +226,8 @@ public:
         x0 = getDoubleParam("-x",0);
         xF = getDoubleParam("-x",1);
         step_x = getDoubleParam("-x",2);
+
+        consider_mirror = checkParam("--consider_mirror");
 
         mask_enabled = checkParam("--mask");
         if (mask_enabled)
@@ -309,6 +321,8 @@ public:
             int times = 1;
             if (!tell)
             {
+                if (consider_mirror)
+                    times *= 2;
                 if (grey_scale0 != grey_scaleF)
                     times *= FLOOR(1 + (grey_scaleF - grey_scale0) / step_grey);
                 if (grey_shift0 != grey_shiftF)
@@ -336,48 +350,50 @@ public:
             int itime = 0;
             int step_time = CEIL((double)times / 60.0);
             Matrix1D<double> r(3);
-            Matrix1D<double> trial(9);
-            for (double grey_scale = grey_scale0; grey_scale <= grey_scaleF ; grey_scale += step_grey)
-                for (double grey_shift = grey_shift0; grey_shift <= grey_shiftF ; grey_shift += step_grey_shift)
-                    for (double rot = rot0; rot <= rotF ; rot += step_rot)
-                        for (double tilt = tilt0; tilt <= tiltF ; tilt += step_tilt)
-                            for (double psi = psi0; psi <= psiF ; psi += step_psi)
-                                for (double scale = scale0; scale <= scaleF ; scale += step_scale)
-                                    for (ZZ(r) = z0; ZZ(r) <= zF ; ZZ(r) += step_z)
-                                        for (YY(r) = y0; YY(r) <= yF ; YY(r) += step_y)
-                                            for (XX(r) = x0; XX(r) <= xF ; XX(r) += step_x)
-                                            {
-                                                // Form trial vector
-                                                trial(0) = grey_scale;
-                                                trial(1) = grey_shift;
-                                                trial(2) = rot;
-                                                trial(3) = tilt;
-                                                trial(4) = psi;
-                                                trial(5) = scale;
-                                                trial(6) = ZZ(r);
-                                                trial(7) = YY(r);
-                                                trial(8) = XX(r);
-                                                // Evaluate
-                                                double fit = fitness(MATRIX1D_ARRAY(trial));
-                                                // The best?
-                                                if (fit < best_fit || first)
+            Matrix1D<double> trial(10);
+            for (int mirror = 0; mirror <= static_cast<int>(consider_mirror); mirror++)
+                for (double grey_scale = grey_scale0; grey_scale <= grey_scaleF ; grey_scale += step_grey)
+                    for (double grey_shift = grey_shift0; grey_shift <= grey_shiftF ; grey_shift += step_grey_shift)
+                        for (double rot = rot0; rot <= rotF ; rot += step_rot)
+                            for (double tilt = tilt0; tilt <= tiltF ; tilt += step_tilt)
+                                for (double psi = psi0; psi <= psiF ; psi += step_psi)
+                                    for (double scale = scale0; scale <= scaleF ; scale += step_scale)
+                                        for (ZZ(r) = z0; ZZ(r) <= zF ; ZZ(r) += step_z)
+                                            for (YY(r) = y0; YY(r) <= yF ; YY(r) += step_y)
+                                                for (XX(r) = x0; XX(r) <= xF ; XX(r) += step_x)
                                                 {
-                                                    best_fit = fit;
-                                                    best_align = trial;
-                                                    first = false;
+                                                    // Form trial vector
+                                                    trial(0) = mirror ? -1.0 : 1.0;
+                                                    trial(1) = grey_scale;
+                                                    trial(2) = grey_shift;
+                                                    trial(3) = rot;
+                                                    trial(4) = tilt;
+                                                    trial(5) = psi;
+                                                    trial(6) = scale;
+                                                    trial(7) = ZZ(r);
+                                                    trial(8) = YY(r);
+                                                    trial(9) = XX(r);
+                                                    // Evaluate
+                                                    double fit = fitness(MATRIX1D_ARRAY(trial));
+                                                    // The best?
+                                                    if (fit < best_fit || first)
+                                                    {
+                                                        best_fit = fit;
+                                                        best_align = trial;
+                                                        first = false;
+                                                        if (tell)
+                                                            std::cout << "Best so far\n";
+                                                    }
+                                                    // Show fit
                                                     if (tell)
-                                                    	std::cout << "Best so far\n";
+                                                        std::cout << trial << " " << fit << std::endl;
+                                                    else
+                                                        if (++itime % step_time == 0)
+                                                            progress_bar(itime);
                                                 }
-                                                // Show fit
-                                                if (tell)
-                                                    std::cout << trial << " " << fit << std::endl;
-                                                else
-                                                    if (++itime % step_time == 0)
-                                                        progress_bar(itime);
-                                            }
-            if (!tell)
-                progress_bar(times);
-        }
+                if (!tell)
+                    progress_bar(times);
+            }
         else if (usePowell)
         {
             // Use Powell optimization
@@ -391,20 +407,33 @@ public:
                 steps(0)=steps(1)=0;
             if (dontScale)
             	steps(5)=0;
-            x(0)=grey_scale0;
-            x(1)=grey_shift0;
-            x(2)=rot0;
-            x(3)=tilt0;
-            x(4)=psi0;
-            x(5)=scale0;
-            x(6)=z0;
-            x(7)=y0;
-            x(8)=x0;
 
-            powellOptimizer(x,1,9,&wrapperFitness,nullptr,0.01,fitness,iter,steps,true);
-            best_align=x;
-            best_fit=fitness;
-            first=false;
+            for (int mirror = 0; mirror <= static_cast<int>(consider_mirror); mirror++)
+            {
+                x(0)=grey_scale0;
+                x(1)=grey_shift0;
+                x(2)=rot0;
+                x(3)=tilt0;
+                x(4)=psi0;
+                x(5)=scale0;
+                x(6)=z0;
+                x(7)=y0;
+                x(8)=x0;
+                
+                double flip = mirror ? -1.0 : 1.0;
+                powellOptimizer(x,1,9,&wrapperFitness,&flip,0.01,fitness,iter,steps,true);
+
+                if (fitness < best_fit || first)
+                {
+                    best_align(0)=flip;
+                    for (int i = 0; i < 9; i++)
+                        best_align(i+1)=x(i);
+
+                    best_fit=fitness;
+                }
+                
+                first=false;
+            }
         }
         else if (useFRM)
         {
@@ -412,37 +441,55 @@ public:
     		PyObject * pFunc = Python::getFunctionRef("sh_alignment.frm", "frm_align");
     		double rot,tilt,psi,x,y,z,score;
     		Matrix2D<double> A;
-    		if(starting_tilt!=-90 || ending_tilt!=90){
-    			std::cout<<"you are compensating for the missing wedge, the first volume should be rotated with 90 degrees about the y-axis"<<std::endl;
-    			PyObject * pSTMMclass = Python::getClassRef("sh_alignment.tompy.filter", "SingleTiltWedge");
-    			PyObject * arglist = Py_BuildValue("(ii)", starting_tilt , ending_tilt);
-    			PyObject * SingleTiltWedgeMask = PyObject_CallObject(pSTMMclass, arglist);
-    			// The order of volumes has to be flipped in order to compensate for a single tilt missing wedge. For those who are not using this mask, no changes in results will happen.
-    			alignVolumesFRM(pFunc, params.V2(), params.V1(), SingleTiltWedgeMask, rot,tilt,psi,x,y,z,score,A,maxShift,maxFreq,params.mask_ptr);
-    			std::cout<<"If you intend to apply transform using xmipp_transform_geometry, use --inverse flag (if it was not present before), or remove it (if it was present before)"<<std::endl;
-    			Py_DECREF(SingleTiltWedgeMask);
-    			Py_DECREF(arglist);
-    			Py_DECREF(pSTMMclass);
-    		}
-    		else{
-    			alignVolumesFRM(pFunc, params.V1(), params.V2(), Py_None, rot,tilt,psi,x,y,z,score,A,maxShift,maxFreq,params.mask_ptr);
-    		}
-    		best_align.initZeros(9);
-    		best_align(0)=1; // Gray scale
-    		best_align(1)=0; // Gray shift
-    		best_align(2)=rot;
-    		best_align(3)=tilt;
-    		best_align(4)=psi;
-    		best_align(5)=1; // Scale
-    		best_align(6)=z;
-    		best_align(7)=y;
-    		best_align(8)=x;
-    		best_fit=-score;
-    		first=false;
+            MultidimArray<double> Vaux;
+            
+            for (int mirror = 0; mirror <= static_cast<int>(consider_mirror); mirror++)
+            {
+                Vaux = params.V2();
+                if (mirror)
+                {
+                    Vaux.selfReverseX();
+                }
+
+                if(starting_tilt!=-90 || ending_tilt!=90){
+                    std::cout<<"you are compensating for the missing wedge, the first volume should be rotated with 90 degrees about the y-axis"<<std::endl;
+                    PyObject * pSTMMclass = Python::getClassRef("sh_alignment.tompy.filter", "SingleTiltWedge");
+                    PyObject * arglist = Py_BuildValue("(ii)", starting_tilt , ending_tilt);
+                    PyObject * SingleTiltWedgeMask = PyObject_CallObject(pSTMMclass, arglist);
+                    // The order of volumes has to be flipped in order to compensate for a single tilt missing wedge. For those who are not using this mask, no changes in results will happen.
+                    alignVolumesFRM(pFunc, Vaux, params.V1(), SingleTiltWedgeMask, rot,tilt,psi,x,y,z,score,A,maxShift,maxFreq,params.mask_ptr);
+                    std::cout<<"If you intend to apply transform using xmipp_transform_geometry, use --inverse flag (if it was not present before), or remove it (if it was present before)"<<std::endl;
+                    Py_DECREF(SingleTiltWedgeMask);
+                    Py_DECREF(arglist);
+                    Py_DECREF(pSTMMclass);
+                }
+                else{
+                    alignVolumesFRM(pFunc, params.V1(), Vaux, Py_None, rot,tilt,psi,x,y,z,score,A,maxShift,maxFreq,params.mask_ptr);
+                }
+
+                const auto fit = -score;
+                if (fit < best_fit || first)
+                {
+                    best_align(0)=mirror ? -1.0 : 1.0;
+                    best_align(1)=1; // Gray scale
+                    best_align(2)=0; // Gray shift
+                    best_align(3)=rot;
+                    best_align(4)=tilt;
+                    best_align(5)=psi;
+                    best_align(6)=1; // Scale
+                    best_align(7)=z;
+                    best_align(8)=y;
+                    best_align(9)=x;
+                    best_fit=fit;
+                }
+                
+                first=false;
+            }
         }
 
         if (!first)
             std::cout << "The best correlation is for\n"
+            << "Mirroring the in X axis: " << (best_align(0) < 0) << std::endl
             << "Scale                  : " << best_align(5) << std::endl
             << "Translation (X,Y,Z)    : " << best_align(8)
             << " " << best_align(7) << " " << best_align(6)
@@ -461,6 +508,8 @@ public:
 
         Euler_angles2matrix(best_align(2), best_align(3), best_align(4),
                             A, true);
+        for (int i = 0; i < 3; i++)
+            MAT_ELEM(A,i,0) *= best_align(0);
 
         translation3DMatrix(r,Aaux);
 
