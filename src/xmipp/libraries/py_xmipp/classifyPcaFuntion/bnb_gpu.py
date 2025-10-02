@@ -2263,13 +2263,14 @@ class BnBgpu:
     use_median: bool = False,
     apply_window: bool = True,
     min_points: int = 6,
+    max_particles: int = 100,
     eps: float = 1e-12
     ):
         device = classes_particles[0].device
         n_classes = len(classes_particles)
         H, W = classes_particles[0].shape[-2:]
     
-        # === ventana única ===
+        # --- ventana única ---
         if apply_window:
             wy = torch.hann_window(H, periodic=False, device=device)
             wx = torch.hann_window(W, periodic=False, device=device)
@@ -2277,97 +2278,91 @@ class BnBgpu:
         else:
             window = torch.ones((H, W), device=device)
     
-        # === precomputar freqs y bin_idx ===
-        fy = torch.fft.fftfreq(H, d=pixel_size, device=device) 
+        # --- precomputar frecuencias y bin_idx ---
+        fy = torch.fft.fftfreq(H, d=pixel_size, device=device)
         kx = torch.fft.rfftfreq(W, d=pixel_size, device=device)
         gy, gx = torch.meshgrid(fy, kx, indexing='ij')
         freq_r = torch.sqrt(gx**2 + gy**2)
     
         fmax = 0.5 / pixel_size
         freq_bins = torch.linspace(0.0, fmax, num_bins+1, device=device)
-        freq_centers = 0.5 * (freq_bins[:-1] + freq_bins[1:])   # (num_bins,)
-    
+        freq_centers = 0.5 * (freq_bins[:-1] + freq_bins[1:])
         bin_idx = torch.bucketize(freq_r.reshape(-1), freq_bins) - 1
         bin_idx = bin_idx.clamp(0, num_bins-1)   # (n_pix,)
         n_pix = bin_idx.numel()
     
-        # === FFT todas las partículas ===
-        # parts_all = [p * window for p in classes_particles if p.numel() > 0]
-        max_particles = 100
+        # --- seleccionar máximo max_particles por clase ---
         parts_all = []
         class_sizes = []
         for p in classes_particles:
             if p.numel() == 0:
                 class_sizes.append(0)
                 continue
+    
             n = p.size(0)
             if n > max_particles:
                 idx_sample = torch.randperm(n, device=device)[:max_particles]
                 p = p[idx_sample]
                 n = max_particles
+    
             parts_all.append(p * window)
             class_sizes.append(n)
-        
-        
+    
         if len(parts_all) == 0:
             return torch.zeros(n_classes, device=device)
     
-        all_imgs = torch.cat(parts_all, dim=0).float()   # (N_tot,H,W)
-        F = torch.fft.rfft2(all_imgs)                    # (N_tot,H,W//2+1)
-        P = (F.real**2 + F.imag**2)                      # (N_tot,H,W//2+1)
-        P_flat = P.reshape(P.size(0), -1)                # (N_tot,n_pix)
+        # --- concatenar todas las partículas ---
+        all_imgs = torch.cat(parts_all, dim=0).float()  # (N_tot,H,W)
+        F = torch.fft.rfft2(all_imgs)                  # (N_tot,H,W//2+1)
+        P = (F.real**2 + F.imag**2)                    # potencia
+        P_flat = P.reshape(P.size(0), -1)             # (N_tot,n_pix)
     
-        # === asignar partículas a clase ===
-        class_sizes = [p.size(0) for p in classes_particles]
+        # --- crear class_ids ---
         class_ids = torch.repeat_interleave(
             torch.arange(n_classes, device=device),
             torch.tensor(class_sizes, device=device)
-        )  # (N_tot,)
+        )
     
-        # --- mean o median por clase ---
+        # --- promedio o mediana por clase ---
         if use_median:
             P_class = torch.zeros((n_classes, n_pix), device=device)
-            for c in range(n_classes): 
+            for c in range(n_classes):  # ⚠️ mediana no vectorizable fácilmente
                 mask = (class_ids == c)
                 if mask.any():
                     P_class[c] = torch.median(P_flat[mask], dim=0).values
         else:
-            # usamos scatter_add para media en paralelo
             sums = torch.zeros((n_classes, n_pix), device=device)
             counts = torch.zeros((n_classes, 1), device=device)
             sums.index_add_(0, class_ids, P_flat)
-            counts.index_add_(0, class_ids, torch.ones((class_ids.size(0),1), device=device))
-            P_class = sums / (counts + eps)   # (n_classes,n_pix)
+            counts.index_add_(0, class_ids, torch.ones((class_ids.size(0), 1), device=device))
+            P_class = sums / (counts + eps)
     
-        # === radial average vectorizado ===
-        idx_expand = bin_idx.unsqueeze(0).expand(n_classes, -1)   # (n_classes,n_pix)
+        # --- perfil radial vectorizado ---
+        idx_expand = bin_idx.unsqueeze(0).expand(n_classes, -1)  # (n_classes,n_pix)
         sums = torch.zeros((n_classes, num_bins), device=device)
-        counts = torch.zeros((n_classes, num_bins), device=device)
+        counts_bin = torch.zeros((n_classes, num_bins), device=device)
         sums.scatter_add_(1, idx_expand, P_class)
-        counts.scatter_add_(1, idx_expand, torch.ones_like(P_class))
-        radial_profiles = sums / (counts + eps)                   # (n_classes,num_bins)
+        counts_bin.scatter_add_(1, idx_expand, torch.ones_like(P_class))
+        radial_profiles = sums / (counts_bin + eps)
     
-        # === máscara de frecuencias válidas ===
+        # --- máscara de frecuencias válidas ---
         cutoff_freq = 1.0 / float(res_cutoff)
         valid_mask = (freq_centers > freq_min) & (freq_centers <= cutoff_freq)
-        freq_valid = freq_centers[valid_mask]                     # (n_valid,)
-        x = freq_valid**2                                         # (n_valid,)
+        freq_valid = freq_centers[valid_mask]
+        x = freq_valid**2
+        Y = torch.log(radial_profiles[:, valid_mask] + eps)
+        W = counts_bin[:, valid_mask]
     
-        # --- aplicar log y máscara ---
-        Y = torch.log(radial_profiles[:, valid_mask] + eps)       # (n_classes,n_valid)
-        W = counts[:, valid_mask]                                 # pesos (n_classes,n_valid)
-    
-        # --- excluir clases sin suficientes puntos ---
+        # --- excluir clases con pocos puntos ---
         valid_counts = (radial_profiles[:, valid_mask] > 0).sum(dim=1)
         mask_enough = valid_counts >= min_points
     
-        # --- weighted regression en paralelo ---
+        # --- regresión ponderada vectorizada ---
         w_sum = W.sum(dim=1, keepdim=True) + eps
         x_mean = (W * x).sum(dim=1, keepdim=True) / w_sum
         y_mean = (W * Y).sum(dim=1, keepdim=True) / w_sum
         cov_xy = (W * (x - x_mean) * (Y - y_mean)).sum(dim=1) / w_sum.squeeze(1)
         var_x = (W * (x - x_mean)**2).sum(dim=1) / w_sum.squeeze(1)
-    
         slope = cov_xy / (var_x + eps)
         B_out = -4.0 * slope
         B_out[~mask_enough] = 0.0
