@@ -2293,6 +2293,22 @@ class BnBgpu:
     
         # === FFT todas las partículas ===
         parts_all = [p * window for p in classes_particles if p.numel() > 0]
+        
+        parts_all = []
+        class_sizes = []
+        for p in classes_particles:
+            if p.numel() == 0:
+                class_sizes.append(0)
+                continue
+            n = p.size(0)
+            if n > max_particles:
+                idx_sample = torch.randperm(n, device=device)[:1000]
+                p = p[idx_sample]
+                n = max_particles
+            parts_all.append(p * window)
+            class_sizes.append(n)
+        
+        
         if len(parts_all) == 0:
             return torch.zeros(n_classes, device=device)
     
@@ -2311,7 +2327,7 @@ class BnBgpu:
         # --- mean o median por clase ---
         if use_median:
             P_class = torch.zeros((n_classes, n_pix), device=device)
-            for c in range(n_classes):  # ⚠️ mediana no vectorizable fácil
+            for c in range(n_classes): 
                 mask = (class_ids == c)
                 if mask.any():
                     P_class[c] = torch.median(P_flat[mask], dim=0).values
