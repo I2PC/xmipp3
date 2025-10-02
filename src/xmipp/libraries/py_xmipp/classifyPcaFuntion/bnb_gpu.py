@@ -535,9 +535,9 @@ class BnBgpu:
             cut = 25 if iter < 5 else 20 
             res_classes = self.frc_resolution_tensor(newCL, sampling, rcut=cut)
             print("--------RESOLUTION-------")
-            print(res_classes) 
+            print(res_classes)
+            bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes) 
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling, normalize=True)
-            bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             # bfactor = self.estimate_bfactor_from_particles_fast(newCL, sampling)
             print(bfactor)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
