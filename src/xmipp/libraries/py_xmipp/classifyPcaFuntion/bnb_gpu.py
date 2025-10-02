@@ -2428,7 +2428,7 @@ class BnBgpu:
             return taper
     
         B_factors = torch.nan_to_num(B_factors, nan=0.0, posinf=0.0, neginf=0.0)
-        B_exp = B_factors.unsqueeze(1).unsqueeze(2).clamp(min=-500.0, max=100.0)
+        B_exp = B_factors.unsqueeze(1).unsqueeze(2).clamp(min=-800.0, max=100.0)
     
         # FFT
         fft = torch.fft.fft2(averages, norm="forward")
