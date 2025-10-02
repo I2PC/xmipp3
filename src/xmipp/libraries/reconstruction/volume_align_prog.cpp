@@ -302,7 +302,7 @@ public:
 
         // Initialize best_fit
         double best_fit = 1e38;
-        Matrix1D<double> best_align(8);
+        Matrix1D<double> best_align(10);
         bool first = true;
 
         // Generate mask
