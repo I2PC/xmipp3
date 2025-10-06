@@ -2016,7 +2016,8 @@ class BnBgpu:
     
         # --- malla de frecuencias físicas (Å⁻¹) ---
         fy = torch.fft.fftfreq(h, d=pixel_size, device=device)
-        fx = torch.fft.fftfreq(w, d=pixel_size, device=device)
+        # fx = torch.fft.fftfreq(w, d=pixel_size, device=device)
+        fx = torch.fft.rfftfreq(w, d=pixel_size, device=device)
         gy, gx = torch.meshgrid(fy, fx, indexing="ij")
         r = torch.sqrt(gx**2 + gy**2)   # frecuencia radial en Å⁻¹
     
@@ -2047,8 +2048,8 @@ class BnBgpu:
                 avg2 = avg2 * window
     
             # ---- FFT ----
-            fft1 = torch.fft.fft2(avg1, norm="forward")
-            fft2 = torch.fft.fft2(avg2, norm="forward")
+            fft1 = torch.fft.rfft2(avg1, norm="forward")
+            fft2 = torch.fft.rfft2(avg2, norm="forward")
     
             p1   = (fft1.real**2 + fft1.imag**2)
             p2   = (fft2.real**2 + fft2.imag**2)
@@ -2106,7 +2107,8 @@ class BnBgpu:
     
         # --- malla de frecuencias físicas (Å⁻¹) ---
         fy = torch.fft.fftfreq(h, d=pixel_size, device=device)
-        fx = torch.fft.fftfreq(w, d=pixel_size, device=device)
+        # fx = torch.fft.fftfreq(w, d=pixel_size, device=device)
+        fx = torch.fft.rfftfreq(w, d=pixel_size, device=device)
         gy, gx = torch.meshgrid(fy, fx, indexing="ij")
         r = torch.sqrt(gx**2 + gy**2)   # frecuencia radial en Å⁻¹
     
@@ -2137,8 +2139,8 @@ class BnBgpu:
                 avg1 = avg1 * window
                 avg2 = avg2 * window
     
-            fft1 = torch.fft.fft2(avg1, norm="forward")
-            fft2 = torch.fft.fft2(avg2, norm="forward")
+            fft1 = torch.fft.rfft2(avg1, norm="forward")
+            fft2 = torch.fft.rfft2(avg2, norm="forward")
     
             p1 = (fft1.real**2 + fft1.imag**2)
             p2 = (fft2.real**2 + fft2.imag**2)
