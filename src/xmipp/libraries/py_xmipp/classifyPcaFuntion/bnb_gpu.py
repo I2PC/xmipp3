@@ -536,10 +536,9 @@ class BnBgpu:
             res_classes = self.frc_resolution_tensor(newCL, sampling, rcut=cut)
             print("--------RESOLUTION-------")
             print(res_classes)
-            
+            bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes) 
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling, normalize=True)
             # bfactor = self.estimate_bfactor_from_particles_fast(newCL, sampling)
-            bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes) 
             print(bfactor)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
             # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
@@ -2429,7 +2428,7 @@ class BnBgpu:
             return taper
     
         B_factors = torch.nan_to_num(B_factors, nan=0.0, posinf=0.0, neginf=0.0)
-        B_exp = B_factors.unsqueeze(1).unsqueeze(2).clamp(min=-800.0, max=100.0)
+        B_exp = B_factors.unsqueeze(1).unsqueeze(2).clamp(min=-800.0, max=0.0)
     
         # FFT
         fft = torch.fft.fft2(averages, norm="forward")
