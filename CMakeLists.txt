@@ -74,7 +74,7 @@ if(${XMIPP_USE_CUDA})
   check_language(CUDA)
   if (CMAKE_CUDA_COMPILER)
     enable_language(CUDA)
-    find_package(CUDAToolkit 10.2)
+    find_package(CUDAToolkit 10.2...<12.5)
     if(CUDAToolkit_FOUND)
       file(APPEND ${XMIPP_VERSIONS_FILE} "CUDA=${CUDAToolkit_VERSION}\n")
 
