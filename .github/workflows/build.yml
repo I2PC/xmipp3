@@ -12,7 +12,7 @@ jobs:
         - 'ubuntu-24.04'
 
         cuda:
-        - {version: '12.6.0', method: 'network'} 
+        - {version: '12.4.0', method: 'network'} 
         - {version: 'None'}
 
         compiler:
