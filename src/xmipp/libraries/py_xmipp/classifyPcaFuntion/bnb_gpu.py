@@ -472,7 +472,7 @@ class BnBgpu:
             
             endBatch = min(initBatch+expBatchSize, nExp)
                         
-            transforIm, matrixIm = self.center_particles_inverse_save_matrix(mmap.data[initBatch:endBatch], tMatrix[initBatch:endBatch], 
+            transforIm, tMatrix[initBatch:endBatch] = self.center_particles_inverse_save_matrix(mmap.data[initBatch:endBatch], tMatrix[initBatch:endBatch], 
                                                                              rotBatch[initBatch:endBatch], translations[initBatch:endBatch], centerxy)
             
    
@@ -489,7 +489,7 @@ class BnBgpu:
                 
                     
             
-            tMatrix[initBatch:endBatch] = matrixIm
+            # tMatrix[initBatch:endBatch] = matrixIm
             
             batch_projExp_cpu[count] = self.batchExpToCpu(transforIm, freqBn, coef, cvecs)
             count+=1
@@ -539,8 +539,8 @@ class BnBgpu:
         # if iter > 7:
         if iter > 1:
             # res_classes, frc_curves, freq_bins = self.frc_resolution_tensor(newCL, sampling)
-            # cut = 25 if iter < 5 else 20 if iter < 10 else 15
-            cut = 25 if iter < 5 else 20 
+            cut = 25 if iter < 5 else 20 if iter < 12 else 15
+            # cut = 25 if iter < 5 else 20 
             res_classes = self.frc_resolution_tensor(newCL, sampling, rcut=cut)
             print("--------RESOLUTION-------")
             print(res_classes)
@@ -712,7 +712,7 @@ class BnBgpu:
         centerIm = data.shape[1]/2 
         centerxy = torch.tensor([centerIm,centerIm], device = self.cuda)
                             
-        transforIm, matrixIm = self.center_particles_inverse_save_matrix(data, tMatrix, 
+        transforIm, tMatrix = self.center_particles_inverse_save_matrix(data, tMatrix, 
                                                                          rotBatch, translations, centerxy)
                 
         del rotBatch,translations, centerxy 
@@ -731,8 +731,8 @@ class BnBgpu:
         #         transforIm = transforIm * self.create_circular_mask(transforIm)
                                
         
-        tMatrix = matrixIm
-        del matrixIm
+        # tMatrix = matrixIm
+        # del matrixIm
         
         batch_projExp_cpu = self.create_batchExp(transforIm, freqBn, coef, cvecs)
         
