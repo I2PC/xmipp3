@@ -62,7 +62,7 @@ class BnBgpu:
         return self.vectorRot, self.vectorShift
     
        
-    
+    @torch.no_grad()
     def precShiftBand_old(self, ft, freq_band, grid_flat, coef, shift):
         
         fourier_band = self.selectFourierBands(ft, freq_band, coef)
@@ -87,6 +87,7 @@ class BnBgpu:
         return(band_shifted)
     
     
+    @torch.no_grad()
     def precShiftBand(self, ft, freq_band, grid_flat, coef, shift):
         fourier_band = self.selectFourierBands(ft, freq_band, coef)
         nRef = fourier_band[0].size(0)
@@ -114,7 +115,7 @@ class BnBgpu:
         return band_shifted
 
     
-  
+    @torch.no_grad()
     def selectFourierBands(self, ft, freq_band, coef):
 
         dimFreq = freq_band.shape[1]
@@ -127,9 +128,10 @@ class BnBgpu:
             fourier_band[n] = ft[:,:,:dimFreq][freq_band == n]
             fourier_band[n] = fourier_band[n].reshape(ft.size(dim=0),int(coef[n]/2)) 
                       
-        return fourier_band        
+        return fourier_band  
+          
             
-
+    @torch.no_grad()
     def selectBandsRefs(self, ft, freq_band, coef): 
     
         dimfreq = freq_band.size(dim=1)
@@ -157,6 +159,7 @@ class BnBgpu:
         
        
     #Applying rotation and shift
+    @torch.no_grad()
     def precalculate_projection(self, prjTensorCpu, freqBn, grid_flat, coef, cvecs, rot, shift):
                     
         shift_tensor = torch.Tensor(shift).to(self.cuda)       
@@ -171,7 +174,7 @@ class BnBgpu:
 
         return(projBatch)
     
-    
+    @torch.no_grad()
     def create_batchExp(self, Texp, freqBn, coef, vecs):
              
         self.batch_projExp = [torch.zeros((Texp.size(dim=0), vecs[n].size(dim=1)), device = self.cuda) for n in range(self.nBand)]
@@ -185,6 +188,7 @@ class BnBgpu:
         return(self.batch_projExp)
     
     
+    @torch.no_grad()
     def match_batch(self, batchExp, batchRef, initBatch, matches, rot, nShift):
         
         nExp = batchExp[0].size(dim=0) 
@@ -209,7 +213,7 @@ class BnBgpu:
                 
         return(matches)
     
-    
+    @torch.no_grad()
     def match_batch_correlation(self, batchExp, batchRef, initBatch, matches, rot, nShift):
         
         nExp = batchExp[0].size(dim=0) 
@@ -246,6 +250,7 @@ class BnBgpu:
         return(matches)
     
     
+    @torch.no_grad()
     def batchExpToCpu(self, Timage, freqBn, coef, cvecs):        
 
         self.create_batchExp(Timage, freqBn, coef, cvecs)        
@@ -255,6 +260,7 @@ class BnBgpu:
         return(batch_projExp_cpu)
     
     
+    @torch.no_grad()
     def init_ramdon_classes(self, classes, mmap, initSubset):
         
         cl = torch.zeros((classes, mmap.data.shape[1], mmap.data.shape[2]), device = self.cuda) 
@@ -278,6 +284,7 @@ class BnBgpu:
         return(cl)
     
     
+    @torch.no_grad()
     def get_robust_zscore_thresholds(self, classes, matches, threshold=2.0):
 
         thr_low = torch.full((classes,), float('-inf'))
@@ -299,6 +306,7 @@ class BnBgpu:
         return thr_low, thr_high
     
     
+    @torch.no_grad()
     def split_classes_for_range(self, classes, matches, percent=0.3):
         thr = torch.zeros(classes)
         for n in range(classes):
@@ -312,8 +320,8 @@ class BnBgpu:
             else:
                thr[n] = 0 
             
-        return(thr)        
-    
+        return(thr) 
+           
     
     def create_classes(self, mmap, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes, final_classes, freqBn, coef, cvecs, mask, sigma):
         
@@ -424,7 +432,7 @@ class BnBgpu:
         return(clk, tMatrix, batch_projExp_cpu)
     
     
-    
+    @torch.no_grad()
     def create_classes_version00(self, mmap, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles):
         
         # print("----------create-classes-------------")      
@@ -536,14 +544,14 @@ class BnBgpu:
             res_classes = self.frc_resolution_tensor(newCL, sampling, rcut=cut)
             print("--------RESOLUTION-------")
             print(res_classes)
-            bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes) 
+            # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes) 
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling, normalize=True)
             # bfactor = self.estimate_bfactor_from_particles_fast(newCL, sampling)
-            print(bfactor)
+            # print(bfactor)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
             # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes, frc_c=frc_curves, fBins=freq_bins)
-            clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
+            # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling)
             # clk = self.enhance_averages_butterworth_normF(clk, sampling)
@@ -552,8 +560,8 @@ class BnBgpu:
             #     fe = 3.0
             # else:
             #     fe = 2.0
-            # fe = 2.0
-            # clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None, normalize=True)
+            fe = 2.0
+            clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None, normalize=True)
             # # clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None)
             # print("--------BOOST-------")
             # print(boost.view(1, len(clk)))
@@ -750,17 +758,17 @@ class BnBgpu:
 
             
             # res_classes = self.frc_resolution_tensor(newCL, sampling)
-            bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
+            # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling, normalize=True)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes, frc_c=frc_curves, fBins=freq_bins)
-            clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
+            # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling) 
             # clk = self.enhance_averages_butterworth_normF(clk, sampling)
             
-            # clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, boost_max=None, normalize=True)
+            clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, boost_max=None, normalize=True)
             # clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling, boost_max=None)
             
             # clk = self.frc_whitening_batch(clk, frc_curves, sampling)
@@ -793,8 +801,8 @@ class BnBgpu:
         return (clk, tMatrix, batch_projExp_cpu) 
     
            
-    
-    def center_particles_inverse_save_matrix2(self, data, tMatrix, update_rot, update_shifts, centerxy):
+    @torch.no_grad()
+    def center_particles_inverse_save_matrix(self, data, tMatrix, update_rot, update_shifts, centerxy):
           
         
         rotBatch = update_rot.view(-1)
@@ -835,29 +843,6 @@ class BnBgpu:
     
     
     
-    
-    
-    
-    def fourier_shift_batch2(self, imgs, shifts_x, shifts_y):
-        """
-        Traslada un batch de imágenes en Fourier (vectorizado).
-        imgs: (n,h,w) tensor
-        shifts_x, shifts_y: (n,) traslaciones en píxeles
-        """
-        n, h, w = imgs.shape
-        ky = torch.fft.fftfreq(h, d=1.0, device=imgs.device).reshape(1, h, 1)
-        kx = torch.fft.fftfreq(w, d=1.0, device=imgs.device).reshape(1, 1, w)
-    
-        # expandimos shifts a (n,1,1) para broadcast
-        sx = shifts_x.view(n, 1, 1)
-        sy = shifts_y.view(n, 1, 1)
-    
-        phase = torch.exp(-2j * torch.pi * (kx * sx + ky * sy))  # (n,h,w)
-        F = torch.fft.fft2(imgs)  # (n,h,w)
-        shifted = torch.fft.ifft2(F * phase).real
-        del(F)
-        return shifted
-        # return torch.fft.ifft2(F * phase).real
         
         
     def fourier_shift_batch(self, imgs, shifts_x, shifts_y):
@@ -888,7 +873,7 @@ class BnBgpu:
         return shifted
     
     @torch.no_grad()
-    def center_particles_inverse_save_matrix(self, data, tMatrix, update_rot, update_shifts, centerxy):
+    def center_particles_inverse_save_matrix_fourier(self, data, tMatrix, update_rot, update_shifts, centerxy):
           
         batchsize = update_rot.numel()
 
@@ -961,7 +946,7 @@ class BnBgpu:
     
  
     
-    
+    @torch.no_grad()
     def averages_increaseClas(self, mmap, iter, newCL, classes): 
         
         if iter < 10:
@@ -995,7 +980,7 @@ class BnBgpu:
         clk = torch.stack(clk_list)
         return(clk)
     
-    
+    @torch.no_grad()
     def averages_increaseClas2(self, mmap, iter, newCL, classes, final_classes): 
         
         if iter < 10:
@@ -1025,7 +1010,7 @@ class BnBgpu:
         return(clk)
     
     
-    
+    @torch.no_grad()
     def averages_createClasses(self, mmap, iter, newCL): 
         
         # if iter < 10:
@@ -1044,6 +1029,7 @@ class BnBgpu:
         return clk
     
     
+    @torch.no_grad()
     def averages(self, data, newCL, classes): 
         
         # element = list(map(len, newCL))
@@ -1058,6 +1044,7 @@ class BnBgpu:
         return clk
     
     
+    @torch.no_grad()
     def averages_direct(self, transforIm, matches, classes):
         labels = matches[:, 1]
         clk = []
@@ -3721,12 +3708,12 @@ class BnBgpu:
                 expBatchSize2 = 50000
                 numFirstBatch = 1
             elif dim <= 128:
-                # expBatchSize = 15000 
-                expBatchSize = 10000
+                expBatchSize = 15000 
+                # expBatchSize = 10000
                 # expBatchSize2 = 20000
                 expBatchSize2 = 20000
-                numFirstBatch = 8
-                # numFirstBatch = 5
+                # numFirstBatch = 8
+                numFirstBatch = 5
             elif dim <= 256:
                 expBatchSize = 4000 
                 expBatchSize2 = 5000
