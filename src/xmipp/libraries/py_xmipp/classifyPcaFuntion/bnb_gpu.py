@@ -2426,7 +2426,8 @@ class BnBgpu:
             taper[freq_r > f_cutoff_exp] = 0.0
         
             return taper
-    
+        
+        B_factors = 2 * B_factors
         B_factors = torch.nan_to_num(B_factors, nan=0.0, posinf=0.0, neginf=0.0)
         B_exp = B_factors.unsqueeze(1).unsqueeze(2).clamp(min=-800.0, max=0.0)
     
