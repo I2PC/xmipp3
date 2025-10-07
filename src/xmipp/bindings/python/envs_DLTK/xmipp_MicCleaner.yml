@@ -4,7 +4,6 @@ name: xmipp_MicCleaner
 channels:
   - conda-forge
 dependencies:
-  - python=3.6
   #- micrograph-cleaner-em=0.35
   - libstdcxx-ng # To be compatible with scipion env
   - pip
