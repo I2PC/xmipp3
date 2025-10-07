@@ -3,13 +3,12 @@
 name: xmipp_MicCleaner
 channels:
   - conda-forge
-  - rsanchez1369
 dependencies:
   - python=3.6
-  - micrograph-cleaner-em=0.35
+  #- micrograph-cleaner-em=0.35
   - libstdcxx-ng # To be compatible with scipion env
   - pip
   - pip:
-    - absl-py<0.12
+    - git+https://github.com/rsanchezgarc/micrograph_cleaner_em.git@tf2
 
 
