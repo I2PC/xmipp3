@@ -542,10 +542,10 @@ class BnBgpu:
             cut = 25 if iter < 5 else 20 if iter < 12 else 15
             # cut = 25 if iter < 5 else 20 
             res_classes = self.frc_resolution_tensor(newCL, sampling, rcut=cut)
-            print("--------RESOLUTION-------")
-            print(res_classes)
+            # print("--------RESOLUTION-------")
+            # print(res_classes)
             # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes) 
-            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling, normalize=True)
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # bfactor = self.estimate_bfactor_from_particles_fast(newCL, sampling)
             # print(bfactor)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
@@ -556,13 +556,8 @@ class BnBgpu:
             # clk = self.enhance_averages_butterworth(clk, sampling)
             # clk = self.enhance_averages_butterworth_normF(clk, sampling)
             
-            # if iter < 10:
-            #     fe = 3.0
-            # else:
-            #     fe = 2.0
-            fe = 2.0
-            clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None, normalize=True)
-            # # clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None)
+            # clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None, normalize=True)
+            clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling)
             # print("--------BOOST-------")
             # print(boost.view(1, len(clk)))
             # print("--------SHARPEN-------")
@@ -759,7 +754,7 @@ class BnBgpu:
             
             # res_classes = self.frc_resolution_tensor(newCL, sampling)
             # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
-            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling, normalize=True)
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes, frc_c=frc_curves, fBins=freq_bins)
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
@@ -768,8 +763,8 @@ class BnBgpu:
             # clk = self.enhance_averages_butterworth(clk, sampling) 
             # clk = self.enhance_averages_butterworth_normF(clk, sampling)
             
-            clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, boost_max=None, normalize=True)
-            # clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling, boost_max=None)
+            # clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, boost_max=None, normalize=True)
+            clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling)
             
             # clk = self.frc_whitening_batch(clk, frc_curves, sampling)
             # clk = self.sigmoid_highboost_filter(clk, sampling)
@@ -3184,7 +3179,7 @@ class BnBgpu:
             std_filt = filtered.std(dim=(-2, -1), keepdim=True)
             filtered = (filtered - mean_filt) / (std_filt + eps) * std_orig + mean_orig
     
-        return filtered, boost_max, sharpen_power
+        return filtered#, boost_max, sharpen_power
     
     @torch.no_grad()
     def sharpen_averages_batch_energy_normalized(self, 
