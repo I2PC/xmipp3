@@ -74,7 +74,7 @@ void applyTransformation(const MultidimArray<double> &V2,
 
     Euler_angles2matrix(rot, tilt, psi, A, true);
     for (int i = 0; i < 3; i++)
-        MAT_ELEM(A,i,0) *= flip;
+        MAT_ELEM(A,0,i) *= flip;
 
     translation3DMatrix(r,Aaux);
     A = A * Aaux;
@@ -509,7 +509,7 @@ public:
         Euler_angles2matrix(best_align(2), best_align(3), best_align(4),
                             A, true);
         for (int i = 0; i < 3; i++)
-            MAT_ELEM(A,i,0) *= best_align(0);
+            MAT_ELEM(A,0,i) *= best_align(0);
 
         translation3DMatrix(r,Aaux);
 
