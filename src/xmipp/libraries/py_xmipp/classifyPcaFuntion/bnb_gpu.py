@@ -496,7 +496,7 @@ class BnBgpu:
         #     clk = self.unsharp_mask_norm(clk)
                     
         #Sort classes        
-        if iter < 17:
+        if iter < 7:
             clk = clk[torch.argsort(torch.tensor([len(cls_list) for cls_list in newCL], device=clk.device), descending=True)]
         
 
@@ -611,6 +611,8 @@ class BnBgpu:
         
         # print("----------align-to-classes-------------")
         
+        thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches, threshold=2.0)
+        
         #rotate and translations
         rotBatch = -matches[:,3].view(expBatchSize,1)
         translations = list(map(lambda i: vectorshift[i], matches[:, 4].int()))
@@ -625,46 +627,53 @@ class BnBgpu:
         del rotBatch,translations, centerxy 
         
         if mask:
-            # if iter < 2:
-            # sigma_gauss = ( 1.25 * sigma if iter == 2
-            #    else sigma)
             transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
         else: 
             transforIm = transforIm * self.create_circular_mask(transforIm)
-        # if mask:
-        #     if iter < 3:
-        #         transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
-        #     else:
-        #         transforIm = transforIm * self.create_circular_mask(transforIm)
                                
-        
-        # tMatrix = matrixIm
-        # del matrixIm
+    
         
         batch_projExp_cpu = self.create_batchExp(transforIm, freqBn, coef, cvecs)
         
-        # if iter == 3:
         if iter == 2:
-            # newCL = [[] for i in range(classes)]              
-            #
+            newCL = [[] for i in range(classes)]              
+            
             # for n in range(classes):
             #     class_images = transforIm[matches[:, 1] == n]
             #     newCL[n].append(class_images)
-            #
-            # del(transforIm)
-            #
-            # newCL = [torch.cat(class_images_list, dim=0) for class_images_list in newCL] 
-            # clk = self.averages(data, newCL, classes)
+                
+                
+                
+            for n in range(classes):
+
+                class_images = transforIm[
+                    (matches[:, 1] == n) &
+                    (matches[:, 2] > thr_low[n]) &
+                    (matches[:, 2] < thr_high[n])
+                                    ]
+                newCL[n].append(class_images)
+                
+                non_class_images = transforIm[
+                    (matches[:, 1] == n) &
+                    (
+                        (matches[:, 2] <= thr_low[n]) |
+                        (matches[:, 2] >= thr_high[n])
+                    )
+                ]
+                newCL[classes-1].append(non_class_images)
+                
             
-            clk = self.averages_direct(transforIm, matches, classes)
-            # res_classes, frc_curves, freq_bins = self.frc_resolution_tensor_align(transforIm, matches, classes, sampling)
-            res_classes = self.frc_resolution_tensor_align(transforIm, matches, classes, sampling)
             del(transforIm)
             torch.cuda.empty_cache()
             
+            newCL = [torch.cat(class_images_list, dim=0) for class_images_list in newCL] 
+            clk = self.averages(data, newCL, classes)
+            
+            # clk = self.averages_direct(transforIm, matches, classes)
+            # res_classes = self.frc_resolution_tensor_align(transforIm, matches, classes, sampling)            
 
             
-            # res_classes = self.frc_resolution_tensor(newCL, sampling)
+            res_classes = self.frc_resolution_tensor(newCL, sampling)
             # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
