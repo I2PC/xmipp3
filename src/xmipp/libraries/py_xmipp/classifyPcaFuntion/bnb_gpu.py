@@ -323,114 +323,6 @@ class BnBgpu:
         return(thr) 
            
     
-    def create_classes(self, mmap, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes, final_classes, freqBn, coef, cvecs, mask, sigma):
-        
-        # print("----------create-classes-------------")      
-        
-        class_split = 0
-        # if iter >= 1 and iter < 5:
-        if iter >= 5 and iter < 7:
-
-            thr = self.split_classes_for_range(classes, matches)
-            # class_split = int(final_classes/((iter-4)*4))
-            class_split = int(final_classes/4)
-
-            # if iter == 4:
-            # if iter == 7:
-            #     class_split = final_classes - classes
-            
-        newCL = [[] for i in range(classes + class_split)]
-
-
-        step = int(np.ceil(nExp/expBatchSize))
-        batch_projExp_cpu = [0 for i in range(step)]
-        
-        #rotate and translations
-        rotBatch = -matches[:,3].view(nExp,1)
-        translations = list(map(lambda i: vectorshift[i], matches[:, 4].int()))
-        translations = torch.tensor(translations, device = self.cuda).view(nExp,2)
-        
-        centerIm = mmap.data.shape[1]/2 
-        centerxy = torch.tensor([centerIm,centerIm], device = self.cuda)
-        
-        count = 0
-        for initBatch in range(0, nExp, expBatchSize):
-            
-            endBatch = min(initBatch+expBatchSize, nExp)
-                        
-            transforIm, matrixIm = self.center_particles_inverse_save_matrix(mmap.data[initBatch:endBatch], tMatrix[initBatch:endBatch], 
-                                                                             rotBatch[initBatch:endBatch], translations[initBatch:endBatch], centerxy)
-                                    
-            if mask: 
-                transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
-            else:   
-                transforIm = transforIm * self.create_circular_mask(transforIm)
-            # if mask: 
-            #     if iter < 13:
-            #         transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
-            #     else:
-            #         transforIm = transforIm * self.create_circular_mask(transforIm)
-                                
-            tMatrix[initBatch:endBatch] = matrixIm
-            
-            batch_projExp_cpu[count] = self.batchExpToCpu(transforIm, freqBn, coef, cvecs)
-            count+=1
-                          
-             
-            # if iter >= 1 and iter < 5:
-            if iter >= 5 and iter < 9: 
-                for n in range(classes):
-                    
-                    if n < class_split:
-                        class_images = transforIm[(matches[initBatch:endBatch, 1] == n) & (matches[initBatch:endBatch, 2] < thr[n])]
-                        newCL[n].append(class_images)
-                        
-                        non_class_images = transforIm[(matches[initBatch:endBatch, 1] == n) & (matches[initBatch:endBatch, 2] >= thr[n])] 
-                        newCL[n + classes].append(non_class_images)
-                        
-                    else:
-                        class_images = transforIm[matches[initBatch:endBatch, 1] == n]
-                        newCL[n].append(class_images)
-            
-            else:  
-      
-                for n in range(classes):
-                    class_images = transforIm[matches[initBatch:endBatch, 1] == n]
-                    newCL[n].append(class_images)
-                    # maskSel = matches[initBatch:endBatch, 1] == n  
-                    # sorted_indices = torch.argsort(matches[initBatch:endBatch, 2][maskSel])  
-                    # class_images = transforIm[maskSel][sorted_indices[:max(1, len(sorted_indices) // 2)]]  
-                    # newCL[n].append(class_images)
-                         
-                    
-            del(transforIm)    
-                    
-   
-        newCL = [torch.cat(class_images_list, dim=0) for class_images_list in newCL]    
-                     
-        clk = self.averages_createClasses(mmap, iter, newCL)
-        
-        
-        if iter < 5:
-            clk = clk * self.approximate_otsu_threshold(clk, percentile=10)
-        elif iter < 10:
-            clk = clk * self.approximate_otsu_threshold(clk, percentile=20)
-
-        clk = clk * self.create_circular_mask(clk)    
-        
-        # if iter in [2, 3]:
-        if iter > 2 and iter < 10:
-            clk = self.center_by_com(clk) 
-         
-        # if mask:
-        #     if iter < 13:
-        #         clk = clk * self.create_gaussian_mask(clk, sigma)
-        #     else:
-        #         clk = clk * self.create_circular_mask(clk)
-                
-        
-        return(clk, tMatrix, batch_projExp_cpu)
-    
     
     @torch.no_grad()
     def create_classes_version00(self, mmap, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles):
@@ -442,9 +334,8 @@ class BnBgpu:
         if iter > 1 and iter < 7:# and cycles == 0:
             # print("--------", iter, "-----------")
             thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches, threshold=2.0)
-        # elif iter >= 10:
-        #     print("--------", iter, "-----------")
-        #     thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches, threshold=2.0)
+        elif iter >= 7:
+            thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches, threshold=2.0)
             
 
         # if iter > 3 and iter < 7: # and cycles == 0:
@@ -516,9 +407,30 @@ class BnBgpu:
                                         ]
                     newCL[n + num].append(non_class_images)
 
-
-            else:  
+                
+            elif iter >= 7:  
       
+                for n in range(num):
+                    # class_images = transforIm[matches[initBatch:endBatch, 1] == n]
+                    # newCL[n].append(class_images)
+                    class_images = transforIm[
+                        (matches[initBatch:endBatch, 1] == n) &
+                        (matches[initBatch:endBatch, 2] > thr_low[n]) &
+                        (matches[initBatch:endBatch, 2] < thr_high[n])
+                                        ]
+                    newCL[n].append(class_images)
+                    
+                    non_class_images = transforIm[
+                        (matches[initBatch:endBatch, 1] == n) &
+                        (
+                            (matches[initBatch:endBatch, 2] <= thr_low[n]) |
+                            (matches[initBatch:endBatch, 2] >= thr_high[n])
+                        )
+                    ]
+                    newCL[num-1].append(non_class_images)
+                    
+            
+            else:
                 for n in range(num):
                     class_images = transforIm[matches[initBatch:endBatch, 1] == n]
                     newCL[n].append(class_images)
