@@ -285,7 +285,7 @@ class BnBgpu:
     
     
     @torch.no_grad()
-    def get_robust_zscore_thresholds(self, classes, matches, threshold=2.0):
+    def get_robust_zscore_thresholds(self, classes, matches, threshold=1.5):
 
         thr_low = torch.full((classes,), float('-inf'))
         thr_high = torch.full((classes,), float('inf'))
@@ -333,9 +333,9 @@ class BnBgpu:
         # if iter > 3 and iter < 7: # and cycles == 0:
         if iter > 1 and iter < 7:# and cycles == 0:
             # print("--------", iter, "-----------")
-            thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches, threshold=2.0)
+            thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
         elif iter >= 7:
-            thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches, threshold=2.0)
+            thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
             
 
         # if iter > 3 and iter < 7: # and cycles == 0:
@@ -611,7 +611,7 @@ class BnBgpu:
         
         # print("----------align-to-classes-------------")
         
-        thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches, threshold=2.0)
+        thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
         
         #rotate and translations
         rotBatch = -matches[:,3].view(expBatchSize,1)
