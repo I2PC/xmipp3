@@ -285,7 +285,7 @@ class BnBgpu:
     
     
     @torch.no_grad()
-    def get_robust_zscore_thresholds(self, classes, matches, threshold=1.5):
+    def get_robust_zscore_thresholds(self, classes, matches, threshold=2.0):
 
         thr_low = torch.full((classes,), float('-inf'))
         thr_high = torch.full((classes,), float('inf'))
@@ -330,16 +330,17 @@ class BnBgpu:
         # print("----------create-classes-------------")      
             
         
-        # if iter > 3 and iter < 7: # and cycles == 0:
-        if iter > 1 and iter < 7:# and cycles == 0:
+        # if iter > 1 and iter < 7:# and cycles == 0:
+        if iter > 1 and iter < 5:# and cycles == 0:
             # print("--------", iter, "-----------")
             thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
-        elif iter >= 7:
+        # elif iter >= 7:
+        elif iter >= 5:
             thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
             
 
-        # if iter > 3 and iter < 7: # and cycles == 0:
-        if iter > 1 and iter < 7:# and cycles == 0:
+        # if iter > 1 and iter < 7:# and cycles == 0:
+        if iter > 1 and iter < 5:# and cycles == 0:
             num = int(classes/2)
             newCL = [[] for i in range(classes)]
         else:
@@ -368,7 +369,6 @@ class BnBgpu:
             
    
             if mask:
-                # if iter < 15:
                 # sigma_gauss = (0.75*sigma) if (iter < 10 and iter % 2 == 1) else (1.25*sigma) if iter < 10 else sigma
                 sigma_gauss = (0.75*sigma) if (iter < 10 and iter % 2 == 1) else (sigma)# if iter < 10 else sigma
                 # sigma_gauss = (0.75 * sigma if (iter < 10 and iter % 2 == 1)
@@ -378,16 +378,14 @@ class BnBgpu:
             else:
                 transforIm = transforIm * self.create_circular_mask(transforIm)
                 
-                    
-            
-            # tMatrix[initBatch:endBatch] = matrixIm
+
             
             batch_projExp_cpu[count] = self.batchExpToCpu(transforIm, freqBn, coef, cvecs)
             count+=1
 
             
-            # if iter > 3 and iter < 7:# and cycles == 0:
-            if iter > 1 and iter < 7:# and cycles == 0:
+            # if iter > 1 and iter < 7:# and cycles == 0:
+            if iter > 1 and iter < 5:# and cycles == 0:
                 
                 for n in range(num):
                     
@@ -408,7 +406,8 @@ class BnBgpu:
                     newCL[n + num].append(non_class_images)
 
                 
-            elif iter >= 7:  
+            # elif iter >= 7:  
+            elif iter >= 5:
       
                 for n in range(num):
                     # class_images = transforIm[matches[initBatch:endBatch, 1] == n]
