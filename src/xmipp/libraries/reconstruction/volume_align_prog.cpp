@@ -73,13 +73,15 @@ void applyTransformation(const MultidimArray<double> &V2,
     XX(r)            = p[9];
 
     Euler_angles2matrix(rot, tilt, psi, A, true);
-    for (int i = 0; i < 3; i++)
-        MAT_ELEM(A,0,i) *= flip;
-
     translation3DMatrix(r,Aaux);
     A = A * Aaux;
     scale3DMatrix(vectorR3(scale, scale, scale),Aaux);
     A = A * Aaux;
+
+    for (int i = 0; i < 4; ++i)
+    {
+        MAT_ELEM(A,2,i) *= flip;
+    }
 
     applyGeometry(xmipp_transformation::LINEAR, Vaux, V2, A, xmipp_transformation::IS_NOT_INV, wrap);
     if (greyScale!=1 || greyShift!=0)
@@ -448,7 +450,7 @@ public:
                 Vaux = params.V2();
                 if (mirror)
                 {
-                    Vaux.selfReverseX();
+                    Vaux.selfReverseZ();
                 }
 
                 if(starting_tilt!=-90 || ending_tilt!=90){
@@ -508,9 +510,6 @@ public:
 
         Euler_angles2matrix(best_align(2), best_align(3), best_align(4),
                             A, true);
-        for (int i = 0; i < 3; i++)
-            MAT_ELEM(A,0,i) *= best_align(0);
-
         translation3DMatrix(r,Aaux);
 
         //A = A + Aaux;
@@ -522,6 +521,11 @@ public:
 
         scale3DMatrix(vectorR3(best_align(5), best_align(5), best_align(5)),Aaux);
         A = A * Aaux;
+
+        for (int i = 0; i < 4; ++i)
+        {
+            MAT_ELEM(A,2,i) *= best_align(0);
+        }
 
         if (verbose!=0)
 			std::cout << "xmipp_transform_geometry will require the following values"
