@@ -407,7 +407,7 @@ class BnBgpu:
 
                 
             # elif iter >= 7:  
-            elif iter >= 5:
+            elif iter >= 5 and iter < 15:
       
                 for n in range(num):
                     # class_images = transforIm[matches[initBatch:endBatch, 1] == n]
@@ -610,7 +610,7 @@ class BnBgpu:
         
         # print("----------align-to-classes-------------")
         
-        thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
+        # thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
         
         #rotate and translations
         rotBatch = -matches[:,3].view(expBatchSize,1)
@@ -637,29 +637,29 @@ class BnBgpu:
         if iter == 2:
             newCL = [[] for i in range(classes)]              
             
-            # for n in range(classes):
-            #     class_images = transforIm[matches[:, 1] == n]
-            #     newCL[n].append(class_images)
-                
-                
-                
             for n in range(classes):
-
-                class_images = transforIm[
-                    (matches[:, 1] == n) &
-                    (matches[:, 2] > thr_low[n]) &
-                    (matches[:, 2] < thr_high[n])
-                                    ]
+                class_images = transforIm[matches[:, 1] == n]
                 newCL[n].append(class_images)
                 
-                non_class_images = transforIm[
-                    (matches[:, 1] == n) &
-                    (
-                        (matches[:, 2] <= thr_low[n]) |
-                        (matches[:, 2] >= thr_high[n])
-                    )
-                ]
-                newCL[classes-1].append(non_class_images)
+                
+                
+            # for n in range(classes):
+            #
+            #     class_images = transforIm[
+            #         (matches[:, 1] == n) &
+            #         (matches[:, 2] > thr_low[n]) &
+            #         (matches[:, 2] < thr_high[n])
+            #                         ]
+            #     newCL[n].append(class_images)
+            #
+            #     non_class_images = transforIm[
+            #         (matches[:, 1] == n) &
+            #         (
+            #             (matches[:, 2] <= thr_low[n]) |
+            #             (matches[:, 2] >= thr_high[n])
+            #         )
+            #     ]
+            #     newCL[classes-1].append(non_class_images)
                 
             
             del(transforIm)
@@ -3656,7 +3656,9 @@ class BnBgpu:
     
     def determine_ROTandSHIFT(self, iter, mode, dim):
         
-        maxShift_20 = round( (dim * 20)/100 )
+        # maxShift_20 = round( (dim * 20)/100 )
+        # maxShift_20 = (maxShift_20//5)*5
+        maxShift_20 = round( (dim * 15)/100 )
         maxShift_20 = (maxShift_20//5)*5
         
         maxShift_15 = round( (dim * 15)/100 )
