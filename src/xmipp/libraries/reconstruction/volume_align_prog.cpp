@@ -492,23 +492,23 @@ public:
         if (!first)
             std::cout << "The best correlation is for\n"
             << "Mirroring the in X axis: " << (best_align(0) < 0) << std::endl
-            << "Scale                  : " << best_align(5) << std::endl
-            << "Translation (X,Y,Z)    : " << best_align(8)
-            << " " << best_align(7) << " " << best_align(6)
+            << "Scale                  : " << best_align(6) << std::endl
+            << "Translation (X,Y,Z)    : " << best_align(9)
+            << " " << best_align(8) << " " << best_align(7)
             << std::endl
             << "Rotation (rot,tilt,psi): "
-            << best_align(2) << " " << best_align(3) << " "
-            << best_align(4) << std::endl
-            << "Best grey scale       : " << best_align(0) << std::endl
-            << "Best grey shift       : " << best_align(1) << std::endl
+            << best_align(3) << " " << best_align(4) << " "
+            << best_align(5) << std::endl
+            << "Best grey scale       : " << best_align(1) << std::endl
+            << "Best grey shift       : " << best_align(2) << std::endl
             << "Fitness value         : " << best_fit << std::endl;
         Matrix1D<double> r(3);
-        XX(r)            = best_align(8);
-        YY(r)            = best_align(7);
-        ZZ(r)            = best_align(6);
+        XX(r)            = best_align(9);
+        YY(r)            = best_align(8);
+        ZZ(r)            = best_align(7);
         Matrix2D<double> A,Aaux;
 
-        Euler_angles2matrix(best_align(2), best_align(3), best_align(4),
+        Euler_angles2matrix(best_align(3), best_align(4), best_align(5),
                             A, true);
         for (int i = 0; i < 4; ++i)
         {
@@ -524,15 +524,15 @@ public:
         //A(3,3) -= 1;
         A = A * Aaux;
 
-        scale3DMatrix(vectorR3(best_align(5), best_align(5), best_align(5)),Aaux);
+        scale3DMatrix(vectorR3(best_align(6), best_align(6), best_align(6)),Aaux);
         A = A * Aaux;
 
 
 
         if (verbose!=0)
 			std::cout << "xmipp_transform_geometry will require the following values"
-					  << "\n   Angles: " << best_align(2) << " "
-					  << best_align(3) << " " << best_align(4)
+					  << "\n   Angles: " << best_align(3) << " "
+					  << best_align(4) << " " << best_align(5)
 					  << "\n   Shifts: " << A(0,3) << " " << A(1,3) << " " << A(2,3)
 					  << std::endl;
         if (copyGeo)
@@ -548,15 +548,15 @@ public:
         if (copyGray)
         {
         	std::ofstream outputGray (fnGray.c_str());
-        	outputGray << best_align(0) << "\n"
-        			   << best_align(1) << "\n"
+        	outputGray << best_align(1) << "\n"
+        			   << best_align(2) << "\n"
 					   << std::endl;
         	outputGray.close();
         }
         if (store)
         {
         	std::ofstream outputStore (fnStore.c_str());
-        	outputStore << best_align(2)  << ", " << best_align(3) << ", " << best_align(4) << ", " << A(0,3) << ", "
+        	outputStore << best_align(3)  << ", " << best_align(4) << ", " << best_align(5) << ", " << A(0,3) << ", "
 					  << A(1,3) << ", " << A(2,3) << ", " << best_fit << std::endl;
         	outputStore.close();
         }
