@@ -511,6 +511,7 @@ public:
 
         Euler_angles2matrix(best_align(2), best_align(3), best_align(4),
                             A, true);
+        ZZ(r) *= best_align(0);
         translation3DMatrix(r,Aaux);
 
         //A = A + Aaux;
