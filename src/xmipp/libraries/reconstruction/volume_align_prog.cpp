@@ -81,7 +81,7 @@ void applyTransformation(const MultidimArray<double> &V2,
 
     for (int i = 0; i < 4; ++i)
     {
-        MAT_ELEM(A,2,i) *= flip;
+        MAT_ELEM(A,i,2) *= flip;
     }
 
     applyGeometry(xmipp_transformation::LINEAR, Vaux, V2, A, xmipp_transformation::IS_NOT_INV, wrap);
@@ -526,7 +526,7 @@ public:
 
         for (int i = 0; i < 4; ++i)
         {
-            MAT_ELEM(A,2,i) *= best_align(0);
+            MAT_ELEM(A,i,2) *= best_align(0);
         }
 
         if (verbose!=0)
