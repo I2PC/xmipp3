@@ -9,7 +9,7 @@ dependencies:
   - cudnn=8.9.*
   - pip
   - pip:
-    - micrograph-cleaner-em=1.0.2
+    - micrograph-cleaner-em==1.0.2
 
 
 
