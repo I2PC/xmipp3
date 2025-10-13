@@ -83,8 +83,6 @@ void applyTransformation(const MultidimArray<double> &V2,
     scale3DMatrix(vectorR3(scale, scale, scale),Aaux);
     A = A * Aaux;
 
-
-
     applyGeometry(xmipp_transformation::LINEAR, Vaux, V2, A, xmipp_transformation::IS_NOT_INV, wrap);
     if (greyScale!=1 || greyShift!=0)
         FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(Vaux)
