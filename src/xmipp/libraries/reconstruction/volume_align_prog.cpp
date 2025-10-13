@@ -73,6 +73,7 @@ void applyTransformation(const MultidimArray<double> &V2,
     XX(r)            = p[9];
 
     Euler_angles2matrix(rot, tilt, psi, A, true);
+    ZZ(r) *= flip;
     translation3DMatrix(r,Aaux);
     A = A * Aaux;
     scale3DMatrix(vectorR3(scale, scale, scale),Aaux);
