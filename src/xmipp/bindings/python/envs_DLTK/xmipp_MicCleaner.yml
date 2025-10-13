@@ -1,14 +1,15 @@
 #Protocols ussing the enviroment: protocol_deepMicrographScreen
-
 name: xmipp_MicCleaner
 channels:
   - conda-forge
 dependencies:
   - python=3.9
-  - micrograph-cleaner-em=1.0.2
   - libstdcxx-ng # To be compatible with scipion env
   - cudatoolkit=11.8
   - cudnn=8.9.*
+  - pip
+  - pip:
+    - micrograph-cleaner-em=1.0.2
 
 
 
