@@ -340,7 +340,7 @@ class CondaEnvManager(object):
 
         commands = [] 
         commands.append('conda env create -f %s || conda env update -f %s' % (requirementsFn, requirementsFn))
-        commands.append('conda env export -f %s' % target)
+        commands.append('touch %s' % target)
         return ' && '.join(commands), target
 
 def getModel(*modelPath, **kwargs):
