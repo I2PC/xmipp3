@@ -331,24 +331,21 @@ class BnBgpu:
             
         
         # if iter > 1 and iter < 7:# and cycles == 0:
-        # if iter > 1 and iter < 5:# and cycles == 0:
-        #     thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
+        if iter > 0 and iter < 4:# and cycles == 0:
+            # print("--------", iter, "-----------")
+            thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
         # elif iter >= 7:
-        # elif iter >= 5:
-        #     thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
-        if iter < 15:
+        elif iter >= 4:
             thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
             
 
         # if iter > 1 and iter < 7:# and cycles == 0:
-        # if iter > 1 and iter < 5:# and cycles == 0:
-        #     num = int(classes/2)
-        #     newCL = [[] for i in range(classes)]
-        # else:
-        #     num = classes
-        #     newCL = [[] for i in range(classes)]
-        num = classes
-        newCL = [[] for i in range(classes)]
+        if iter > 0 and iter < 4:# and cycles == 0:
+            num = int(classes/2)
+            newCL = [[] for i in range(classes)]
+        else:
+            num = classes
+            newCL = [[] for i in range(classes)]
 
 
         step = int(np.ceil(nExp/expBatchSize))
@@ -388,30 +385,29 @@ class BnBgpu:
 
             
             # if iter > 1 and iter < 7:# and cycles == 0:
-            # if iter > 1 and iter < 5:# and cycles == 0:
-            #
-            #     for n in range(num):
-            #
-            #         class_images = transforIm[
-            #                                 (matches[initBatch:endBatch, 1] == n) &
-            #                                 (matches[initBatch:endBatch, 2] > thr_low[n]) &
-            #                                 (matches[initBatch:endBatch, 2] < thr_high[n])
-            #                             ]
-            #         newCL[n].append(class_images)
-            #
-            #         non_class_images = transforIm[
-            #                                 (matches[initBatch:endBatch, 1] == n) &
-            #                                 (
-            #                                     (matches[initBatch:endBatch, 2] <= thr_low[n]) |
-            #                                     (matches[initBatch:endBatch, 2] >= thr_high[n])
-            #                                 )
-            #                             ]
-            #         newCL[n + num].append(non_class_images)
+            if iter > 0 and iter < 4:# and cycles == 0:
+                
+                for n in range(num):
+                    
+                    class_images = transforIm[
+                                            (matches[initBatch:endBatch, 1] == n) &
+                                            (matches[initBatch:endBatch, 2] > thr_low[n]) &
+                                            (matches[initBatch:endBatch, 2] < thr_high[n])
+                                        ]
+                    newCL[n].append(class_images)
+                    
+                    non_class_images = transforIm[
+                                            (matches[initBatch:endBatch, 1] == n) &
+                                            (
+                                                (matches[initBatch:endBatch, 2] <= thr_low[n]) |
+                                                (matches[initBatch:endBatch, 2] >= thr_high[n])
+                                            )
+                                        ]
+                    newCL[n + num].append(non_class_images)
 
                 
             # elif iter >= 7:  
-            # elif iter >= 5 and iter < 15:
-            if iter < 15:
+            elif iter >= 4 and iter < 15:
       
                 for n in range(num):
                     # class_images = transforIm[matches[initBatch:endBatch, 1] == n]
@@ -458,7 +454,7 @@ class BnBgpu:
             cut = 25 if iter < 5 else 20 
             res_classes = self.frc_resolution_tensor(newCL, sampling, rcut=cut)
             # print("--------RESOLUTION-------")
-            # print(res_classes)
+            print(res_classes)
             # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes) 
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # bfactor = self.estimate_bfactor_from_particles_fast(newCL, sampling)
@@ -667,7 +663,7 @@ class BnBgpu:
                 
             
             del(transforIm)
-            torch.cuda.empty_cache()
+            # torch.cuda.empty_cache()
             
             newCL = [torch.cat(class_images_list, dim=0) for class_images_list in newCL] 
             clk = self.averages(data, newCL, classes)
