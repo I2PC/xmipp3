@@ -331,16 +331,16 @@ class BnBgpu:
             
         
         # if iter > 1 and iter < 7:# and cycles == 0:
-        if iter > 0 and iter < 4:# and cycles == 0:
+        if iter > 0 and iter < 7:# and cycles == 0:
             # print("--------", iter, "-----------")
             thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
-        # elif iter >= 7:
-        elif iter >= 4:
+        elif iter >= 7:
+        # elif iter >= 4:
             thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
             
 
         # if iter > 1 and iter < 7:# and cycles == 0:
-        if iter > 0 and iter < 4:# and cycles == 0:
+        if iter > 0 and iter < 7:# and cycles == 0:
             num = int(classes/2)
             newCL = [[] for i in range(classes)]
         else:
@@ -385,7 +385,7 @@ class BnBgpu:
 
             
             # if iter > 1 and iter < 7:# and cycles == 0:
-            if iter > 0 and iter < 4:# and cycles == 0:
+            if iter > 0 and iter < 7:# and cycles == 0:
                 
                 for n in range(num):
                     
@@ -407,7 +407,7 @@ class BnBgpu:
 
                 
             # elif iter >= 7:  
-            elif iter >= 4 and iter < 15:
+            elif iter >= 7 and iter < 15:
       
                 for n in range(num):
                     # class_images = transforIm[matches[initBatch:endBatch, 1] == n]
@@ -452,7 +452,7 @@ class BnBgpu:
             # res_classes, frc_curves, freq_bins = self.frc_resolution_tensor(newCL, sampling)
             # cut = 25 if iter < 5 else 20 if iter < 12 else 15
             cut = 25 if iter < 5 else 20 
-            res_classes = self.frc_resolution_tensor(newCL, sampling, rcut=cut)
+            res_classes = self.frc_resolution_tensor(newCL, sampling, rcut=cut, apply_window=True)
             # print("--------RESOLUTION-------")
             print(res_classes)
             bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes) 
@@ -672,7 +672,7 @@ class BnBgpu:
             # res_classes = self.frc_resolution_tensor_align(transforIm, matches, classes, sampling)            
 
             
-            res_classes = self.frc_resolution_tensor(newCL, sampling)
+            res_classes = self.frc_resolution_tensor(newCL, sampling,  apply_window=True)
             bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             # bfactor = self.estimate_bfactor_batch(clk, sampling)
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
