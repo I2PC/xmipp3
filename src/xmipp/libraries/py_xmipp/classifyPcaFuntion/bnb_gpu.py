@@ -2098,7 +2098,7 @@ class BnBgpu:
         gy, gx = torch.meshgrid(fy, fx, indexing='ij')
         freq_r = torch.sqrt(gx ** 2 + gy ** 2)
     
-        num_bins = 100
+        num_bins = 200
         freq_linspace = torch.linspace(0, freq_r.max(), num_bins + 1, device=device)
         freq_r_flat = freq_r.flatten()
         bin_idx = torch.bucketize(freq_r_flat, freq_linspace)
