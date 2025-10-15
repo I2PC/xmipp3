@@ -456,9 +456,8 @@ class BnBgpu:
             # print("--------RESOLUTION-------")
             print(res_classes)
             # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes) 
+            bfactor = self.estimate_bfactor_batch(clk, sampling)
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
-            # bfactor = self.estimate_bfactor_from_particles_fast(newCL, sampling)
-            bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             print(bfactor)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
             # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
@@ -674,9 +673,10 @@ class BnBgpu:
 
             
             res_classes = self.frc_resolution_tensor(newCL, sampling)
+            # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
+            bfactor = self.estimate_bfactor_batch(clk, sampling)
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
-            bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes, frc_c=frc_curves, fBins=freq_bins)
             clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
@@ -2086,7 +2086,7 @@ class BnBgpu:
 
     
     @torch.no_grad()
-    def estimate_bfactor_batch(self, averages, pixel_size, res_cutoff, freq_min=0.025, min_points=5):
+    def estimate_bfactor_batch2(self, averages, pixel_size, res_cutoff, freq_min=0.04, min_points=5):
         N, H, W = averages.shape
         device = averages.device
     
@@ -2140,6 +2140,97 @@ class BnBgpu:
             yi = y[i][valid_mask[i]]
     
             if xi.numel() < min_points or torch.any(torch.isnan(yi)) or torch.any(torch.isinf(yi)):
+                continue
+    
+            mean_x = xi.mean()
+            mean_y = yi.mean()
+            mean_xy = (xi * yi).mean()
+            mean_x2 = (xi ** 2).mean()
+    
+            denom = mean_x2 - mean_x ** 2
+            if abs(denom) < 1e-12:
+                continue
+    
+            slope = (mean_xy - mean_x * mean_y) / denom
+            b_factors[i] = -4 * slope
+    
+        b_factors = torch.nan_to_num(b_factors, nan=0.0, posinf=0.0, neginf=0.0)
+        return b_factors
+    
+    @torch.no_grad()
+    def estimate_bfactor_batch(self, averages, pixel_size, res_cutoff=None, freq_min=0.04, min_points=5, nyquist_fraction=0.8):
+        N, H, W = averages.shape
+        device = averages.device
+    
+        # FFT y amplitud
+        fft = torch.fft.fftshift(torch.fft.fft2(averages, norm="forward"), dim=(-2, -1))
+        amplitude = torch.abs(fft)
+    
+        # Frecuencias físicas (Å^-1)
+        fy = torch.fft.fftfreq(H, d=pixel_size).to(device)
+        fx = torch.fft.fftfreq(W, d=pixel_size).to(device)
+        gy, gx = torch.meshgrid(fy, fx, indexing='ij')
+        freq_r = torch.sqrt(gx ** 2 + gy ** 2)
+    
+        # Nyquist físico
+        f_nyquist = 1.0 / (2.0 * pixel_size)
+        max_fit_freq = f_nyquist * nyquist_fraction  # Usamos 80% del Nyquist por defecto
+    
+        num_bins = 200
+        freq_linspace = torch.linspace(0, freq_r.max(), num_bins + 1, device=device)
+        freq_r_flat = freq_r.flatten()
+        bin_idx = torch.bucketize(freq_r_flat, freq_linspace)
+    
+        amplitude_flat = amplitude.view(N, -1)
+        radial_profile = torch.zeros(N, num_bins, device=device)
+    
+        for b in range(N):
+            for i_bin in range(num_bins):
+                mask_bin = (bin_idx == i_bin)
+                if mask_bin.any():
+                    radial_profile[b, i_bin] = torch.median(amplitude_flat[b, mask_bin])
+    
+        # Frecuencia de corte opcional basada en FRC solo para información (no para limitar)
+        if res_cutoff is not None:
+            if torch.is_tensor(res_cutoff):
+                if res_cutoff.numel() == 1:
+                    frc_freq = (1.0 / res_cutoff).repeat(N)
+                elif res_cutoff.numel() == N:
+                    frc_freq = 1.0 / res_cutoff
+                else:
+                    raise ValueError(f"res_cutoff debe ser escalar o tamaño {N}, tiene {res_cutoff.numel()}")
+            else:
+                frc_freq = torch.full((N,), 1.0 / float(res_cutoff), device=device)
+        else:
+            frc_freq = torch.full((N,), max_fit_freq, device=device)
+    
+        freq_centers = (freq_linspace[:-1] + freq_linspace[1:]) / 2
+        freq_centers_exp = freq_centers.unsqueeze(0).expand(N, -1)
+    
+        # NUEVO: límite superior basado SOLO en Nyquist
+        upper_limit = torch.full((N, freq_centers.size(0)), max_fit_freq, device=device)
+    
+        # Definir máscara (no usar FRC como corte duro)
+        valid_mask = (freq_centers_exp > freq_min) & (freq_centers_exp <= upper_limit)
+    
+        amplitude_threshold = 1e-6
+        valid_mask &= (radial_profile > amplitude_threshold)
+    
+        x = freq_centers_exp ** 2
+        y = torch.log(radial_profile + 1e-10)
+    
+        b_factors = torch.full((N,), float('nan'), device=device)
+    
+        for i in range(N):
+            xi = x[i][valid_mask[i]]
+            yi = y[i][valid_mask[i]]
+    
+            if xi.numel() < min_points:
+                print(f"[ADVERTENCIA] Clase {i}: solo {xi.numel()} puntos válidos para ajuste (se necesitan >= {min_points}). "
+                      f"Probable espectro plano o resolución pobre.")
+                continue
+    
+            if torch.any(torch.isnan(yi)) or torch.any(torch.isinf(yi)):
                 continue
     
             mean_x = xi.mean()
