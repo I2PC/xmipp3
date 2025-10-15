@@ -2127,7 +2127,7 @@ class BnBgpu:
         # cutoff_freq_exp = cutoff_freq.unsqueeze(1).expand(-1, freq_centers.size(0))
         
         f_nyquist = 1.0 / (2.0 * pixel_size)
-        factor = 1.2
+        factor = 0.8
         cutoff_freq = cutoff_freq * factor
         cutoff_freq = torch.clamp(cutoff_freq, max=f_nyquist)
         cutoff_freq_exp = cutoff_freq.unsqueeze(1).expand(-1, freq_centers.size(0))
