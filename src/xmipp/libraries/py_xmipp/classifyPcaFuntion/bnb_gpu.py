@@ -455,8 +455,8 @@ class BnBgpu:
             res_classes = self.frc_resolution_tensor(newCL, sampling, rcut=cut)
             # print("--------RESOLUTION-------")
             print(res_classes)
-            # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes) 
-            bfactor = self.estimate_bfactor_batch(clk, sampling)
+            bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes) 
+            # bfactor = self.estimate_bfactor_batch(clk, sampling)
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             print(bfactor)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
@@ -673,8 +673,8 @@ class BnBgpu:
 
             
             res_classes = self.frc_resolution_tensor(newCL, sampling)
-            # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
-            bfactor = self.estimate_bfactor_batch(clk, sampling)
+            bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
+            # bfactor = self.estimate_bfactor_batch(clk, sampling)
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes, frc_c=frc_curves, fBins=freq_bins)
@@ -2086,7 +2086,7 @@ class BnBgpu:
 
     
     @torch.no_grad()
-    def estimate_bfactor_batch(self, averages, pixel_size, res_cutoff=None, freq_min=0.04, min_points=5):
+    def estimate_bfactor_batch(self, averages, pixel_size, res_cutoff, freq_min=0.04, min_points=5):
         N, H, W = averages.shape
         device = averages.device
     
@@ -2098,7 +2098,7 @@ class BnBgpu:
         gy, gx = torch.meshgrid(fy, fx, indexing='ij')
         freq_r = torch.sqrt(gx ** 2 + gy ** 2)
     
-        num_bins = 200
+        num_bins = 100
         freq_linspace = torch.linspace(0, freq_r.max(), num_bins + 1, device=device)
         freq_r_flat = freq_r.flatten()
         bin_idx = torch.bucketize(freq_r_flat, freq_linspace)
@@ -2112,24 +2112,29 @@ class BnBgpu:
                 if mask_bin.any():
                     radial_profile[b, i_bin] = torch.median(amplitude_flat[b, mask_bin])
         
-        if res_cutoff is not None:
-            if torch.is_tensor(res_cutoff):
-                if res_cutoff.numel() == 1:
-                    cutoff_freq = (1.0 / res_cutoff).repeat(N)
-                elif res_cutoff.numel() == N:
-                    cutoff_freq = 1.0 / res_cutoff
-                else:
-                    raise ValueError(f"res_cutoff debe ser escalar o tamaño {N}, tiene {res_cutoff.numel()}")
+        if torch.is_tensor(res_cutoff):
+            if res_cutoff.numel() == 1:
+                cutoff_freq = (1.0 / res_cutoff).repeat(N)
+            elif res_cutoff.numel() == N:
+                cutoff_freq = 1.0 / res_cutoff
             else:
-                cutoff_freq = torch.full((N,), 1.0 / float(res_cutoff), device=device)
+                raise ValueError(f"res_cutoff debe ser escalar o tamaño {N}, tiene {res_cutoff.numel()}")
+        else:
+            cutoff_freq = torch.full((N,), 1.0 / float(res_cutoff), device=device)
     
         freq_centers = (freq_linspace[:-1] + freq_linspace[1:]) / 2
         freq_centers_exp = freq_centers.unsqueeze(0).expand(N, -1)
         # cutoff_freq_exp = cutoff_freq.unsqueeze(1).expand(-1, freq_centers.size(0))
         
-        f_nyquist = 1.0 / (2.0 * pixel_size)  # frecuencia de Nyquist en Å⁻¹
-        cutoff_freq = torch.full((N,), f_nyquist, device=device)
+        f_nyquist = 1.0 / (2.0 * pixel_size)
+        factor = 1.2
+        cutoff_freq = cutoff_freq * factor
+        cutoff_freq = torch.clamp(cutoff_freq, max=f_nyquist)
         cutoff_freq_exp = cutoff_freq.unsqueeze(1).expand(-1, freq_centers.size(0))
+        
+        # f_nyquist = 1.0 / (2.0 * pixel_size)  # frecuencia de Nyquist en Å⁻¹
+        # cutoff_freq = torch.full((N,), f_nyquist, device=device)
+        # cutoff_freq_exp = cutoff_freq.unsqueeze(1).expand(-1, freq_centers.size(0))
     
         valid_mask = (freq_centers_exp > freq_min) & (freq_centers_exp <= cutoff_freq_exp)
         amplitude_threshold = 1e-6
