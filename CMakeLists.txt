@@ -65,6 +65,14 @@ if(NOT DEFINED CMAKE_CXX_STANDARD)
   set(CMAKE_CXX_STANDARD_REQUIRED ON)
 endif()
 
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9.0)
+        message(FATAL_ERROR "GCC version must be at least 9.0. Found ${CMAKE_CXX_COMPILER_VERSION}")
+    endif()
+else()
+    message(WARNING "You are not using GCC. Currenlty, we only officially support GCC.")
+endif()
+
 # Find Python
 find_package(Python3 COMPONENTS Interpreter Development NumPy REQUIRED)
 file(APPEND ${XMIPP_VERSIONS_FILE} "Python3=${Python3_VERSION}\n")
