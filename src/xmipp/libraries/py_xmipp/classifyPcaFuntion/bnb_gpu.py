@@ -331,16 +331,16 @@ class BnBgpu:
             
         
         # if iter > 1 and iter < 7:# and cycles == 0:
-        if iter > 0 and iter < 7:# and cycles == 0:
+        if iter > 0 and iter < 4:# and cycles == 0:
             # print("--------", iter, "-----------")
             thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
-        elif iter >= 7:
-        # elif iter >= 4:
+        # elif iter >= 7:
+        elif iter >= 4:
             thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
             
 
         # if iter > 1 and iter < 7:# and cycles == 0:
-        if iter > 0 and iter < 7:# and cycles == 0:
+        if iter > 0 and iter < 4:# and cycles == 0:
             num = int(classes/2)
             newCL = [[] for i in range(classes)]
         else:
@@ -385,7 +385,7 @@ class BnBgpu:
 
             
             # if iter > 1 and iter < 7:# and cycles == 0:
-            if iter > 0 and iter < 7:# and cycles == 0:
+            if iter > 0 and iter < 4:# and cycles == 0:
                 
                 for n in range(num):
                     
@@ -407,7 +407,7 @@ class BnBgpu:
 
                 
             # elif iter >= 7:  
-            elif iter >= 7 and iter < 15:
+            elif iter >= 4 and iter < 15:
       
                 for n in range(num):
                     # class_images = transforIm[matches[initBatch:endBatch, 1] == n]
@@ -452,23 +452,23 @@ class BnBgpu:
             # res_classes, frc_curves, freq_bins = self.frc_resolution_tensor(newCL, sampling)
             # cut = 25 if iter < 5 else 20 if iter < 12 else 15
             cut = 25 if iter < 5 else 20 
-            res_classes = self.frc_resolution_tensor(newCL, sampling, rcut=cut, apply_window=True)
+            res_classes = self.frc_resolution_tensor(newCL, sampling, rcut=cut)
             # print("--------RESOLUTION-------")
             print(res_classes)
-            bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes) 
+            # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes) 
             # bfactor = self.estimate_bfactor_batch(clk, sampling)
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
-            print(bfactor)
+            # print(bfactor)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
             # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes, frc_c=frc_curves, fBins=freq_bins)
-            clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
+            # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling)
             # clk = self.enhance_averages_butterworth_normF(clk, sampling)
             
             # clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None, normalize=True)
-            # clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling)
+            clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling)
             # print("--------BOOST-------")
             # print(boost.view(1, len(clk)))
             # print("--------SHARPEN-------")
@@ -672,20 +672,20 @@ class BnBgpu:
             # res_classes = self.frc_resolution_tensor_align(transforIm, matches, classes, sampling)            
 
             
-            res_classes = self.frc_resolution_tensor(newCL, sampling,  apply_window=True)
-            bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
+            res_classes = self.frc_resolution_tensor(newCL, sampling)
+            # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes)
             # bfactor = self.estimate_bfactor_batch(clk, sampling)
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes, frc_c=frc_curves, fBins=freq_bins)
-            clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
+            # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
             # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
             # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
             # clk = self.enhance_averages_butterworth(clk, sampling) 
             # clk = self.enhance_averages_butterworth_normF(clk, sampling)
             
             # clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, boost_max=None, normalize=True)
-            # clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling)
+            clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling)
             
             # clk = self.frc_whitening_batch(clk, frc_curves, sampling)
             # clk = self.sigmoid_highboost_filter(clk, sampling)
@@ -3108,8 +3108,8 @@ class BnBgpu:
         # === Ajuste dinámico de sharpen_power por resolución ===
         if sharpen_power is None:
             # sharpen_power = (1.5 - 0.1 * resolutions).clamp(min=0.4, max=1.0)  # regla empírica
-            sharpen_power = (0.1 * resolutions).clamp(min=0.3, max=2.5)
-            # sharpen_power = (0.08 * resolutions).clamp(min=0.3, max=2.0)
+            # sharpen_power = (0.1 * resolutions).clamp(min=0.3, max=2.5)
+            sharpen_power = (0.08 * resolutions).clamp(min=0.3, max=2.5)
   
             sharpen_power = sharpen_power.view(B, 1, 1)  # broadcasting por imagen
         else:
