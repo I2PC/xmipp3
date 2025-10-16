@@ -98,7 +98,7 @@ void ProgFSCoh::fourierShellCoherence(MetaDataVec mapPoolMD)
         row.getValue(MDL_IMAGE, fn_V);
 
         #ifdef VERBOSE_OUTPUT
-        std::cout << "  Processing volume " << fn_V << " for FSC calculation" << std::endl;
+        std::cout << "  Processing volume " << fn_V << " for FSCoh calculation" << std::endl;
         #endif
 
         V.read(fn_V);
@@ -203,8 +203,7 @@ void ProgFSCoh::calculateResolutionThreshold()
 
     std::cout << "  Frequency thresholded at (for FSCoh > " << FSCoh_thr << "): " 
 			  << sampling_rate*(((float)indexThr/(float)NZYXSIZE(FSCoh))) << "A"
-			  << " (normalized " << (0.5*(float)indexThr/(float)NZYXSIZE(FSCoh)) << "A)"
-			  << std::endl;
+			  << " (normalized " << (0.5*(float)indexThr/(float)NZYXSIZE(FSCoh)) << std::endl;
 }
 
 // Utils methods ===================================================================

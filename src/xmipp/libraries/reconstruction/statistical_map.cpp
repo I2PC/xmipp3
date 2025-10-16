@@ -126,26 +126,44 @@ void ProgStatisticalMap::writeWeightedMap(FileName fnIn)
     V.write(fnOut);
 }
 
-void ProgStatisticalMap::writeMask(FileName fnIn) 
+void ProgStatisticalMap::writeMask(FileName fnIn)
 {
+    // Compose filename
     size_t lastSlashPos = fnIn.find_last_of("/\\");
     size_t lastDotPos = fnIn.find_last_of('.');
 
-    FileName newFileName;
-    newFileName = fnIn.substr(lastSlashPos + 1, lastDotPos - lastSlashPos - 1) + "_coincidentMask.mrc";
-    FileName fn_out_coincident_maks = fn_oroot + (fn_oroot.back() == '/' || fn_oroot.back() == '\\' ? "" : "/") + newFileName;
-    newFileName = fnIn.substr(lastSlashPos + 1, lastDotPos - lastSlashPos - 1) + "_differentMask.mrc";
-    FileName fn_out_different_maks = fn_oroot + (fn_oroot.back() == '/' || fn_oroot.back() == '\\' ? "" : "/") + newFileName;
+    // ----------- Coincident Mask -----------
+    FileName newFileName = fnIn.substr(lastSlashPos + 1, lastDotPos - lastSlashPos - 1) + "_coincidentMask.mrc";
+    FileName fn_out_coincident_mask = fn_oroot + (fn_oroot.back() == '/' || fn_oroot.back() == '\\' ? "" : "/") + newFileName;
 
+    int counter = 1;
+    while (std::ifstream(fn_out_coincident_mask)) 
+    {
+        fn_out_coincident_mask = fn_oroot + (fn_oroot.back() == '/' || fn_oroot.back() == '\\' ? "" : "/") +
+            fnIn.substr(lastSlashPos + 1, lastDotPos - lastSlashPos - 1) + "_coincidentMask_" + std::to_string(counter++) + ".mrc";
+    }
+
+    // ----------- Different Mask -----------
+    newFileName = fnIn.substr(lastSlashPos + 1, lastDotPos - lastSlashPos - 1) + "_differentMask.mrc";
+    FileName fn_out_different_mask = fn_oroot + (fn_oroot.back() == '/' || fn_oroot.back() == '\\' ? "" : "/") + newFileName;
+
+    counter = 1;
+    while (std::ifstream(fn_out_different_mask)) 
+    {
+        fn_out_different_mask = fn_oroot + (fn_oroot.back() == '/' || fn_oroot.back() == '\\' ? "" : "/") +
+            fnIn.substr(lastSlashPos + 1, lastDotPos - lastSlashPos - 1) + "_differentMask_" + std::to_string(counter++) + ".mrc";
+    }
+
+    // Write output masks
     Image<int> saveMask;
     saveMask() = coincidentMask;
-    saveMask.write(fn_out_coincident_maks);
+    saveMask.write(fn_out_coincident_mask);
     saveMask() = differentMask;
-    saveMask.write(fn_out_different_maks);
+    saveMask.write(fn_out_different_mask);
 
     #ifdef DEBUG_WRITE_OUTPUT
-    std::cout << "Coincident mask saved at : " << fn_out_coincident_maks <<std::endl;
-    std::cout << "Different mask saved at : " << fn_out_different_maks <<std::endl;
+    std::cout << "Coincident mask saved at : " << fn_out_coincident_mask << std::endl;
+    std::cout << "Different mask saved at : " << fn_out_different_mask << std::endl;
     #endif
 }
 

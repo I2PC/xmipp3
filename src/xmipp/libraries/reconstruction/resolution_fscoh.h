@@ -33,8 +33,8 @@
  #include "core/xmipp_fftw.h"
 
 #define VERBOSE_OUTPUT
-#define DEBUG_DIM
-#define DEBUG_FREQUENCY_MAP
+// #define DEBUG_DIM
+// #define DEBUG_FREQUENCY_MAP
 #define DEBUG_OUTPUT_FILES
 // #define DEBUG_FOURIER_SHELL_NORMALIZE
 
