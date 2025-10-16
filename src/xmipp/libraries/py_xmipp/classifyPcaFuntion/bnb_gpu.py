@@ -331,16 +331,16 @@ class BnBgpu:
             
         
         # if iter > 1 and iter < 7:# and cycles == 0:
-        if iter > 0 and iter < 4:# and cycles == 0:
+        if iter > 0 and iter < 5:# and cycles == 0:
             # print("--------", iter, "-----------")
             thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
         # elif iter >= 7:
-        elif iter >= 4:
+        elif iter >= 5:
             thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
             
 
         # if iter > 1 and iter < 7:# and cycles == 0:
-        if iter > 0 and iter < 4:# and cycles == 0:
+        if iter > 0 and iter < 5:# and cycles == 0:
             num = int(classes/2)
             newCL = [[] for i in range(classes)]
         else:
@@ -385,7 +385,7 @@ class BnBgpu:
 
             
             # if iter > 1 and iter < 7:# and cycles == 0:
-            if iter > 0 and iter < 4:# and cycles == 0:
+            if iter > 0 and iter < 5:# and cycles == 0:
                 
                 for n in range(num):
                     
@@ -407,7 +407,7 @@ class BnBgpu:
 
                 
             # elif iter >= 7:  
-            elif iter >= 4 and iter < 15:
+            elif iter >= 5 and iter < 15:
       
                 for n in range(num):
                     # class_images = transforIm[matches[initBatch:endBatch, 1] == n]
