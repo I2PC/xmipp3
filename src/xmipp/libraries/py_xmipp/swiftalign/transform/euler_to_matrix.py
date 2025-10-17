@@ -35,10 +35,10 @@ def euler_to_matrix(rot: torch.Tensor,
     dtype = rot.dtype
     device = rot.device
     out = torch.empty(result_shape, dtype=dtype, device=device, out=out)
-
-    ai = -psi
+    
+    ai = -rot
     aj = -tilt
-    ak = -rot 
+    ak = -psi 
 
     # Obtain sin and cos of the half angles
     ci = torch.cos(ai)
@@ -49,20 +49,20 @@ def euler_to_matrix(rot: torch.Tensor,
     sk = torch.sin(ak)
     
     # Obtain the combinations
-    ci_ck = ci * ck
-    ci_sk = ci * sk
-    si_ck = si * ck
-    si_sk = si * sk
+    cc = ci * ck
+    cs = ci * sk
+    sc = si * ck
+    ss = si * sk
 
     # Build the matrix
-    out[...,0,0] = cj * ci_ck - si_sk
-    out[...,0,1] = cj * si_ck + ci_sk
+    out[...,0,0] = cj * cc - ss
+    out[...,0,1] = cj * sc + cs
     out[...,0,2] = -sj * ck
-    out[...,1,0] = -cj * ci_sk - si_ck
-    out[...,1,1] = -cj * si_sk + ci_ck
+    out[...,1,0] = -cj * cs - sc
+    out[...,1,1] = -cj * ss + cc
     out[...,1,2] = sj * sk
     out[...,2,0] = sj * ci
     out[...,2,1] = sj * si
     out[...,2,2] = cj
-
+    
     return out
