@@ -61,12 +61,12 @@ class DirectionalTransformer:
             mask = mask.to(compute_context.device, non_blocking=True)
         
         direction_angles = torch.deg2rad(direction_angles)
-        direction_quaternion = transform.euler_to_quaternion(
+        direction_matrix = transform.euler_to_matrix(
             direction_angles[...,0], 
             direction_angles[...,1],
             direction_angles[...,2]
         )
-        self.inv_direction_quaternion = transform.quaternion_conj(direction_quaternion)
+        self.inv_direction_matrix = direction_matrix.mT
         
         compute_context.compute_stream.wait_stream(compute_context.h2d_transfer_stream)
         with torch.cuda.stream(compute_context.compute_stream):
@@ -86,25 +86,20 @@ class DirectionalTransformer:
         
         centre = torch.tensor(images.shape[-2:]) / 2
         angles = torch.deg2rad(angles)
-        quaternions = transform.euler_to_quaternion(
+        pose = transform.euler_to_matrix(
             angles[...,0], 
             angles[...,1],
             angles[...,2]
-        )                
-        
-        quaternions = transform.quaternion_product(
-            self.inv_direction_quaternion, 
-            quaternions
         )
-        matrices_3d = transform.quaternion_to_matrix(quaternions)
+        pose = self.inv_direction_matrix @ pose
         
         matrices = torch.empty(
             images.shape[:2] + (2, 3),
             pin_memory=True,
-            dtype=matrices_3d.dtype
+            dtype=pose.dtype
         )
         matrices = transform.align_inplane(
-            matrices_3d=matrices_3d,
+            matrices_3d=pose,
             shifts=shifts,
             centre=centre,
             out=matrices
@@ -127,7 +122,7 @@ class DirectionalTransformer:
         compute_context.d2h_transfer_stream.wait_stream(compute_context.compute_stream)
         with torch.cuda.stream(compute_context.d2h_transfer_stream):
             out.copy_(result, non_blocking=True)
-
+        
         return out
 
 def preprocess_direction(direction_md: pd.DataFrame,
@@ -179,6 +174,7 @@ def save_direction(index: int, pca, data: np.ndarray, mask: np.ndarray, output_r
     mean = pca.mean_.squeeze()
     average_image = np.zeros_like(mask, dtype=mean.dtype)
     average_image[mask] = mean
+    
     image.write(average_image, os.path.join(output_root, f'{index:06d}_average.mrc'))
     
     components = pca.components_
@@ -242,7 +238,7 @@ if __name__ == '__main__':
     parser.add_argument('-i', required=True)
     parser.add_argument('-o', required=True)
     parser.add_argument('-k', default=8, type=int)
-    parser.add_argument('--batch', type=int, default=1024)
+    parser.add_argument('--batch', type=int, default=256)
     parser.add_argument('--device', nargs='*')
 
     # Parse
