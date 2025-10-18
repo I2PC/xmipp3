@@ -285,7 +285,7 @@ class BnBgpu:
     
     
     @torch.no_grad()
-    def get_robust_zscore_thresholds(self, classes, matches, threshold=2.0):
+    def get_robust_zscore_thresholds2(self, classes, matches, threshold=2.0):
 
         thr_low = torch.full((classes,), float('-inf'))
         thr_high = torch.full((classes,), float('inf'))
@@ -302,6 +302,38 @@ class BnBgpu:
                 vmax = torch.max(matches[matches[:, 1] == n, 2])
                 # print("dist", vmin, vmax)
                 # print("thr",   thr_low[n], thr_high[n])
+    
+        return thr_low, thr_high
+    
+    
+    @torch.no_grad()
+    def get_robust_zscore_thresholds(self, classes, matches, threshold=2.0, bins=200):
+        
+        thr_low = torch.full((classes,), float('-inf'), device=matches.device)
+        thr_high = torch.full((classes,), float('inf'), device=matches.device)
+    
+        for n in range(classes):
+            class_scores = matches[matches[:, 1] == n, 2]
+            if class_scores.numel() > 2:
+                vals = class_scores.cpu().numpy()
+                hist, edges = np.histogram(vals, bins=bins)
+                mode_idx = hist.argmax()
+    
+                # valores dentro del bin de la moda
+                bin_mask = (vals >= edges[mode_idx]) & (vals < edges[mode_idx + 1])
+                bin_values = class_scores[torch.tensor(bin_mask, device=class_scores.device)]
+    
+                # centro = mediana dentro del bin de la moda
+                if len(bin_values) > 0:
+                    center = bin_values.median()
+                else:
+                    center = torch.tensor((edges[mode_idx] + edges[mode_idx+1]) / 2.0, device=class_scores.device)
+    
+                # MAD simétrica
+                mad = torch.median(torch.abs(class_scores - center)) + 1e-8
+    
+                thr_low[n] = center - threshold * mad
+                thr_high[n] = center + threshold * mad
     
         return thr_low, thr_high
     
