@@ -401,11 +401,13 @@ class BnBgpu:
             
    
             if mask:
-                # sigma_gauss = (0.75*sigma) if (iter < 10 and iter % 2 == 1) else (1.25*sigma) if iter < 10 else sigma
-                sigma_gauss = (0.75*sigma) if (iter < 10 and iter % 2 == 1) else (sigma)# if iter < 10 else sigma
-                # sigma_gauss = (0.75 * sigma if (iter < 10 and iter % 2 == 1)
-                #                else 1.25 * sigma if iter > 15
-                #                else sigma)
+                # sigma_gauss = (0.75*sigma) if (iter < 10 and iter % 2 == 1) else (sigma)# if iter < 10 else sigma
+
+                sigma_gauss = (
+                                0.75 * sigma if (iter < 10 and iter % 2 == 1)
+                                else 0.5 * sigma if (10 < iter < 15)
+                                else sigma
+                            )
                 transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma_gauss)
             else:
                 transforIm = transforIm * self.create_circular_mask(transforIm)
@@ -3140,8 +3142,8 @@ class BnBgpu:
         # === Ajuste dinámico de sharpen_power por resolución ===
         if sharpen_power is None:
             # sharpen_power = (1.5 - 0.1 * resolutions).clamp(min=0.4, max=1.0)  # regla empírica
-            sharpen_power = (0.1 * resolutions).clamp(min=0.3, max=2.5)
-            # sharpen_power = (0.08 * resolutions).clamp(min=0.3, max=2.5)
+            # sharpen_power = (0.1 * resolutions).clamp(min=0.3, max=2.5)
+            sharpen_power = (0.08 * resolutions).clamp(min=0.3, max=2.5)
   
             sharpen_power = sharpen_power.view(B, 1, 1)  # broadcasting por imagen
         else:
