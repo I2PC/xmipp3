@@ -544,12 +544,12 @@ class BnBgpu:
                                 intensity_percentile=50, smooth_sigma=1.0)
 
         
-  
-        clk = clk * self.create_circular_mask(clk)
-        
         # if iter > 2 and iter < 12:
-        #     for _ in range(2):
-        #         clk = self.center_by_com(clk)                  
+        if iter < 12:
+            for _ in range(2):
+                clk = self.center_by_com(clk)  
+        
+        clk = clk * self.create_circular_mask(clk)                
         
         return(clk, tMatrix, batch_projExp_cpu)
         
