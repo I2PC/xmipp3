@@ -13,6 +13,7 @@ import torchvision.transforms.functional as T
 import torch.nn.functional as F
 import kornia
 import mrcfile
+import random
 
 
 
@@ -401,13 +402,13 @@ class BnBgpu:
             
    
             if mask:
-                # sigma_gauss = (0.75*sigma) if (iter < 10 and iter % 2 == 1) else (sigma)# if iter < 10 else sigma
+                sigma_gauss = (0.75*sigma) if (iter < 10 and iter % 2 == 1) else (sigma)# if iter < 10 else sigma
 
-                sigma_gauss = (
-                                0.75 * sigma if (iter < 10 and iter % 2 == 1)
-                                else 0.5 * sigma if (10 < iter < 15)
-                                else sigma
-                            )
+                # sigma_gauss = (
+                #                 0.75 * sigma if (iter < 10 and iter % 2 == 1)
+                #                 else 0.5 * sigma if (10 < iter < 15)
+                #                 else sigma
+                #             )
                 transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma_gauss)
             else:
                 transforIm = transforIm * self.create_circular_mask(transforIm)
@@ -535,23 +536,19 @@ class BnBgpu:
 
         if iter in [10, 13]:
             clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
-                                intensity_percentile=50, contrast_weight=1.5, intensity_weight=1.0, smooth_sigma=1.0)
-        # if 3 < iter < 7 and iter % 2 == 0:
-        # if 3 < iter < 7 and iter % 2 == 0:
+                                intensity_percentile=50, smooth_sigma=1.0)
         if 1 < iter < 7 and iter % 2 == 0:
             # clk = clk * self.approximate_otsu_threshold(clk, percentile=10)
             clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
-                                intensity_percentile=50, contrast_weight=1.5, intensity_weight=1.0, smooth_sigma=1.0)
+                                intensity_percentile=50, smooth_sigma=1.0)
 
         
-        # if iter < 17:
-        #     clk = self.auto_generate_masks(clk)    
+  
         clk = clk * self.create_circular_mask(clk)
         
-        # if iter > 2 and iter < 15:
-        if iter > 2 and iter < 12:
-            for _ in range(2):
-                clk = self.center_by_com(clk)                  
+        # if iter > 2 and iter < 12:
+        #     for _ in range(2):
+        #         clk = self.center_by_com(clk)                  
         
         return(clk, tMatrix, batch_projExp_cpu)
         
@@ -3790,6 +3787,23 @@ class BnBgpu:
                 
         return(expBatchSize, expBatchSize2, numFirstBatch)
     
+    
+    def apply_jitter_annealing(self, min_val, max_val, step, iter, max_iter, 
+                           max_range_jitter=0.1, max_step_jitter=0.2):
+
+        # Factor de annealing: empieza en 1 y decae linealmente a 0
+        factor = max(0, 1 - iter / max_iter)
+    
+        # Jitter proporcional al factor
+        range_jitter = factor * max_range_jitter
+        step_jitter = factor * max_step_jitter
+    
+        min_j = min_val + random.uniform(-abs(min_val) * range_jitter, abs(min_val) * range_jitter)
+        max_j = max_val + random.uniform(-abs(max_val) * range_jitter, abs(max_val) * range_jitter)
+        step_j = step + random.uniform(-abs(step) * step_jitter, abs(step) * step_jitter)
+        
+        return min_j, max_j, max(step_j, 1)  # Step mínimo 1
+    
        
     
     def determine_ROTandSHIFT(self, iter, mode, dim):
@@ -3804,42 +3818,39 @@ class BnBgpu:
         
         if mode == "create_classes":
             #print("---Iter %s for creating classes---"%(iter+1))
-            # if iter < 5:
-            #     ang, shiftMove = (-180, 180, 6), (-maxShift, maxShift+4, 4)
-            # elif iter < 8:
-            #     ang, shiftMove = (-180, 180, 4), (-8, 10, 2)
-            # elif iter < 11:
-            #     ang, shiftMove = (-90, 92, 2), (-6, 8, 2)
-            # elif iter < 14:
-            #     ang, shiftMove = (-30, 31, 1), (-3, 4, 1)
             
-            #print("---Iter %s for creating classes---"%(iter+1))
-            # if iter < 5:
+            # if iter < 4:
             #     ang, shiftMove = (-180, 180, 10), (-maxShift_20, maxShift_20+5, 5)
-            #     # ang, shiftMove = (-180, 180, 10), (-maxShift_15, maxShift_15+4, 4)
-            # elif iter < 10:
+            # elif iter < 7:
             #     ang, shiftMove = (-180, 180, 8), (-maxShift_15, maxShift_15+4, 4)
-            # elif iter < 13:
+            # elif iter < 10:
             #     ang, shiftMove = (-180, 180, 6), (-12, 16, 4)
-            # elif iter < 16:
+            # elif iter < 13:
             #     ang, shiftMove = (-180, 180, 4), (-8, 10, 2)
-            # elif iter < 19:
+            # elif iter < 18:
             #     ang, shiftMove = (-90, 92, 2), (-6, 8, 2)
-            # elif iter < 22:
-            #     ang, shiftMove = (-30, 31, 1), (-3, 4, 1)   
             
+            
+            max_iter = 18
             if iter < 4:
-                ang, shiftMove = (-180, 180, 10), (-maxShift_20, maxShift_20+5, 5)
+                ang = self.apply_jitter_annealing(-180, 180, 10, iter, max_iter)
+                shiftMove = self.apply_jitter_annealing(-maxShift_20, maxShift_20+5, 5, iter, max_iter)
             elif iter < 7:
-                ang, shiftMove = (-180, 180, 8), (-maxShift_15, maxShift_15+4, 4)
+                ang = self.apply_jitter_annealing(-180, 180, 8, iter, max_iter)
+                shiftMove = self.apply_jitter_annealing(-maxShift_15, maxShift_15+4, 4, iter, max_iter)
             elif iter < 10:
-                ang, shiftMove = (-180, 180, 6), (-12, 16, 4)
+                ang = self.apply_jitter_annealing(-180, 180, 6, iter, max_iter)
+                shiftMove = self.apply_jitter_annealing(-12, 16, 4, iter, max_iter)
             elif iter < 13:
-                ang, shiftMove = (-180, 180, 4), (-8, 10, 2)
+                ang = self.apply_jitter_annealing(-180, 180, 4, iter, max_iter)
+                shiftMove = self.apply_jitter_annealing(-8, 10, 2, iter, max_iter)
             elif iter < 18:
-                ang, shiftMove = (-90, 92, 2), (-6, 8, 2)
-            # elif iter < 19:
-            #     ang, shiftMove = (-30, 31, 1), (-3, 4, 1)           
+                ang = self.apply_jitter_annealing(-90, 92, 2, iter, max_iter)
+                shiftMove = self.apply_jitter_annealing(-6, 8, 2, iter, max_iter)
+                
+            print(ang)
+            print(shiftMove)
+         
                 
         else:
             #print("---Iter %s for align to classes---"%(iter+1))
