@@ -1,15 +1,15 @@
 #Protocols ussing the enviroment: protocol_deepMicrographScreen
-# requires other channels apart from conda-forge to install tensorflow-gpu 1.12
 name: xmipp_MicCleaner
 channels:
   - conda-forge
-  - rsanchez1369
 dependencies:
-  - python=3.6
-  - micrograph-cleaner-em=0.35
+  - python=3.9
   - libstdcxx-ng # To be compatible with scipion env
+  - cudatoolkit=11.8
+  - cudnn=8.9.*
   - pip
   - pip:
-    - absl-py<0.12
+    - micrograph-cleaner-em==1.0.2
+
 
 
