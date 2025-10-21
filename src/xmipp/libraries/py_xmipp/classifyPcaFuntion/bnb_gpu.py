@@ -402,8 +402,8 @@ class BnBgpu:
             
    
             if mask:
-                # sigma_gauss = (0.75*sigma) if (iter < 10 and iter % 2 == 1) else (sigma)# if iter < 10 else sigma
-                sigma_gauss = (0.5*sigma) if (iter < 5) else (0.5*sigma) if (5 <= iter < 10 and iter % 2 == 1) else sigma
+                sigma_gauss = (0.5*sigma) if (iter < 10 and iter % 2 == 1) else (sigma)# if iter < 10 else sigma
+                # sigma_gauss = (0.5*sigma) if (iter < 5) else (0.5*sigma) if (5 <= iter < 10 and iter % 2 == 1) else sigma
 
                 # sigma_gauss = (
                 #                 0.75 * sigma if (iter < 10 and iter % 2 == 1)
