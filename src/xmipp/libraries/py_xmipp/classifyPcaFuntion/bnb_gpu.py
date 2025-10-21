@@ -544,8 +544,8 @@ class BnBgpu:
                                 intensity_percentile=50, smooth_sigma=1.0)
 
         
-        # if iter > 2 and iter < 12:
-        if iter < 12:
+        if iter > 2 and iter < 12:
+        # if iter < 12:
             for _ in range(2):
                 clk = self.center_by_com(clk)  
         
@@ -3835,40 +3835,40 @@ class BnBgpu:
             max_iter = 18
             if iter < 4:
                 ang = self.apply_jitter_annealing(-180, 180, 10, iter, max_iter)
-                # shiftMove = self.apply_jitter_annealing(-maxShift_20, maxShift_20+5, 5, iter, max_iter)
-                shiftMove = self.apply_jitter_annealing(-9, 12, 3, iter, max_iter)
+                shiftMove = self.apply_jitter_annealing(-maxShift_20, maxShift_20+5, 5, iter, max_iter)
+                # shiftMove = self.apply_jitter_annealing(-9, 12, 3, iter, max_iter)
             elif iter < 7:
                 ang = self.apply_jitter_annealing(-180, 180, 8, iter, max_iter)
-                # shiftMove = self.apply_jitter_annealing(-maxShift_15, maxShift_15+4, 4, iter, max_iter)
-                shiftMove = self.apply_jitter_annealing(-9, 12, 3, iter, max_iter)
+                shiftMove = self.apply_jitter_annealing(-maxShift_15, maxShift_15+4, 4, iter, max_iter)
+                # shiftMove = self.apply_jitter_annealing(-9, 12, 3, iter, max_iter)
             elif iter < 10:
                 ang = self.apply_jitter_annealing(-180, 180, 6, iter, max_iter)
-                # shiftMove = self.apply_jitter_annealing(-12, 16, 4, iter, max_iter)
-                shiftMove = self.apply_jitter_annealing(-6, 8, 2, iter, max_iter)
+                shiftMove = self.apply_jitter_annealing(-12, 16, 4, iter, max_iter)
+                # shiftMove = self.apply_jitter_annealing(-6, 8, 2, iter, max_iter)
             elif iter < 13:
                 ang = self.apply_jitter_annealing(-180, 180, 4, iter, max_iter)
-                # shiftMove = self.apply_jitter_annealing(-8, 10, 2, iter, max_iter)
-                shiftMove = self.apply_jitter_annealing(-6, 8, 2, iter, max_iter)
+                shiftMove = self.apply_jitter_annealing(-8, 10, 2, iter, max_iter)
+                # shiftMove = self.apply_jitter_annealing(-6, 8, 2, iter, max_iter)
             elif iter < 18:
                 ang = self.apply_jitter_annealing(-90, 92, 2, iter, max_iter)
-                # shiftMove = self.apply_jitter_annealing(-6, 8, 2, iter, max_iter)
-                shiftMove = self.apply_jitter_annealing(-3, 4, 1, iter, max_iter)
+                shiftMove = self.apply_jitter_annealing(-6, 8, 2, iter, max_iter)
+                # shiftMove = self.apply_jitter_annealing(-3, 4, 1, iter, max_iter)
                 
-            print(ang)
-            print(shiftMove)
+            # print(ang)
+            # print(shiftMove)
          
                 
         else:
             #print("---Iter %s for align to classes---"%(iter+1))
             if iter < 1:
-                # ang, shiftMove = (-180, 180, 6), (-maxShift_15, maxShift_15+4, 4)
-                 ang, shiftMove = (-180, 180, 6), (-9, 12, 3)
+                ang, shiftMove = (-180, 180, 6), (-maxShift_15, maxShift_15+4, 4)
+                 # ang, shiftMove = (-180, 180, 6), (-9, 12, 3)
             elif iter < 2:
-                # ang, shiftMove = (-180, 180, 4), (-8, 10, 2)
-                ang, shiftMove = (-180, 180, 4), (-6, 8, 2)
+                ang, shiftMove = (-180, 180, 4), (-8, 10, 2)
+                # ang, shiftMove = (-180, 180, 4), (-6, 8, 2)
             elif iter < 3:
-                # ang, shiftMove = (-90, 92, 2), (-6, 8, 2)
-                ang, shiftMove = (-90, 92, 2), (-3, 4, 1)
+                ang, shiftMove = (-90, 92, 2), (-6, 8, 2)
+                # ang, shiftMove = (-90, 92, 2), (-3, 4, 1)
             # elif iter < 4:
             #     ang, shiftMove = (-30, 31, 1), (-3, 4, 1)
            
