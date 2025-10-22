@@ -1,1 +1,1 @@
-/home/fpdeisidro/cryoEMTools/xmippScripts/radialAverage3DFT.cpp
+/home/fpdeisidro/Repos/cryoEMTools/xmippScripts/radialAverage3DFT.cpp
