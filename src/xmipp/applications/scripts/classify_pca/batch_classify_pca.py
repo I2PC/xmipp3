@@ -319,7 +319,7 @@ if __name__=="__main__":
                             matches = bnb.match_batch(batch_projExp, batch_projRef, init, matches, rot, nShift)    
                             del(batch_projExp)
                             count+=1    
-                    del(batch_projRef)  
+                    # del(batch_projRef)  
                     
                     if mode == "create_classes":
                         # res_map = {5: 15, 8: 12, 15: highRes}
