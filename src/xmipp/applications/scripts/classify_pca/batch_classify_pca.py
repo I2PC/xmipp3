@@ -303,7 +303,11 @@ if __name__=="__main__":
                         # print("---Precomputing the projections of the reference images---")          
                         batch_projRef = bnb.precalculate_projection(cl, freqBn, grid_flat, 
                                                             coef, cvecs, float(rot), vectorshift)
-                
+                        
+                        size_bytes = sum(t.numel() * t.element_size() for t in batch_projRef)
+                        size_mb = size_bytes / (1024 ** 2)
+                        print(f"Tamaño total: {size_mb:.2f} MB")
+
                         count = 0  
                         steps = initStep if mode == "create_classes" else 1 
                                     
@@ -319,7 +323,8 @@ if __name__=="__main__":
                             matches = bnb.match_batch(batch_projExp, batch_projRef, init, matches, rot, nShift)    
                             del(batch_projExp)
                             count+=1    
-                    # del(batch_projRef)  
+                    del(batch_projRef)  
+                    exit()
                     
                     if mode == "create_classes":
                         # res_map = {5: 15, 8: 12, 15: highRes}
