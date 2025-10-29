@@ -2,8 +2,6 @@
 
 name: xtomo_tigre
 channels:
-  - anaconda
-  - defaults
   - conda-forge
   - ccpi
 dependencies:
@@ -11,4 +9,6 @@ dependencies:
   - mrcfile
   - numpy
   - tigre
+  - libstdcxx-ng # To be compatible with scipion env
+
 

@@ -20,9 +20,7 @@ For developers, it becomes handy to install Xmipp in an external directory for e
 
 The first step is to download Xmipp sources:
 
-`git clone https://github.com/I2PC/xmipp.git`
-
-`cd xmipp`
+`git clone https://github.com/I2PC/xmipp.git xmipp-bundle & cd xmipp-bundle`
 
 If you want to checkout an scpecific branch use the following command. For repositories where the branch does not exist, devel is utilized.
 

@@ -1,18 +1,22 @@
-#Protocols ussing the enviroment: protocol_deepHand
+#Protocols ussing the enviroment: protocol_deepHand, classify_pca
 
 name: xmipp_pyTorch
 channels:
-  - anaconda
-  - defaults
   - conda-forge
   - pytorch
-  - nvidia
 dependencies:
   - python=3.10
   - numpy=1.23
   - mrcfile=1.4.3
   - kornia=0.6.8  #The last that is provided as *.bz2 extension
   - starfile=0.4.11 #The last that that is provided as *.bz2 extension
-  - pytorch==1.13.1
-  - pytorch-cuda=11.7
-  - torchvision=0.14
+  - requests=2
+  - pillow
+  - libstdcxx-ng # To be compatible with scipion env
+  - pytorch-gpu=1.13.1
+  - torchvision=0.14.0
+  - cudatoolkit=11.3
+  - libcurl=7
+  - pip
+  - pip:
+      - numpy==1.23

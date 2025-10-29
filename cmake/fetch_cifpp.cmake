@@ -30,7 +30,7 @@ function(fetch_cifpp)
 
   FetchContent_Declare(
 		libcifpp
-		GIT_REPOSITORY https://github.com/MartinSalinas98/libcifpp.git
+		GIT_REPOSITORY https://github.com/I2PC/libcifpp.git
 		GIT_TAG ms_feature_ciflibrary
 	)
 	FetchContent_MakeAvailable(libcifpp)

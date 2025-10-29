@@ -1,15 +1,15 @@
 #Protocols ussing the enviroment:
-#xmipp_deep_misalingment_detection
+#xmipp_deep_misalingment_detection, protocol_deep_center, protocol_deep_center_predict
 
 name: xmipp_DLTK_v1.0
 channels:
-  - anaconda
   - conda-forge
-  - defaults
 dependencies:
   - python=3.8
-  - tensorflow=2.7
-  - keras=2.7
+  - libstdcxx-ng # To be compatible with scipion env
   - pip
   - pip:
-      - numpy==1.23
+      - tensorflow==2.7
+      - numpy==1.22
+      - absl-py<0.12
+      - protobuf==3.20.3

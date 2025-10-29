@@ -72,7 +72,7 @@ void ProgSymmetrize::defineParams()
     addParamsLine("                         : Cnv, Cnh, Sn, Dn, Dnv, Dnh, T, Td, Th, O, Oh");
     addParamsLine("                         : I, I1, I2, I3, I4, I5, Ih, helical, dihedral, helicalDihedral");
     addParamsLine("                         :+ For a full description of symmetries look at");
-    addParamsLine("                         :+ http://xmipp.cnb.csic.es/twiki/bin/view/Xmipp/Symmetry");
+    addParamsLine("                         :+ https://i2pc.github.io/docs/Utils/Conventions/index.html#symmetry");
     addParamsLine("   [--sym2 <sym2=C1>]    : Only for helical, or helicalDihedral");
     addParamsLine("                         : You may use any other Cn symmetry");
     addParamsLine("   [--helixParams <z> <rot> <rotPhase=0>]: Helical parameters z(Angstroms), rot(degrees), rotPhase(degrees)");

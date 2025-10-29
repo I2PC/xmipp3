@@ -210,12 +210,12 @@ class DeepTFSupervised(object):
       if auto_stop:
         cBacks+= [ keras.callbacks.EarlyStopping(monitor='val_acc', min_delta=0.001, patience=10, verbose=1) ]
 
-      cBacks+= [ keras.callbacks.ReduceLROnPlateau(monitor='val_acc', factor=0.1, patience=3, cooldown=1, 
+      cBacks+= [ keras.callbacks.ReduceLROnPlateau(monitor='val_acc', factor=0.1, patience=3, cooldown=1,
                  min_lr= learningRate*1e-3, verbose=1) ]
 
       history = self.nNetModel.fit_generator(dataManagerTrain.getTrainIterator(),steps_per_epoch= CHECK_POINT_AT,
                                  validation_data=dataManagerTrain.getValidationIterator( batchesPerEpoch= n_batches_per_epoch_val), 
-                                 validation_steps=n_batches_per_epoch_val, callbacks=cBacks, epochs=nEpochs, 
+                                 validation_steps=n_batches_per_epoch_val, callbacks=cBacks, epochs=nEpochs,
                                  use_multiprocessing=True, verbose=2)
 
       last_val_acc = history.history['val_acc'][-1]

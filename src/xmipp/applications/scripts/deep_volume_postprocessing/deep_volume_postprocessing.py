@@ -94,7 +94,7 @@ class ScriptMicrographCleanerEm(XmippScript):
         if self.checkParam('--checkpoint'):
           params += " --deepLearningModelPath %s "%os.path.expanduser(self.getParam("--checkpoint"))
         else:
-          params += " --deepLearningModelPath  %s "%XmippScript.getModel("deepEMhancer", "production_checkpoints/deepEMhancer_tightTarget.hd5")
+          params += " --deepLearningModelPath  %s "%XmippScript.getModel("deepEMhancer_v016", "production_checkpoints/deepEMhancer_tightTarget.hd5")
 
         if self.checkParam('--sampling_rate'):
           params += " --samplingRate %f " %  self.getDoubleParam('--sampling_rate')

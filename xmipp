@@ -220,7 +220,10 @@ def modeGetSources(args: argparse.Namespace):
 	- args (Namespace): Command line arguments parsed by argparse library.
 	"""
 	# Clone sources from specified branch
-	getSources(branch=args.branch, production=args.production)
+	if hasattr(args, "production"):
+		getSources(branch=args.branch, production=args.production)
+	else:
+		getSources(branch=args.branch)
 
 def modeGit(args: argparse.Namespace):
 	"""
@@ -371,7 +374,7 @@ if __name__ == "__main__":
 	allSubparser = subparsers.add_parser(MODE_ALL, formatter_class=ModeHelpFormatter)
 	allSubparser.add_argument(*getParamNames(PARAM_JOBS), type=int, default=JOBS)
 	allSubparser.add_argument(*getParamNames(PARAM_BRANCH))
-	allSubparser.add_argument(*getParamNames(PARAM_PRODUCTION), type=bool, default=False)
+	allSubparser.add_argument(*getParamNames(PARAM_PRODUCTION))
 	allSubparser.add_argument(*getParamNames(PARAM_KEEP_OUTPUT), action='store_true')
 
 	# Arguments for mode 'cleanAll'

@@ -123,7 +123,7 @@ void ProgRecWbp::defineParams()
     addParamsLine(
         "                               :+Td, Th, O, Oh I, I1, I2, I3, I4, I5, Ih. For a full ");
     addParamsLine(
-        "                               :+description of symmetries look at http://xmipp.cnb.csic.es/twiki/bin/view/Xmipp/Symmetry");
+        "                               :+description of symmetries look at https://i2pc.github.io/docs/Utils/Conventions/index.html#symmetry");
     addParamsLine(
         " [ --threshold+ <float=0.005> ] : Lower (relative) threshold for filter values ");
     addParamsLine(

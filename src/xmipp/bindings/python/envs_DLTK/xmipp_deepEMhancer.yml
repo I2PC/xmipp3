@@ -2,12 +2,13 @@
 
 name: xmipp_deepEMhancer
 channels:
-  - anaconda
-  - defaults
-  - rsanchez1369
   - conda-forge
+  - rsanchez1369
 dependencies:
-  - python=3.6
-  - deepemhancer=0.12
-  - numba=0.45
+  - python=3.10
+  - deepemhancer=0.16 #CUDA > 10 required. Drivers nvidia >= 450.80.02
+  - numba
+  - h5py
+  - libstdcxx-ng # To be compatible with scipion env
+
 
