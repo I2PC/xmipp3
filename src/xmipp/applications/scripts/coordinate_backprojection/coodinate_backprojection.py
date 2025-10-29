@@ -208,7 +208,6 @@ class ScriptCoordinateBackProjection(XmippScript):
         
         deltas = None
         backprojectedDeltas = None
-        distances2 = None
         oldLogLikelihood = -np.inf
         while True:
             n = np.zeros(len(positions))
