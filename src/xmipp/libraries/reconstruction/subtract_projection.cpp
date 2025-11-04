@@ -498,7 +498,7 @@ void ProgSubtractProjection::noiseEstimation()
 	#endif
 
     srand(time(0)); // Seed for random number generation
-	double scallignFactor = (Xdim * Ydim) / (cropSize * cropSize);
+	double scallignFactor = (Xdim * Ydim) / (PI * cropRadius * cropRadius);
     bool invalidRegion;
     MultidimArray< double > noiseCrop;
 
@@ -512,17 +512,22 @@ void ProgSubtractProjection::noiseEstimation()
 		invalidRegion = false;
 		noiseCrop.initZeros((int)Ydim, (int)Xdim);
 
-		int x = min_noiseEst + rand() % (max_noiseEst - min_noiseEst + 1);
-		int y = min_noiseEst + rand() % (max_noiseEst - min_noiseEst + 1);
+		int x = min_noiseEst + cropRadius + rand() % (max_noiseEst - min_noiseEst + 1 - 2*cropRadius);
+		int y = min_noiseEst + cropRadius + rand() % (max_noiseEst - min_noiseEst + 1 - 2*cropRadius);
 
 		#ifdef DEBUG_NOISE_ESTIMATION
 		std::cout << "x  " << x << " y " << y  << std::endl;
 		#endif
 
-		for (size_t i = 0; i < cropSize; i++)
+		for (int i = -cropRadius; i <= cropRadius; i++)
 		{
-			for (size_t j = 0; j < cropSize; j++)
+			for (int j = -cropRadius; j <= cropRadius; j++)
 			{
+				// Impose circular shape
+				if (i*i + j*j > cropRadius*cropRadius) 
+				{
+					continue;
+				}
 
 				if (DIRECT_A2D_ELEM(Pmask(), y + i, x + j) == 0 || DIRECT_A2D_ELEM(PmaskRoi(), y + i, x + j) > 0)	// FIX: si no se ha dado una ROI mask falla
 				{
@@ -535,11 +540,7 @@ void ProgSubtractProjection::noiseEstimation()
 					break;
 				}
 
-				#ifdef DEBUG_NOISE_ESTIMATION
-				std::cout << "(Ydim/2) - (cropSize/2) + i  " << (Ydim/2) - (cropSize/2) + i << " (Xdim/2) - (cropSize/2) + j " << (Xdim/2) - (cropSize/2) + j << std::endl;
-				#endif
-
-				DIRECT_A2D_ELEM(noiseCrop,  (Ydim/2) - (cropSize/2) + i, (Xdim/2) - (cropSize/2) + j) = scallignFactor * DIRECT_A2D_ELEM(Idiff(), y + i, x + j);
+				DIRECT_A2D_ELEM(noiseCrop,  (Ydim/2) + i, (Xdim/2) + j) = scallignFactor * DIRECT_A2D_ELEM(Idiff(), y + i, x + j);
 			}
 
 			if (invalidRegion) {

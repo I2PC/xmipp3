@@ -36,7 +36,7 @@
 
 //  #define DEBUG
 //  #define DEBUG_OUTPUT_FILES
-//  #define DEBUG_NOISE_ESTIMATION
+ #define DEBUG_NOISE_ESTIMATION
 
 
 /**@defgroup ProgSubtractProjection Subtract projections
@@ -78,7 +78,7 @@ class ProgSubtractProjection: public XmippMetadataProgram
     // Variables for noise estimation
     bool noiseEstimationBool;
     MultidimArray< double > powerNoise;
-    size_t cropSize = 11; // Crop size to properly estimate noise
+    int cropRadius = 5; // Crop size to estimate noise power
     int max_noiseEst;
     int min_noiseEst;
 
