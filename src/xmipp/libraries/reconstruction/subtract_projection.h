@@ -36,7 +36,7 @@
 
 //  #define DEBUG
 //  #define DEBUG_OUTPUT_FILES
- #define DEBUG_NOISE_ESTIMATION
+//  #define DEBUG_NOISE_ESTIMATION
 
 
 /**@defgroup ProgSubtractProjection Subtract projections
