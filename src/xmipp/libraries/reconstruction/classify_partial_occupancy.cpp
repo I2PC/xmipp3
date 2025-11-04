@@ -682,6 +682,8 @@ void ProgClassifyPartialOccupancy::noiseEstimation()
 	#endif
 }
 
+// Este metodo aisla cada region de interes segun la mascara proyectada y luego las analiza individualmetne 
+// comparando la region sustrayendo la proyeccion del volumen de referencia vs la region itself
 void ProgClassifyPartialOccupancy::compareRegions(double &ll_I, double &ll_IsubP, const FileName &fnImgOut)
 {	
 	// -- Detect ligand regions
@@ -727,7 +729,7 @@ void ProgClassifyPartialOccupancy::compareRegions(double &ll_I, double &ll_IsubP
 	saveImage.write(fnImgOut.substr(0, dotPos) + "_IsubP.mrcs");
 	#endif
 
-	// // Calcualte metrics for both images in Real space
+	// Calcualte metrics for both images in Real space
 	// double avg_I = 0;
 	// double std_I = 0;
 	// double zScore_I = 0;
@@ -840,9 +842,9 @@ void ProgClassifyPartialOccupancy::compareRegions(double &ll_I, double &ll_IsubP
 		double ll_IsubP_it = 0;
 
 		// Calcualte metrics for both regions
-		logLikelihood(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
+		// logLikelihood(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
 		// radialLogLikelihood(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
-		// entropy(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
+		entropy(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
 		// kullbackLeibler(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
 		// crossEntropy(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
 
@@ -850,6 +852,9 @@ void ProgClassifyPartialOccupancy::compareRegions(double &ll_I, double &ll_IsubP
 		ll_I	 += ll_I_it;
 		ll_IsubP += ll_IsubP_it;
 	}
+
+	// ll_I *= energy_I;
+	// ll_IsubP *= energy_IsubP;
 
 	#ifdef DEBUG_METRICS
 	std::cout << "Final ll_I: " << ll_I << std::endl;
