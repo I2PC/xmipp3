@@ -730,27 +730,27 @@ void ProgClassifyPartialOccupancy::compareRegions(double &ll_I, double &ll_IsubP
 	#endif
 
 	// Calcualte metrics for both images in Real space
-	// double avg_I = 0;
-	// double std_I = 0;
-	// double zScore_I = 0;
-	// double energy_I = 0;
-	// double avg_IsubP = 0;
-	// double std_IsubP = 0;
-	// double zScore_IsubP = 0;
-	// double energy_IsubP = 0;
+	double avg_I = 0;
+	double std_I = 0;
+	double zScore_I = 0;
+	double energy_I = 0;
+	double avg_IsubP = 0;
+	double std_IsubP = 0;
+	double zScore_IsubP = 0;
+	double energy_IsubP = 0;
 
-	// computeParticleStats(I(), avg_I, std_I, zScore_I, energy_I);
-	// computeParticleStats(IsubP(), avg_IsubP, std_IsubP, zScore_IsubP, energy_IsubP);
-	// ll_I += energy_I;
-	// ll_IsubP += energy_IsubP;
+	computeParticleStats(I(), avg_I, std_I, zScore_I, energy_I);
+	computeParticleStats(IsubP(), avg_IsubP, std_IsubP, zScore_IsubP, energy_IsubP);
+	ll_I += energy_I;
+	ll_IsubP += energy_IsubP;
 
-	// #ifdef DEBUG_METRICS
-	// std::cout << "Final ll_I: " << ll_I << std::endl;
-	// std::cout << "Final ll_IsubP: " << ll_IsubP << std::endl;
-	// std::cout << "Final diff ll_I - ll_IsubP: " << ll_I - ll_IsubP << std::endl;
-	// #endif	
+	#ifdef DEBUG_METRICS
+	std::cout << "Final ll_I: " << ll_I << std::endl;
+	std::cout << "Final ll_IsubP: " << ll_IsubP << std::endl;
+	std::cout << "Final diff ll_I - ll_IsubP: " << ll_I - ll_IsubP << std::endl;
+	#endif	
 
-	// return;
+	return;
 
 	std::cout << "--------------------------------------------------------------------- " 	<< std::endl;
 	std::cout << fnImgI << std::endl;
@@ -844,7 +844,7 @@ void ProgClassifyPartialOccupancy::compareRegions(double &ll_I, double &ll_IsubP
 		// Calcualte metrics for both regions
 		// logLikelihood(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
 		// radialLogLikelihood(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
-		entropy(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
+		// entropy(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
 		// kullbackLeibler(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
 		// crossEntropy(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
 
