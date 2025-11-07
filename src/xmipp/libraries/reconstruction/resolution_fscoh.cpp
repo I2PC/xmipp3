@@ -183,7 +183,7 @@ void ProgFSCoh::fourierShellCoherence(MetaDataVec mapPoolMD)
 	std::string outputMD = fn_oroot + "FSCoh.xmd";
 	md.write(outputMD);
 
-	std::cout << "  Fourier shell coherence written at: " << outputMD << std::endl;
+	std::cout << "  Fourier shell coherence saved at: " << outputMD << std::endl;
 }
 
 void ProgFSCoh::calculateResolutionThreshold()
