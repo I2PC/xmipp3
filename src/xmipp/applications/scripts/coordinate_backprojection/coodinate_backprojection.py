@@ -34,11 +34,15 @@ import numpy as np
 from xmipp_base import XmippScript
 import xmippLib
 
+
+
 class TiltData(NamedTuple):
     projectionMatrix: np.ndarray
     shift: np.ndarray
     coordinates2d: np.ndarray
-        
+
+
+
 def _computeGmmResponsibilities(
     distances2: np.ndarray,
     sigma2: Union[np.ndarray, float],
@@ -189,7 +193,7 @@ class ScriptCoordinateBackProjection(XmippScript):
         boxSize: Tuple[int, int, int] 
     ) -> Tuple[np.ndarray, np.ndarray]:
         EPS = 1e-8
-        TOL = 1e-3
+        TOL = 1e-6
         MAX_ITER = 128
         D = 2
         
@@ -238,7 +242,7 @@ class ScriptCoordinateBackProjection(XmippScript):
    
                 count += len(responsibilities)
             
-            n -= 1 - alpha  # Dirichlet prior
+            n -= 1 - alpha
             mask = n > EPS
             n = n[mask]
             matrices = matrices[mask]
@@ -253,6 +257,6 @@ class ScriptCoordinateBackProjection(XmippScript):
                 break
         
         return positions, n, np.sqrt(sigma2)
-        
+
 if __name__=="__main__":
     ScriptCoordinateBackProjection().tryRun()
