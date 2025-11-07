@@ -53,9 +53,6 @@ def _computeGmmResponsibilities(
 ) -> np.ndarray:
     LOG2PI = np.log(2*np.pi)
 
-    # Compute the pairwise distances
-
-    
     exponent = np.multiply(distances2, -0.5 / sigma2, out=out)
 
     logSigma2 = np.log(sigma2)
