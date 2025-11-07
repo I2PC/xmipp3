@@ -242,7 +242,8 @@ class ScriptCoordinateBackProjection(XmippScript):
                 matrices += contribution[:,None,None] * projectionMatrix2
                 n += contribution
                 
-                updatedProjection = np.sum(responsibilities[:,:,None] * detections[:,None], axis=0)
+                centeredDetections = detections - tilt.shift
+                updatedProjection = np.sum(responsibilities[:,:,None] * centeredDetections[:,None], axis=0)
                 backprojections += (projectionMatrix.T @ updatedProjection.T).T
    
                 count += len(responsibilities)
