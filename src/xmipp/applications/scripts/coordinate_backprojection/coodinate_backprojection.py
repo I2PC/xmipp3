@@ -104,7 +104,8 @@ class ScriptCoordinateBackProjection(XmippScript):
         self.addParamsLine('-n <numberOfCoords>         : Number of reconstructed 3D coordinates')
         self.addParamsLine('--box <x> <y> <z>           : Box size')
         self.addParamsLine('[-t <outputTiltSeries>]     : Path to the output metadata with updated tilt series.')
-        self.addParamsLine('[--sigma <noise=8.0>]       : Picking noise std deviation estimation')
+        self.addParamsLine('[--sigma <noise=8.0>]       : Initial picking coordinate std deviation estimation')
+        self.addParamsLine('[--alpha <alpha=0.1>]       : Dirichlet prior on component weights.')
         
     def run(self):
         inputMetadataFn = self.getParam('-i')
@@ -117,6 +118,7 @@ class ScriptCoordinateBackProjection(XmippScript):
             self.getIntParam('--box', 2)
         )
         sigma = self.getDoubleParam('--sigma')
+        alpha = self.getDoubleParam('--alpha')
         
         if self.checkParam('-t'):
             outTsMetadataFn = self.getParam('-t')
@@ -139,7 +141,8 @@ class ScriptCoordinateBackProjection(XmippScript):
             data=data,
             nCoords=nCoords,
             boxSize=boxSize,
-            sigma=sigma
+            sigma=sigma,
+            alpha=alpha
         )
         
         outputMd = xmippLib.MetaData()
@@ -193,11 +196,14 @@ class ScriptCoordinateBackProjection(XmippScript):
                 
         return result
     
-    def coordinateBackProjection(self,
-                                 data: List[TiltData], 
-                                 nCoords: int,
-                                 sigma: float,
-                                 boxSize: Tuple[int, int, int] ) -> Tuple[np.ndarray, np.ndarray]:
+    def coordinateBackProjection(
+        self,
+        data: List[TiltData], 
+        nCoords: int,
+        sigma: float,
+        alpha: float,
+        boxSize: Tuple[int, int, int] 
+    ) -> Tuple[np.ndarray, np.ndarray]:
         EPS = 1e-8
         TOL = 1e-3
         MAX_ITER = 128
@@ -248,12 +254,14 @@ class ScriptCoordinateBackProjection(XmippScript):
    
                 count += len(responsibilities)
             
-            mask = n >= 1
+            
+            n -= 1 - alpha  # Dirichlet prior
+            mask = n > EPS
             n = n[mask]
             matrices = matrices[mask]
             backprojections = backprojections[mask]
             weights = n / n.sum()
-            
+
             positions = (np.linalg.inv(matrices + EPS*np.eye(3)) @ backprojections[:,:,None]).squeeze()
             
             """
