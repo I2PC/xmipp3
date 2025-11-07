@@ -38,31 +38,15 @@ class TiltData(NamedTuple):
     projectionMatrix: np.ndarray
     shift: np.ndarray
     coordinates2d: np.ndarray
-
-def _normalizeLogResponsibilities(exponent: np.ndarray,
-                                  nIter: int ) -> Tuple[np.ndarray, np.ndarray]:    
-    # Apply Sinkhorn-Knopp
-    u = np.zeros((exponent.shape[0], 1))
-    v = np.zeros((1, exponent.shape[1]))
-    tmp = None
-    for _ in range(nIter):
-        tmp = np.subtract(exponent, v, out=tmp)
-        u = np.logaddexp.reduce(tmp, axis=1, keepdims=True, out=u)
-        #u = np.minimum(u, 0.0, out=u) # Don't dampen over-assigned samples
         
-        tmp = np.subtract(exponent, u, out=tmp)
-        v = np.logaddexp.reduce(tmp, axis=0, keepdims=True, out=v)
-        v = np.maximum(v, 0.0, out=v) # Don't boost unassigned components
-    
-    return u, v
-        
-def _computeGmmResponsibilities(distances2: np.ndarray,
-                                sigma2: Union[np.ndarray, float],
-                                weights: np.ndarray,
-                                d: int,
-                                returnLogLikelihood: bool = False,
-                                out: Optional[np.ndarray] = None) -> np.ndarray:
-
+def _computeGmmResponsibilities(
+    distances2: np.ndarray,
+    sigma2: Union[np.ndarray, float],
+    weights: np.ndarray,
+    d: int,
+    returnLogLikelihood: bool = False,
+    out: Optional[np.ndarray] = None
+) -> np.ndarray:
     LOG2PI = np.log(2*np.pi)
 
     # Compute the pairwise distances
@@ -105,7 +89,7 @@ class ScriptCoordinateBackProjection(XmippScript):
         self.addParamsLine('--box <x> <y> <z>           : Box size')
         self.addParamsLine('[-t <outputTiltSeries>]     : Path to the output metadata with updated tilt series.')
         self.addParamsLine('[--sigma <noise=8.0>]       : Initial picking coordinate std deviation estimation')
-        self.addParamsLine('[--alpha <alpha=0.1>]       : Dirichlet prior on component weights.')
+        self.addParamsLine('[--alpha <alpha=0.5>]       : Dirichlet prior on component weights.')
         
     def run(self):
         inputMetadataFn = self.getParam('-i')
@@ -254,22 +238,19 @@ class ScriptCoordinateBackProjection(XmippScript):
    
                 count += len(responsibilities)
             
-            
             n -= 1 - alpha  # Dirichlet prior
             mask = n > EPS
             n = n[mask]
             matrices = matrices[mask]
             backprojections = backprojections[mask]
-            weights = n / n.sum()
-
-            positions = (np.linalg.inv(matrices + EPS*np.eye(3)) @ backprojections[:,:,None]).squeeze()
             
-            """
-            #delta = np.mean(np.linalg.norm(oldPositions - positions, axis=-1))
-            print(f'Delta={delta} Count={np.count_nonzero(mask)}', flush=True)
+            oldPositions = positions[mask]
+            positions = (np.linalg.inv(matrices + EPS*np.eye(3)) @ backprojections[:,:,None]).squeeze()
+            weights = n / n.sum()
+            
+            delta = np.mean(np.linalg.norm(oldPositions - positions, axis=-1))
             if delta < TOL:
                 break
-            """
         
         return positions, n, np.sqrt(sigma2)
         
