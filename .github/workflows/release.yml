@@ -1,7 +1,6 @@
 name: Release new version
 on:
-  push:
-    branches: [ master ]
+  workflow_dispatch:
 
 jobs:
   generate-new-release:
