@@ -123,7 +123,7 @@ void ProgStatisticalMap::writePercentileMap(FileName fnIn)
     }
 
     //Write output percentile volume
-    V_Zscores.write(fnOut);
+    V_Percentile.write(fnOut);
 }
 
 void ProgStatisticalMap::writeWeightedMap(FileName fnIn) 
@@ -278,7 +278,7 @@ void ProgStatisticalMap::run()
         differentMask.initZeros(Zdim, Ydim, Xdim);
 
         calculateZscoreMap_GlobalSigma();
-        writeZscoresMap(fn_V);
+        // writeZscoresMap(fn_V);
 
         // double p = percentile(V_Zscores(), percentileThr);
         // histogramEqualizationParameters.push_back(p);
