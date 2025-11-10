@@ -40,6 +40,7 @@
 #define DEBUG_WRITE_OUTPUT
 #define DEBUG_OUTPUT_FILES
 #define DEBUG_PERCENTILE
+#define DEBUG_PREPROCESS
 
 /**@defgroup ProgStatisticalMap Calculates statistical map
    @ingroup ReconsLibrary */

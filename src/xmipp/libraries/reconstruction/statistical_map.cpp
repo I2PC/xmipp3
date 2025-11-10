@@ -396,6 +396,10 @@ void ProgStatisticalMap::preprocessMap(FileName fnIn)
         }
     }
 
+    #ifdef DEBUG_PREPROCESS
+    std::cout << "    Preprocessed map stats - Mean: " << avg << ", Std: " << std << std::endl;
+    #endif
+
     #ifdef DEBUG_OUTPUT_FILES
     FileName fnOut = fn_oroot + (fn_oroot.back() == '/' || fn_oroot.back() == '\\' ? "" : "/") + fnIn.substr(fnIn.find_last_of("/\\") + 1, fnIn.find_last_of('.') - fnIn.find_last_of("/\\") - 1) + "_preprocess.mrc";
     V.write(fnOut);
@@ -638,7 +642,7 @@ void ProgStatisticalMap::calculateZscoreMap_GlobalSigma()
     double v_avg;
     double v_std;
 
-    V().computeAvgStdev_within_binary_mask(proteinRadiusMask, v_avg, v_std);
+    V().computeAvgStdev_within_binary_mask(coincidentMask, v_avg, v_std);
 
     std::cout << "Average of the coincident region: " << v_avg << std::endl;
     std::cout << "Std of the coincident region: " << v_std << std::endl;
