@@ -102,7 +102,27 @@ void ProgStatisticalMap::writeZscoresMap(FileName fnIn)
         fnOut = fn_oroot + (fn_oroot.back() == '/' || fn_oroot.back() == '\\' ? "" : "/") + fnIn.substr(fnIn.find_last_of("/\\") + 1, fnIn.find_last_of('.') - fnIn.find_last_of("/\\") - 1) + "_Zscores_" + std::to_string(counter++) + fnIn.substr(fnIn.find_last_of('.'));
     }
 
-    //Write output weighted volume
+    //Write output Z-scores volume
+    V_Zscores.write(fnOut);
+}
+
+void ProgStatisticalMap::writePercentileMap(FileName fnIn) 
+{
+    // Compose filename
+    size_t lastSlashPos = fnIn.find_last_of("/\\");
+    size_t lastDotPos = fnIn.find_last_of('.');
+
+    FileName newFileName = fnIn.substr(lastSlashPos + 1, lastDotPos - lastSlashPos - 1) + "_Percentile.mrc";
+    FileName fnOut = fn_oroot + (fn_oroot.back() == '/' || fn_oroot.back() == '\\' ? "" : "/") + newFileName;
+
+    // Check if file already existes (the same pool map might contain to identical filenames
+    int counter = 1;
+    while (std::ifstream(fnOut)) 
+    {
+        fnOut = fn_oroot + (fn_oroot.back() == '/' || fn_oroot.back() == '\\' ? "" : "/") + fnIn.substr(fnIn.find_last_of("/\\") + 1, fnIn.find_last_of('.') - fnIn.find_last_of("/\\") - 1) + "_Zscores_" + std::to_string(counter++) + fnIn.substr(fnIn.find_last_of('.'));
+    }
+
+    //Write output percentile volume
     V_Zscores.write(fnOut);
 }
 
@@ -314,6 +334,7 @@ void ProgStatisticalMap::run()
         preprocessMap(fn_V);
 
         V_Zscores().initZeros(Zdim, Ydim, Xdim);
+        V_Percentile().initZeros(Zdim, Ydim, Xdim);
         coincidentMask.initZeros(Zdim, Ydim, Xdim);
         differentMask.initZeros(Zdim, Ydim, Xdim);
 
@@ -321,6 +342,9 @@ void ProgStatisticalMap::run()
         calculateZscoreMap_GlobalSigma();
         // calculateDixonMap();
         writeZscoresMap(fn_V);
+
+        calculatePercetileMap();
+        writePercentileMap(fn_V);
 
         weightMap();
         writeWeightedMap(fn_V);
@@ -772,6 +796,21 @@ void ProgStatisticalMap::calculateZscoreMap_GlobalSigma()
         else
         {
             DIRECT_MULTIDIM_ELEM(differentMask, n) = 0;
+        }
+    }
+}
+
+void ProgStatisticalMap::calculatePercetileMap()
+{
+    std::cout << "    Calculating percentile map..." << std::endl;
+
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V_Zscores())
+    {
+        if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask, n) > 0)
+        {
+            auto pos = std::lower_bound(zScoreAccumulator.begin(), zScoreAccumulator.end(), DIRECT_MULTIDIM_ELEM(V_Zscores(), n)) - zScoreAccumulator.begin();
+            double percentile = (static_cast<double>(pos) / zScoreAccumulator.size()) * 100.0;
+            DIRECT_MULTIDIM_ELEM(V_Percentile(), n) = percentile;
         }
     }
 }

@@ -74,6 +74,7 @@ class ProgStatisticalMap: public XmippProgram
     FileName fn_V;                          // Filename for each input volume from pool
     Image<double> V;                        // Each input volume from pool
     Image<double> V_Zscores;                // Each z-scores map from pool
+    Image<double> V_Percentile;             // Percentile map calculated from input pool
     Image<double> avgVolume;                // Average volume
     Image<double> stdVolume;                // Standard deviation volume
     Image<double> avgDiffVolume;            // Average difference volume
@@ -108,6 +109,7 @@ public:
     void writeStatisticalMap();
     // Write Z-scores map
     void writeZscoresMap(FileName fnIn);
+    void writePercentileMap(FileName fnIn);
     // Write weighted map
     void writeWeightedMap(FileName fnIn);
     // Write maks
@@ -127,6 +129,7 @@ public:
     void computeSigmaNormIQR(double& sigmaNorm);
     void calculateZscoreMap();
     void calculateZscoreMap_GlobalSigma();
+    void calculatePercetileMap();
     void calculateDixonMap();
     void weightMap();
 
