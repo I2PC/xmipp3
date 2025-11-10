@@ -203,7 +203,7 @@ void ProgFSCoh::calculateResolutionThreshold()
 
     std::cout << "  Frequency thresholded at (for FSCoh > " << FSCoh_thr << "): " 
 			  << sampling_rate*(((float)indexThr/(float)NZYXSIZE(FSCoh))) << "A"
-			  << " (normalized " << (0.5*(float)indexThr/(float)NZYXSIZE(FSCoh)) << std::endl;
+			  << " (normalized " << (0.5*(float)indexThr/(float)NZYXSIZE(FSCoh)) << ")" << std::endl;
 }
 
 // Utils methods ===================================================================
