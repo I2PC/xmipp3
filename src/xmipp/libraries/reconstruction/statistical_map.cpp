@@ -499,6 +499,47 @@ void ProgStatisticalMap::calculateDixonMap()
     }
 }
 
+void ProgStatisticalMap::computeSigmaNormMAD(double& sigmaNorm) 
+{
+    // Calculate diff map
+    MultidimArray<double> diffMap;
+    diffMap.initZeros(Zdim, Ydim, Xdim);
+
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(diffMap)
+    {
+        if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask, n) > 0)
+        {
+            DIRECT_MULTIDIM_ELEM(diffMap, n) = DIRECT_MULTIDIM_ELEM(V(), n) - DIRECT_MULTIDIM_ELEM(avgVolume(), n);
+        }
+    }
+
+    // Calculate abosule difference map median
+    double median;
+    diffMap.computeMedian_within_binary_mask(proteinRadiusMask, median);
+
+    // Compute absolute deviations from the median
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(diffMap)
+    {
+        if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask, n) > 0)
+        {
+            DIRECT_MULTIDIM_ELEM(diffMap, n) = std::fabs(DIRECT_MULTIDIM_ELEM(diffMap, n) - median);
+        }
+    }
+
+    // Compute MAD
+    double mad;
+    diffMap.computeMedian_within_binary_mask(proteinRadiusMask, mad);
+    
+    // Scale MAD to estimate sigma under normality
+    // For a normal distribution, MAD ≈ 0.6745 * sigma.
+    // So sigma ≈ MAD / 0.6745 ≈ MAD * 1.4826.
+    sigmaNorm = 1.4826 * mad;
+
+    #ifdef DEBUG_SIGMA_NORM
+    std::cout << "    Sigma normalization factor (MAD): " << sigmaNorm << std::endl;
+    #endif
+}
+
 void ProgStatisticalMap::calculateZscoreMap()
 {
     std::cout << "    Calculating Zscore map..." << std::endl;

@@ -41,6 +41,7 @@
 #define DEBUG_OUTPUT_FILES
 #define DEBUG_PERCENTILE
 #define DEBUG_PREPROCESS
+#define DEBUG_SIGMA_NORM
 
 /**@defgroup ProgStatisticalMap Calculates statistical map
    @ingroup ReconsLibrary */
@@ -121,6 +122,7 @@ public:
     void processStaticalMapDixon();
     void computeStatisticalMaps();
     void calculateAvgDiffMap();
+    void computeSigmaNormMAD(double& sigmaNorm);
     void calculateZscoreMap();
     void calculateZscoreMap_GlobalSigma();
     void calculateDixonMap();
