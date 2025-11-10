@@ -86,6 +86,7 @@ class ProgStatisticalMap: public XmippProgram
     std::vector<double> histogramEqualizationParameters;
     double equalizationParam;
     double partialOccupancyFactor;
+    std::vector<double> zScoreAccumulator;
 
     // Particle metadata
     MetaDataVec mapPoolMD;
