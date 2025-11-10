@@ -540,6 +540,36 @@ void ProgStatisticalMap::computeSigmaNormMAD(double& sigmaNorm)
     #endif
 }
 
+
+void ProgStatisticalMap::computeSigmaNormIQR(double& sigmaNorm) {
+     // Calculate diff map
+    std::vector<double> diffs;
+
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(proteinRadiusMask)
+    {
+        if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask, n) > 0)
+        {
+            diffs.push_back(DIRECT_MULTIDIM_ELEM(V(), n) - DIRECT_MULTIDIM_ELEM(avgVolume(), n));
+        }
+    }
+
+    // Sort map values
+    std::sort(diffs.begin(), diffs.end());
+
+    // Calculate IQR
+    size_t n = diffs.size();
+    double q1 = diffs[n/4];
+    double q3 = diffs[(3*n)/4];
+    double iqr = q3 - q1;
+
+    sigmaNorm = iqr / 1.349;
+
+    #ifdef DEBUG_SIGMA_NORM
+    std::cout << "    Sigma normalization factor (IQR): " << sigmaNorm << std::endl;
+    #endif
+}
+
+
 void ProgStatisticalMap::calculateZscoreMap()
 {
     std::cout << "    Calculating Zscore map..." << std::endl;
@@ -687,6 +717,10 @@ void ProgStatisticalMap::calculateZscoreMap_GlobalSigma()
 
     std::cout << "Average of the coincident region: " << v_avg << std::endl;
     std::cout << "Std of the coincident region: " << v_std << std::endl;
+
+    // computeSigmaNormMAD(v_std);
+    computeSigmaNormIQR(v_std);
+
 
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {

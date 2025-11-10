@@ -123,6 +123,7 @@ public:
     void computeStatisticalMaps();
     void calculateAvgDiffMap();
     void computeSigmaNormMAD(double& sigmaNorm);
+    void computeSigmaNormIQR(double& sigmaNorm);
     void calculateZscoreMap();
     void calculateZscoreMap_GlobalSigma();
     void calculateDixonMap();
