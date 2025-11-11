@@ -1,4 +1,4 @@
-## Release 3.2.06.0 - 
+## Release 26.0.0 - TBD
    ### Xmipp Programs 
    - Programs updated
       - align volume and particles: Allow considering mirrors
