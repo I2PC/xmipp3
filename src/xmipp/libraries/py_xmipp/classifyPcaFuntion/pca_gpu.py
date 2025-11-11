@@ -8,7 +8,9 @@
 import numpy as np
 import torch
 from torch.nn.functional import normalize
-import time
+import gc
+from xmippPyModules.classifyPcaFuntion.bnb_gpu import BnBgpu
+
 
 class PCAgpu:
     
@@ -34,7 +36,8 @@ class PCAgpu:
         
         self.firstCenter = firstBands - self.mean.repeat(firstSet,1)
         self.var = torch.square(self.firstCenter)
-        self.var = torch.sum(self.var , 0)/firstSet  
+        self.var = torch.sum(self.var , 0)/firstSet 
+        del(self.firstCenter) 
 
         return(self.mean, self.var)   
     
@@ -45,7 +48,7 @@ class PCAgpu:
 
         self.covariance = torch.zeros(self.mean.size(dim=0), self.mean.size(dim=0), device = self.cuda)
         
-        self.covariance =torch.cov(firstBands.T)
+        self.covariance = torch.cov(firstBands.T)
 
         return self.covariance, self.mean, self.var
     
@@ -151,7 +154,7 @@ class PCAgpu:
         return self.vecs_update
     
     
-    def error(self, eigvalue, variance, per_eig):
+    def errorVariance(self, eigvalue, variance, per_eig):
         
         self.eigs = torch.zeros(self.nBand, device=self.cuda)
         self.perc = torch.zeros(self.nBand, device=self.cuda)
@@ -178,7 +181,7 @@ class PCAgpu:
         self.Bvecs = [torch.zeros((coef[n], coef[n]), device = self.cuda)for n in range(self.nBand)]
                   
         for n in range(self.nBand):
-            
+
             self.first_eigenvector(band[n][:firstSet], firstSet)  
             self.Bmean[n], self.Bvar[n], self.Bvals[n], self.Bvecs[n] = self.mean, self.var,  self.vals, self.vecs
 
@@ -224,8 +227,7 @@ class PCAgpu:
                 self.Bvals =  self.eigval
                 self.Bvecs = self.vecs_update
    
-    
-        self.error(self.Bvals, self.Bvar, per_eig)
+        self.errorVariance(self.Bvals, self.Bvar, per_eig)
         for n in range(self.nBand):
             #Using truncation and no error
             # trunc = self.Bvecs[0].size(dim=1)*per_eig
@@ -235,7 +237,84 @@ class PCAgpu:
             print("eigenvector %s ---- percentage %s" %(int(self.eigs[n]+1), "{:.2f}".format(self.perc[n])))
             self.Bvecs[n] = self.Bvecs[n][:,:(int(self.eigs[n]+1))]
             print(self.Bvecs[n].shape)
+        del (band)
+    
+        del self.Bmean, self.Bvar, self.Bvals, self.covariance, self.mean
+        torch.cuda.empty_cache()
+        
+        
+        # return(self.Bmean, self.Bvals, self.Bvecs)
+        return(self.Bvecs)
+    
+    
+    def precalculateBands(self, nBand, dim, sampling, maxRes, minRes):
+    
+        vectorFreq = torch.fft.fftfreq(dim)
+        freq_band = torch.full((dim,int(np.floor(dim/2))), 50)   
+    
+        maxFreq = sampling/maxRes
+        minFreq = sampling/minRes
+        factor = nBand * (1/maxFreq)  
+    
+        for x in range(dim):
+            
+            if vectorFreq[x] >= 0:
+                wx = vectorFreq[x]
+    
+            for y in range(dim):
+                wy = vectorFreq[y]
+    
+                w = torch.sqrt(wx**2 + wy**2)
+                
+                if (w > minFreq) and (w < maxFreq):
+                    freq_band[y][x] = torch.floor(w*factor)
+        
+        return freq_band
 
-        return(self.Bmean, self.Bvals, self.Bvecs)
+    
+    
+    def calculatePCAbasis(self, mexp, Ntrain, nBand, dim, sampling, maxRes, minRes, per_eig, batchPCA):
+        
+        freq_band = self.precalculateBands(nBand, dim, sampling, maxRes, minRes) 
+        #torch.save(freq_band, output + "_bands.pt")
+    
+        coef = torch.zeros(nBand, dtype=int)
+        for n in range(nBand):
+            coef[n] = 2*torch.sum(freq_band==n)  
+           
+        bnb = BnBgpu(nBand)    
+        expBatchSize = 5000  
+        band = [torch.zeros(Ntrain, coef[n], device = self.cuda) for n in range(nBand)]      
+         
+        #print("Select bands of images")            
+        for initBatch in range(0, Ntrain, expBatchSize):
+            
+            endBatch = initBatch+expBatchSize 
+            if (endBatch > Ntrain):
+                endBatch = Ntrain
+            
+            expImages = mexp.data[initBatch:endBatch].astype(np.float32)#.copy()
+            Texp = torch.from_numpy(expImages).float().to(self.cuda)
+            Texp = Texp * bnb.create_circular_mask(Texp)
+    
+            del(expImages)
+            ft = torch.fft.rfft2(Texp, norm="forward")
+            del(Texp)
+            bandBatch = bnb.selectBandsRefs(ft, freq_band, coef)
+            del(ft)
+            for n in range(nBand):
+                band[n][initBatch:endBatch] = bandBatch[n]
+            
+            del(bandBatch)
+
+        # mean, vals, vecs = self.trainingPCAonline(band, coef, per_eig, batchPCA)
+        vecs = self.trainingPCAonline(band, coef, per_eig, batchPCA)
+     
+        del(band)
+        torch.cuda.empty_cache()
+        # del(mean, vals)
+            
+        return (freq_band, vecs, coef)
+    
     
     
