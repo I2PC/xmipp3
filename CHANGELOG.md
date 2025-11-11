@@ -17,6 +17,7 @@
    - Forced compiler GCC >= 9 
    - getPSF added to the xmipp binding
    - replace "conda env export" to avoid deprecation issue.
+   - Fixing read when encountering NaN-s and infinite values
 
 
 ## Release 3.25.06.0 - Rhea
