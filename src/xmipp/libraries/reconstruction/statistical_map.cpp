@@ -192,10 +192,13 @@ void ProgStatisticalMap::writeMask(FileName fnIn)
 void ProgStatisticalMap::run()
 {
 	auto t1 = std::chrono::high_resolution_clock::now();
+    show();
 
     calculateFSCoh();
 
+    // ---
     // Calculate statistical map
+    // ---
     #ifdef VERBOSE_OUTPUT
     std::cout << "\n\n---Analyzing input map pool for statistical characterization---" << std::endl;
     #endif
@@ -251,7 +254,9 @@ void ProgStatisticalMap::run()
     
     writeStatisticalMap();
 
+    // ---
     // Calculate Z-score maps from statistical map pool for histogram equalization
+    // ---
     #ifdef VERBOSE_OUTPUT
     std::cout << "\n\n---Analyzing input map pool for histogram equalization---" << std::endl;
     #endif
@@ -277,6 +282,7 @@ void ProgStatisticalMap::run()
         coincidentMask.initZeros(Zdim, Ydim, Xdim);
         differentMask.initZeros(Zdim, Ydim, Xdim);
 
+        // calculateZscoreMap();
         calculateZscoreMap_GlobalSigma();
         // writeZscoresMap(fn_V);
 
@@ -313,7 +319,9 @@ void ProgStatisticalMap::run()
     // std::cout << "Equalization parameter: " << equalizationParam << std::endl;
     // #endif
 
+    // ---
     // Compare input maps against statistical map
+    // ---
     #ifdef VERBOSE_OUTPUT
     std::cout << "\n\n---Comparing input map pool agains statistical map---" << std::endl;
     #endif
@@ -542,7 +550,7 @@ void ProgStatisticalMap::computeSigmaNormMAD(double& sigmaNorm)
 
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(diffMap)
     {
-        if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask, n) > 0)
+        if (DIRECT_MULTIDIM_ELEM(coincidentMask, n) > 0)
         {
             DIRECT_MULTIDIM_ELEM(diffMap, n) = DIRECT_MULTIDIM_ELEM(V(), n) - DIRECT_MULTIDIM_ELEM(avgVolume(), n);
         }
@@ -550,12 +558,12 @@ void ProgStatisticalMap::computeSigmaNormMAD(double& sigmaNorm)
 
     // Calculate abosule difference map median
     double median;
-    diffMap.computeMedian_within_binary_mask(proteinRadiusMask, median);
+    diffMap.computeMedian_within_binary_mask(coincidentMask, median);
 
     // Compute absolute deviations from the median
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(diffMap)
     {
-        if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask, n) > 0)
+        if (DIRECT_MULTIDIM_ELEM(coincidentMask, n) > 0)
         {
             DIRECT_MULTIDIM_ELEM(diffMap, n) = std::fabs(DIRECT_MULTIDIM_ELEM(diffMap, n) - median);
         }
@@ -563,7 +571,7 @@ void ProgStatisticalMap::computeSigmaNormMAD(double& sigmaNorm)
 
     // Compute MAD
     double mad;
-    diffMap.computeMedian_within_binary_mask(proteinRadiusMask, mad);
+    diffMap.computeMedian_within_binary_mask(coincidentMask, mad);
     
     // Scale MAD to estimate sigma under normality
     // For a normal distribution, MAD ≈ 0.6745 * sigma.
@@ -580,9 +588,9 @@ void ProgStatisticalMap::computeSigmaNormIQR(double& sigmaNorm) {
      // Calculate diff map
     std::vector<double> diffs;
 
-    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(proteinRadiusMask)
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(coincidentMask)
     {
-        if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask, n) > 0)
+        if (DIRECT_MULTIDIM_ELEM(coincidentMask, n) > 0)
         {
             diffs.push_back(DIRECT_MULTIDIM_ELEM(V(), n) - DIRECT_MULTIDIM_ELEM(avgVolume(), n));
         }
@@ -637,14 +645,22 @@ void ProgStatisticalMap::calculateZscoreMap()
         // double zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / adjusted_std;
         
         // Take only positive Z-score (densities that appear in the test map that are not present in the pool)
-        if (zscore > 0)
-        {
-            DIRECT_MULTIDIM_ELEM(V_Zscores(),n) = zscore;
+        // if (zscore > 0)
+        // {
+        //     DIRECT_MULTIDIM_ELEM(V_Zscores(),n) = zscore;
 
-            if (zscore > significance_thr * equalizationParam)
-            {
-                DIRECT_MULTIDIM_ELEM(differentMask,n) = 1;
-            }
+        //     if (zscore > significance_thr * equalizationParam)
+        //     {
+        //         DIRECT_MULTIDIM_ELEM(differentMask,n) = 1;
+        //     }
+        // }
+
+                
+        DIRECT_MULTIDIM_ELEM(V_Zscores(),n) = zscore;
+
+        if (zscore > significance_thr * equalizationParam)
+        {
+            DIRECT_MULTIDIM_ELEM(differentMask,n) = 1;
         }
 
         // // Convert z-score to one-tailed p-value using standard normal CDF
@@ -735,13 +751,11 @@ void ProgStatisticalMap::calculateZscoreMap_GlobalSigma()
             double dem = sqrt((DIRECT_MULTIDIM_ELEM(V(),n) * DIRECT_MULTIDIM_ELEM(V(), n)) + (DIRECT_MULTIDIM_ELEM(avgVolume(),n) * DIRECT_MULTIDIM_ELEM(avgVolume(), n)));
             double div = num / dem;
 
-            // Only for debug lets see how is the map from which the mask is extracted
-            // DIRECT_MULTIDIM_ELEM(V(),n) = div;
-
-            if (div > significance_thr)
+            // Using 2.1213 as threshold corresponds a consistent intensity of 3 standard deviations between both maps
+            if (div > 2.1213)
             {
                 DIRECT_MULTIDIM_ELEM(coincidentMask,n) = 1;
-            }            
+            }             
         }
     }
 
@@ -750,10 +764,10 @@ void ProgStatisticalMap::calculateZscoreMap_GlobalSigma()
 
     V().computeAvgStdev_within_binary_mask(coincidentMask, v_avg, v_std);
 
-    std::cout << "Average of the coincident region: " << v_avg << std::endl;
-    std::cout << "Std of the coincident region: " << v_std << std::endl;
+    std::cout << "    Average of the coincident region: " << v_avg << std::endl;
+    std::cout << "    Std of the coincident region: " << v_std << std::endl;
 
-    // computeSigmaNormMAD(v_std);
+    computeSigmaNormMAD(v_std);
     // computeSigmaNormIQR(v_std);
 
 
