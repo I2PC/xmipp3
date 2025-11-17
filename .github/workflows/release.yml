@@ -34,7 +34,6 @@ jobs:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         custom_tag: ${{ steps.variables.outputs.TAG_NAME }}
         tag_prefix: ''
-        previous_tag: 'v3.25.06.0-Rhea'
     
     - name: Update major version tag
       run: |
