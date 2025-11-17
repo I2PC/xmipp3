@@ -1,23 +1,21 @@
 #Protocols ussing the enviroment:
-#protocol_screen_deeplearning
-#protocol_deep_denoising
+
 #protocol_resolution_deepres
 #protocol_screen_deepConsensus
 
 name: xmipp_DLTK_v0.3
 channels:
-  - anaconda
-  - defaults
   - conda-forge
-
 dependencies:
   - python=3.7
-  - scikit-image=0.14
-  - tensorflow=1.15
-  - keras=2.2
-  - scikit-learn=0.22
+  - libstdcxx-ng # To be compatible with scipion env
+  - cudnn=7.6
+  - cudatoolkit==10.0.130
   - pip
-  - libstdcxx-ng>=14.2.0 # To be compatible with scipion env
   - pip:
-      - numpy==1.21
+      - tensorflow==1.15.0
+      - numpy==1.19.5
       - h5py==2.10.0
+      - keras==2.2.5
+      - scikit-learn==0.22
+      - protobuf==3.20.3

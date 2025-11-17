@@ -30,13 +30,13 @@ def main_network(input_shape, nData, l2RegStrength=1e-5, num_labels=2):
     network= keras.layers.Lambda( lambda x: K.tf.image.resize_images(x, (DESIRED_INPUT_SIZE, DESIRED_INPUT_SIZE)),
                                                                      name="resize_tf")(network_input)
   else:
-    network_input= keras.layers.Input(shape= input_shape)  
+    network_input= keras.layers.Input(shape= input_shape) 
     network= network_input
 
   for i in range(1, MODEL_DEPTH+1):
     network= keras.layers.Conv2D(2**(nFiltersInit+i), max(3, 30//2**i), activation='relu',  padding='same',
                                                 kernel_regularizer= keras.regularizers.l2(l2RegStrength) )(network)
-    network= keras.layers.Conv2D(2**(nFiltersInit+i), max(3, 30//2**i), activation='linear',  padding='same', 
+    network= keras.layers.Conv2D(2**(nFiltersInit+i), max(3, 30//2**i), activation='linear',  padding='same',
                                                 kernel_regularizer= keras.regularizers.l2(l2RegStrength) )(network)
     network= keras.layers.BatchNormalization()(network)
     network= keras.layers.Activation('relu')(network)
