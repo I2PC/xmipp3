@@ -41,8 +41,8 @@ jobs:
         MAJOR=${VERSION%%.*}
         git config --global user.name 'GitHub Actions'
         git config --global user.email 'action@github.com'
-        git tag -fa "${MAJOR}" -m 'Update major version tag with $VERSION'
-        git push origin "${MAJOR}" --force
+        git tag -fa "v${MAJOR}" -m 'Update major version tag with $VERSION'
+        git push origin "v${MAJOR}" --force
         
     - name: Create a GitHub release
       uses: ncipollo/release-action@v1
