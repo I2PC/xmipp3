@@ -119,7 +119,11 @@ if __name__=="__main__":
     nBand = 1
     pca = PCAgpu(nBand)
     
-    freqBn, cvecs, coef = pca.calculatePCAbasis(mmap, Ntrain, nBand, dim, sampling, maxRes=18.0, 
+    if refImages:
+        maxRes = highRes
+    else: 
+        maxRes = 18.0    
+    freqBn, cvecs, coef = pca.calculatePCAbasis(mmap, Ntrain, nBand, dim, sampling, maxRes, 
                                                 minRes=530, per_eig=per_eig_value, batchPCA=True)
 
     grid_flat = flatGrid(freqBn, coef, nBand)
@@ -127,7 +131,7 @@ if __name__=="__main__":
     bnb = BnBgpu(nBand)
        
     expBatchSize, expBatchSize2, numFirstBatch = bnb.determine_batches(free_memory, dim) 
-    print("batches: %s, %s, %s" %(expBatchSize, expBatchSize2, numFirstBatch))   
+    # print("batches: %s, %s, %s" %(expBatchSize, expBatchSize2, numFirstBatch))   
 
 
     #Initial classes
@@ -240,9 +244,12 @@ if __name__=="__main__":
                     
                     if mode == "create_classes":
                         res_map = {4: 15, 7: 12, 10: 10, 13: highRes}
+                        
                         if iter in res_map:
                             del (freqBn, coef, grid_flat, cvecs)
-                            maxRes = res_map[iter]
+                            
+                            maxRes = max(res_map[iter], highRes)
+                            
                             freqBn, cvecs, coef = pca.calculatePCAbasis(
                                 mmap, Ntrain, nBand, dim, sampling, maxRes,
                                 minRes=530, per_eig=per_eig_value, batchPCA=True

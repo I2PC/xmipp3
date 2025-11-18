@@ -456,15 +456,24 @@ class BnBgpu:
                     newCL[n].append(class_images)
                     
             del(transforIm)
-                    
         
-        newCL = [torch.cat(class_images_list, dim=0) for class_images_list in newCL] 
+        # newCL = [torch.cat(class_images_list, dim=0) for class_images_list in newCL] 
+        
+        _, H, W = mmap.data.shape
+        empty_tensor = torch.empty((0, H, W), device=self.cuda, dtype=torch.float32)
+        
+        # Concatenar, usando empty_tensor si la clase está vacía
+        newCL = [
+            torch.cat(class_images_list, dim=0) if len(class_images_list) > 0 else empty_tensor
+            for class_images_list in newCL
+        ]
+        
         
         clk = self.averages_createClasses(mmap, iter, newCL)       
 
         if iter > 1:
 
-            cut = 25 if iter < 5 else 20 
+            cut = (25 if iter < 5 else 20) if sampling < 3 else (35 if iter < 5 else 30)
             res_classes = self.frc_resolution_tensor(newCL, sampling, rcut=cut)
             print(res_classes)
 
@@ -3413,15 +3422,12 @@ class BnBgpu:
                 numFirstBatch = 1
             elif dim <= 128:
                 expBatchSize = 15000 
-                # expBatchSize = 10000
-                # expBatchSize2 = 20000
                 expBatchSize2 = 20000
-                # numFirstBatch = 8
                 numFirstBatch = 5
             elif dim <= 256:
                 expBatchSize = 4000 
                 expBatchSize2 = 5000
-                numFirstBatch = 6  
+                numFirstBatch = 18  
                 
         else: #test with 23Gb GPU
             if dim <= 64:
@@ -3431,11 +3437,11 @@ class BnBgpu:
             elif dim <= 128:
                 expBatchSize = 30000 
                 expBatchSize2 = 30000
-                numFirstBatch = 1
+                numFirstBatch = 3
             elif dim <= 256:
                 expBatchSize = 6000 
                 expBatchSize2 = 9000
-                numFirstBatch = 5 
+                numFirstBatch = 12 
                 
         return(expBatchSize, expBatchSize2, numFirstBatch)
     
