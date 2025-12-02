@@ -3406,44 +3406,53 @@ class BnBgpu:
                 expBatchSize = 30000 
                 expBatchSize2 = 30000
                 numFirstBatch = 1
+                initClBatch = 30000
             elif dim <= 128:
                 expBatchSize = 6000 
                 expBatchSize2 = 9000
                 numFirstBatch = 5
+                initClBatch = 15000
             elif dim <= 256:
                 expBatchSize = 1000 
                 expBatchSize2 = 2000
                 numFirstBatch = 20
+                initClBatch = 15000
                 
         elif free_memory > 14 and free_memory < 22: #test with 15Gb GPU
             if dim <= 64:
                 expBatchSize = 30000 
                 expBatchSize2 = 50000
                 numFirstBatch = 1
+                initClBatch = 80000
             elif dim <= 128:
                 expBatchSize = 15000 
                 expBatchSize2 = 20000
                 numFirstBatch = 5
+                initClBatch = 50000
             elif dim <= 256:
                 expBatchSize = 4000 
                 expBatchSize2 = 5000
-                numFirstBatch = 18  
+                numFirstBatch = 18 
+                initClBatch = 20000 
                 
         else: #test with 23Gb GPU
             if dim <= 64:
                 expBatchSize = 30000 
                 expBatchSize2 = 60000
                 numFirstBatch = 1
+                initClBatch = 80000
             elif dim <= 128:
                 expBatchSize = 30000 
                 expBatchSize2 = 30000
                 numFirstBatch = 3
+                initClBatch = 80000
             elif dim <= 256:
                 expBatchSize = 6000 
                 expBatchSize2 = 9000
                 numFirstBatch = 12 
+                initClBatch = 80000
                 
-        return(expBatchSize, expBatchSize2, numFirstBatch)
+        return(expBatchSize, expBatchSize2, numFirstBatch, initClBatch)
     
     
     def apply_jitter_annealing(self, min_val, max_val, step, iter, max_iter, 

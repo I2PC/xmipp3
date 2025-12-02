@@ -130,8 +130,8 @@ if __name__=="__main__":
 
     bnb = BnBgpu(nBand)
        
-    expBatchSize, expBatchSize2, numFirstBatch = bnb.determine_batches(free_memory, dim) 
-    # print("batches: %s, %s, %s" %(expBatchSize, expBatchSize2, numFirstBatch))   
+    expBatchSize, expBatchSize2, numFirstBatch, initClBatch = bnb.determine_batches(free_memory, dim) 
+    print("batches: %s, %s, %s, %s" %(expBatchSize, expBatchSize2, numFirstBatch, initClBatch))   
 
 
     #Initial classes
@@ -142,8 +142,8 @@ if __name__=="__main__":
     else:
         initStep = int(min(numFirstBatch, np.ceil(nExp/expBatchSize)))
         
-        indices = np.random.choice(nExp, size=min(50000, nExp), replace=False)
-        # indices = np.random.choice(nExp, size=min(15000, nExp), replace=False)
+        # indices = np.random.choice(nExp, size=min(50000, nExp), replace=False)
+        indices = np.random.choice(nExp, size=min(initClBatch, nExp), replace=False)
         Im_zero = mmap.data[indices].astype(np.float32)
         Texp_zero = torch.from_numpy(Im_zero).float().to(cuda)
         del(Im_zero)
