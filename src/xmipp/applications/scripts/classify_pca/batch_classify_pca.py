@@ -155,6 +155,9 @@ if __name__=="__main__":
         del Texp_zero, pca_zero
     print("Memoria usada:", torch.cuda.memory_allocated(0) / 1024**2, "MB")
     print("Memoria reservada:", torch.cuda.memory_reserved(0) / 1024**2, "MB")
+    torch.cuda.empty_cache()
+    print("Memoria usada:", torch.cuda.memory_allocated(0) / 1024**2, "MB")
+    print("Memoria reservada:", torch.cuda.memory_reserved(0) / 1024**2, "MB")
     exit()
         
     
