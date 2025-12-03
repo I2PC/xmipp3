@@ -3433,7 +3433,7 @@ class BnBgpu:
                 expBatchSize = 4000 
                 expBatchSize2 = 5000
                 numFirstBatch = 18 
-                initClBatch = 10000 
+                initClBatch = 15000 
                 
         else: #test with 23Gb GPU
             if dim <= 64:

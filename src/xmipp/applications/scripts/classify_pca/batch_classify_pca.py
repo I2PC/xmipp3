@@ -153,12 +153,8 @@ if __name__=="__main__":
         
         cl = bnb.kmeans_pytorch_for_averages(Texp_zero, pca_zero, cvecs, num_clusters = final_classes)
         del Texp_zero, pca_zero
-    print("Memoria usada:", torch.cuda.memory_allocated(0) / 1024**2, "MB")
-    print("Memoria reservada:", torch.cuda.memory_reserved(0) / 1024**2, "MB")
-    torch.cuda.empty_cache()
-    print("Memoria usada:", torch.cuda.memory_allocated(0) / 1024**2, "MB")
-    print("Memoria reservada:", torch.cuda.memory_reserved(0) / 1024**2, "MB")
-    exit()
+        torch.cuda.empty_cache()
+
         
     
     if refImages:
