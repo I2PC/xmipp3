@@ -3420,9 +3420,9 @@ class BnBgpu:
                 
         elif free_memory > 14 and free_memory < 22: #test with 15Gb GPU
             if dim <= 64:
-                expBatchSize = 30000 
+                expBatchSize = 40000 
                 expBatchSize2 = 50000
-                numFirstBatch = 1
+                numFirstBatch = 2
                 initClBatch = 80000
             elif dim <= 128:
                 expBatchSize = 15000 
