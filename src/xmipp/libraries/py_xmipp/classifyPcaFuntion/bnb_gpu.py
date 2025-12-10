@@ -3430,12 +3430,13 @@ class BnBgpu:
                 numFirstBatch = 5
                 initClBatch = 50000
             elif dim <= 256:
-                expBatchSize = 4000 
-                expBatchSize2 = 5000
-                numFirstBatch = 18 
+                expBatchSize = 5000 
+                expBatchSize2 = 6000
+                numFirstBatch = 5 
                 initClBatch = 15000 
                 
-        else: #test with 23Gb GPU
+        # else: #test with 23Gb GPU
+        elif free_memory > 22 and free_memory < 45: #test with 15Gb GPU
             if dim <= 64:
                 expBatchSize = 30000 
                 expBatchSize2 = 60000
@@ -3451,6 +3452,23 @@ class BnBgpu:
                 expBatchSize2 = 9000
                 numFirstBatch = 12 
                 initClBatch = 80000
+        else:  #test with 49Gb GPU
+            if dim <= 64:
+                expBatchSize = 100000 
+                expBatchSize2 = 200000
+                numFirstBatch = 1
+                initClBatch = 100000
+            elif dim <= 128:
+                expBatchSize = 50000 
+                expBatchSize2 = 80000
+                numFirstBatch = 2
+                initClBatch = 100000
+            elif dim <= 256:
+                expBatchSize = 15000 
+                expBatchSize2 = 20000
+                numFirstBatch = 5 
+                initClBatch = 100000
+                
                 
         return(expBatchSize, expBatchSize2, numFirstBatch, initClBatch)
     

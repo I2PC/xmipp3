@@ -153,7 +153,7 @@ if __name__=="__main__":
         
         cl = bnb.kmeans_pytorch_for_averages(Texp_zero, pca_zero, cvecs, num_clusters = final_classes)
         del Texp_zero, pca_zero
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
 
         
     
