@@ -596,8 +596,6 @@ class BnBgpu:
         del(tMatrixLocal)  
     
         Texp = torch.from_numpy(data.astype(np.float32)).to(self.cuda).unsqueeze(1)
-        Texp = Texp.contiguous()
-        M = M.contiguous()
 
         transforIm = kornia.geometry.warp_affine(Texp, M, dsize=(data.shape[1], data.shape[2]), mode='bilinear', padding_mode='zeros')
         transforIm = transforIm.view(batchsize, data.shape[1], data.shape[2])
@@ -3469,7 +3467,7 @@ class BnBgpu:
                 expBatchSize = 15000 
                 expBatchSize2 = 20000
                 numFirstBatch = 5 
-                initClBatch = 100000
+                initClBatch = 50000
                 
                 
         return(expBatchSize, expBatchSize2, numFirstBatch, initClBatch)
