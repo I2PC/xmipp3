@@ -3467,7 +3467,7 @@ class BnBgpu:
                 expBatchSize = 15000 
                 expBatchSize2 = 20000
                 numFirstBatch = 5 
-                initClBatch = 50000
+                initClBatch = 30000
                 
                 
         return(expBatchSize, expBatchSize2, numFirstBatch, initClBatch)
