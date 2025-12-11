@@ -479,7 +479,7 @@ class BnBgpu:
 
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             
-            clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling)
+            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)
                     
         #Sort classes        
         if iter < 7:
@@ -547,7 +547,7 @@ class BnBgpu:
             
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             
-            clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling)                       
+            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)                       
         
             if not hasattr(self, 'grad_squared'):
                 self.grad_squared = torch.zeros_like(cl)
@@ -2801,7 +2801,7 @@ class BnBgpu:
     
     
     @torch.no_grad()
-    def highpass_cosine_sharpen2(
+    def highpass_cosine_sharpen(
         self,
         averages: torch.Tensor,         # [B, H, W]
         resolutions: torch.Tensor,      # [B] en Å
@@ -2832,9 +2832,11 @@ class BnBgpu:
         f_cutoff = (1.0 / resolutions.clamp(min=1e-3)).view(B, 1, 1)  # [B, 1, 1]
     
         # === Ajuste dinámico de sharpen_power por resolución ===
+#            # sharpen_power = (0.1 * resolutions).clamp(min=0.3, max=2.5)
+            #sharpen_power = (0.08 * resolutions).clamp(min=0.3, max=2.5)
         if sharpen_power is None:
-            # sharpen_power = (0.1 * resolutions).clamp(min=0.3, max=2.5)
-            sharpen_power = (0.08 * resolutions).clamp(min=0.3, max=2.5)
+            factorR = torch.where(resolutions > 8, 0.1, 0.08)
+            sharpen_power = (factorR * resolutions).clamp(min=0.3, max=2.5)
   
             sharpen_power = sharpen_power.view(B, 1, 1)  # broadcasting por imagen
         else:
@@ -2867,7 +2869,6 @@ class BnBgpu:
                 return energy
             
             target_energy = f_energy * energy_orig  # [B]
-            # target_energy = 1.5 * energy_orig  # [B]
             g_low = torch.ones(B, device=device)
             g_high = torch.full((B,), 1000.0, device=device)  # límite arbitrario
             
@@ -3456,7 +3457,7 @@ class BnBgpu:
             if dim <= 64:
                 expBatchSize = 50000 
                 expBatchSize2 = 80000
-                numFirstBatch = 1
+                numFirstBatch = 2
                 initClBatch = 100000
             elif dim <= 128:
                 expBatchSize = 50000 
