@@ -1,15 +1,23 @@
 name: Release new version
 on:
-  push:
-    branches: [ master ]
+  workflow_dispatch:
 
 jobs:
   generate-new-release:
+    environment:
+      name: release-approval
+      
     runs-on: ubuntu-latest
     steps:
     
     - name: Checkout repository
-      uses: actions/checkout@main
+      uses: actions/checkout@v4
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+
+    - name: Install installer package
+      run: pip install xmipp3_installer
 
     - name: Retrieve tag name, release name & changelog
       run: |
@@ -26,10 +34,20 @@ jobs:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         custom_tag: ${{ steps.variables.outputs.TAG_NAME }}
         tag_prefix: ''
+    
+    - name: Update major version tag
+      run: |
+        VERSION=${{ steps.variables.outputs.TAG_NAME }}
+        MAJOR=${VERSION%%.*}
+        git config --global user.name 'GitHub Actions'
+        git config --global user.email 'action@github.com'
+        git tag -fa "${MAJOR}" -m 'Update major version tag with $VERSION'
+        git push origin "${MAJOR}" --force
         
     - name: Create a GitHub release
-      uses: ncipollo/release-action@main
+      uses: ncipollo/release-action@v1
       with:
         tag: ${{ steps.tag_version.outputs.new_tag }}
         name: ${{ steps.variables.outputs.RELEASE_NAME }}
         bodyFile: latest_changelog.md
+        makeLatest: true
