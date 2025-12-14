@@ -141,7 +141,7 @@ class ScriptCoordinateBackProjection(XmippScript):
         outputMd.write(outputMetadataFn)
         
         if outTsMetadataFn is not None:
-            tsMd.setColumnValues(xmippLib.MDL_SIGMANOISE, sigma.tolist())
+            #tsMd.setColumnValues(xmippLib.MDL_SIGMANOISE, sigma.tolist())
             tsMd.write(outTsMetadataFn)
         
     def readTiltSeriesProjectionTransforms(self, filename):
