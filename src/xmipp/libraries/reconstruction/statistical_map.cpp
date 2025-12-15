@@ -275,16 +275,15 @@ void ProgStatisticalMap::run()
         preprocessMap(fn_V);
 
         V_Zscores().initZeros(Zdim, Ydim, Xdim);
-
-        // *** Esto no hace falta porque no nos interesa la mascara aqui pero es que si no
-        // peta porque los dos rellenan a coincidentMask
+        V_Percentile().initZeros(Zdim, Ydim, Xdim);
         differentMask.initZeros(Zdim, Ydim, Xdim);
         coincidentMask.initZeros(Zdim, Ydim, Xdim);
         differentMask.initZeros(Zdim, Ydim, Xdim);
 
         // calculateZscoreMap();
         calculateZscoreMap_GlobalSigma();
-        // writeZscoresMap(fn_V);
+        writeZscoresMap(fn_V);
+        writeMask(fn_V);
 
         // double p = percentile(V_Zscores(), percentileThr);
         // histogramEqualizationParameters.push_back(p);
