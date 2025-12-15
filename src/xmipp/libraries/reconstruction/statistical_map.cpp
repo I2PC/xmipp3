@@ -308,7 +308,7 @@ void ProgStatisticalMap::run()
     }
 
     // Sort accumulated z-scores for percentile calculation
-    std::sort(zScoreAccumulator.begin(), zScoreAccumulator.end());
+    // std::sort(zScoreAccumulator.begin(), zScoreAccumulator.end());
 
     // // Calculate average transformation
     // double sum = std::accumulate(histogramEqualizationParameters.begin(), histogramEqualizationParameters.end(), 0.0);
