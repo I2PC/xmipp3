@@ -323,7 +323,7 @@ void ProgStatisticalMap::run()
     // Compare input maps against statistical map
     // ---
     #ifdef VERBOSE_OUTPUT
-    std::cout << "\n\n---Comparing input map pool agains statistical map---" << std::endl;
+    std::cout << "\n\n---Comparing input map pool against statistical map---" << std::endl;
     #endif
 
     mapPoolMD.read(fn_mapPool);
@@ -740,7 +740,7 @@ void ProgStatisticalMap::calculateZscoreMap()
 
 void ProgStatisticalMap::calculateZscoreMap_GlobalSigma()
 {
-    std::cout << "    Calculating Zscore map..." << std::endl;
+    std::cout << "    Calculating Zscore map with global sigma correction..." << std::endl;
 
     // Mask common region between new map and pool using "cosine average"
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
@@ -767,23 +767,30 @@ void ProgStatisticalMap::calculateZscoreMap_GlobalSigma()
     std::cout << "    Average of the coincident region: " << v_avg << std::endl;
     std::cout << "    Std of the coincident region: " << v_std << std::endl;
 
+    // El que ponga segundo es que el que se aplica!!!!!!
+    computeSigmaNormIQR(v_std);
     computeSigmaNormMAD(v_std);
-    // computeSigmaNormIQR(v_std);
-
 
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
-        // Classic Z-score
-        double zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / sqrt(v_std*v_std + DIRECT_MULTIDIM_ELEM(stdVolume(),n)*DIRECT_MULTIDIM_ELEM(stdVolume(),n));
-
-        DIRECT_MULTIDIM_ELEM(V_Zscores(),n) = zscore;
-
-        if (zscore > significance_thr)
+        if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask,n) > 0)
         {
-            DIRECT_MULTIDIM_ELEM(differentMask,n) = 1;
+            // Classic Z-score
+            // double zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / DIRECT_MULTIDIM_ELEM(stdVolume(),n);
+
+            // Z-score with sigma norm correction
+            double zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / sqrt(v_std*v_std + DIRECT_MULTIDIM_ELEM(stdVolume(),n)*DIRECT_MULTIDIM_ELEM(stdVolume(),n));
+
+            DIRECT_MULTIDIM_ELEM(V_Zscores(),n) = zscore;
+
+            if (zscore > significance_thr)
+            {
+                DIRECT_MULTIDIM_ELEM(differentMask,n) = 1;
+            }
         }
     }
 
+    // Remove small components and closing 3D in different mask
     MultidimArray<double> differentMask_double;
     differentMask_double.initZeros(Zdim, Ydim, Xdim);
 
