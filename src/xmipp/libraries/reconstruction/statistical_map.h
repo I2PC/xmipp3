@@ -62,6 +62,7 @@ class ProgStatisticalMap: public XmippProgram
     // Side info variables
     FileName fn_out_avg_map;
     FileName fn_out_std_map;
+    FileName fn_out_median_map;
 
     // Volume dimensions
     bool dimInitialized = false;
@@ -71,6 +72,11 @@ class ProgStatisticalMap: public XmippProgram
     size_t Ndim;
 
     // Data variables
+    Image<double> referenceMapPool;         // Reference map pool
+    Image<double> medianMap;                // Median volume
+    Image<double> MADMap;                   // MAD volume
+    Image<double> V_ZscoresMAD;             // Each z-scores map using MAD from pool
+
     FileName fn_V;                          // Filename for each input volume from pool
     Image<double> V;                        // Each input volume from pool
     Image<double> V_Zscores;                // Each z-scores map from pool
@@ -142,6 +148,15 @@ public:
     double t_cdf(double t, int nu);
     double t_p_value(double t_stat, int nu);
     double percentile(MultidimArray<double>& data, double p);
+
+
+    // Methdos for new approach
+    double median(std::vector<double> v);
+    void computemMedianMap();
+    void writeMedianMap();
+    void computemMADMap();
+    void calculateZscoreMADMap();
+    void writeZscoresMADMap(FileName fnIn);
 
 };
 //@}
