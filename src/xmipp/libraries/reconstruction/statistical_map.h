@@ -63,6 +63,7 @@ class ProgStatisticalMap: public XmippProgram
     FileName fn_out_avg_map;
     FileName fn_out_std_map;
     FileName fn_out_median_map;
+    FileName fn_out_mad_map;
 
     // Volume dimensions
     bool dimInitialized = false;
@@ -152,7 +153,7 @@ public:
 
     // Methdos for new approach
     double median(std::vector<double> v);
-    void computemMedianMap();
+    void computeMedianMap();
     void writeMedianMap();
     void computemMADMap();
     void calculateZscoreMADMap();

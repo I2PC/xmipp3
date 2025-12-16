@@ -95,6 +95,15 @@ void ProgStatisticalMap::writeMedianMap()
     #endif
 }
 
+void ProgStatisticalMap::writeMadMap() 
+{
+    MADMap.write(fn_out_mad_map);
+
+    #ifdef DEBUG_WRITE_OUTPUT
+    std::cout << "MAD map saved at: " << fn_out_mad_map << std::endl;
+    #endif
+}
+
 void ProgStatisticalMap::writeZscoresMap(FileName fnIn) 
 {
     // Compose filename
@@ -133,6 +142,10 @@ void ProgStatisticalMap::writeZscoresMADMap(FileName fnIn)
 
     //Write output Z-scores volume
     V_Zscores.write(fnOut);
+
+    #ifdef DEBUG_WRITE_OUTPUT
+    std::cout << "Z-scores MAD map saved at: " << fnOut << std::endl;
+    #endif
 }
 
 void ProgStatisticalMap::writePercentileMap(FileName fnIn) 
@@ -291,8 +304,10 @@ void ProgStatisticalMap::run()
     }
 
     // Calculate median map
-    computemMedianMap();
+    computeMedianMap();
+    computemMADMap();
     writeMedianMap();
+    writeMadMap();
 
     // computeStatisticalMaps();
     // calculateAvgDiffMap();
@@ -531,7 +546,7 @@ void ProgStatisticalMap::processStaticalMap()
     }
 }
 
-void ProgStatisticalMap::computemMedianMap()
+void ProgStatisticalMap::computeMedianMap()
 { 
     std::cout << "    Calculating median map..." << std::endl;
 
@@ -864,7 +879,7 @@ void ProgStatisticalMap::calculateZscoreMADMap()
             zscoreMAD = (val - mu) / (1.4826 * mad);
         }
 
-        DIRECT_MULTIDIM_ELEM(V_Zscores(), n) = zscoreMAD;
+        DIRECT_MULTIDIM_ELEM(V_ZscoresMAD(), n) = zscoreMAD;
 
 
         // if (zscore > significance_thr * equalizationParam)
@@ -902,6 +917,8 @@ void ProgStatisticalMap::calculateZscoreMADMap()
     //         DIRECT_MULTIDIM_ELEM(differentMask, n) = 0;
     //     }
     // }
+
+    std::cout << "    Zscore MAD map calculated successfully!" << std::endl;
 }
 
 void ProgStatisticalMap::calculateZscoreMap_GlobalSigma()
@@ -1159,6 +1176,7 @@ void ProgStatisticalMap::generateSideInfo()
     fn_out_avg_map = fn_oroot + "statsMap_avg.mrc";
     fn_out_std_map = fn_oroot + "statsMap_std.mrc";
     fn_out_median_map = fn_oroot + "statsMap_median.mrc";
+    fn_out_mad_map = fn_oroot + "statsMap_mad.mrc";
 
     if (protein_radius > 0) // Only if mas radius is provided
         createRadiusMask();
