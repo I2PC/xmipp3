@@ -742,6 +742,7 @@ void ProgStatisticalMap::calculateZscoreMap_GlobalSigma()
     std::cout << "    Calculating Zscore map with global sigma correction..." << std::endl;
 
     // Mask common region between new map and pool using "cosine average"
+    size_t numCoincidentPx = 0;
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
         if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask,n) > 0)
@@ -754,9 +755,11 @@ void ProgStatisticalMap::calculateZscoreMap_GlobalSigma()
             if (div > 2.1213)
             {
                 DIRECT_MULTIDIM_ELEM(coincidentMask,n) = 1;
+                numCoincidentPx++;
             }             
         }
     }
+    std::cout << "    Number of coincident pixels: " << numCoincidentPx << std::endl;
 
     double v_avg;
     double v_std;
@@ -770,6 +773,7 @@ void ProgStatisticalMap::calculateZscoreMap_GlobalSigma()
     computeSigmaNormIQR(v_std);
     computeSigmaNormMAD(v_std);
 
+    size_t numDifferentPx = 0;
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
         if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask,n) > 0)
@@ -785,9 +789,11 @@ void ProgStatisticalMap::calculateZscoreMap_GlobalSigma()
             if (zscore > significance_thr)
             {
                 DIRECT_MULTIDIM_ELEM(differentMask,n) = 1;
+                numDifferentPx++;
             }
         }
     }
+    std::cout << "    Number of different pixels: " << numDifferentPx << std::endl;
 
     // Remove small components and closing 3D in different mask
     MultidimArray<double> differentMask_double;
