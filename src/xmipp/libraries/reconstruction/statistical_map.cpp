@@ -141,7 +141,7 @@ void ProgStatisticalMap::writeZscoresMADMap(FileName fnIn)
     }
 
     //Write output Z-scores volume
-    V_Zscores.write(fnOut);
+    V_ZscoresMAD.write(fnOut);
 
     #ifdef DEBUG_WRITE_OUTPUT
     std::cout << "Z-scores MAD map saved at: " << fnOut << std::endl;
