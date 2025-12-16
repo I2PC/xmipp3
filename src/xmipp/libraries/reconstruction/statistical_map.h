@@ -155,6 +155,7 @@ public:
     double median(std::vector<double> v);
     void computeMedianMap();
     void writeMedianMap();
+    void writeMadMap();
     void computemMADMap();
     void calculateZscoreMADMap();
     void writeZscoresMADMap(FileName fnIn);

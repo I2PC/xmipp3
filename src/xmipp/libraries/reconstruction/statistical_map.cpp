@@ -279,6 +279,7 @@ void ProgStatisticalMap::run()
             // avgDiffVolume().initZeros(Zdim, Ydim, Xdim);
             medianMap().initZeros(Zdim, Ydim, Xdim);
             MADMap().initZeros(Zdim, Ydim, Xdim);
+            V_ZscoresMAD().initZeros(Zdim, Ydim, Xdim);
 
             // For Dixon
             // stdVolume().initConstant(DBL_MAX);
