@@ -62,8 +62,6 @@ class ProgStatisticalMap: public XmippProgram
     // Side info variables
     FileName fn_out_avg_map;
     FileName fn_out_std_map;
-    FileName fn_out_median_map;
-    FileName fn_out_mad_map;
 
     // Volume dimensions
     bool dimInitialized = false;
@@ -73,11 +71,6 @@ class ProgStatisticalMap: public XmippProgram
     size_t Ndim;
 
     // Data variables
-    Image<double> referenceMapPool;         // Reference map pool
-    Image<double> medianMap;                // Median volume
-    Image<double> MADMap;                   // MAD volume
-    Image<double> V_ZscoresMAD;             // Each z-scores map using MAD from pool
-
     FileName fn_V;                          // Filename for each input volume from pool
     Image<double> V;                        // Each input volume from pool
     Image<double> V_Zscores;                // Each z-scores map from pool
@@ -88,6 +81,7 @@ class ProgStatisticalMap: public XmippProgram
     MultidimArray<int> proteinRadiusMask;   // Mask for focus analysis if protein radius provided
     MultidimArray<int> coincidentMask;      // Mask for coincident regions between each input map and the statiscal pool
     MultidimArray<int> differentMask;       // Mask for different regions between each input map and the statiscal pool
+    MultidimArray<int> positiveMask;        // Mask for positive values in each input map
 
     // Calculated parameters
     double percentileThr = 99.99;  // *** Esto vamos a querer que sea un parametro, lo estoy viendo venir
@@ -149,16 +143,6 @@ public:
     double t_cdf(double t, int nu);
     double t_p_value(double t_stat, int nu);
     double percentile(MultidimArray<double>& data, double p);
-
-
-    // Methdos for new approach
-    double median(std::vector<double> v);
-    void computeMedianMap();
-    void writeMedianMap();
-    void writeMadMap();
-    void computemMADMap();
-    void calculateZscoreMADMap();
-    void writeZscoresMADMap(FileName fnIn);
 
 };
 //@}
