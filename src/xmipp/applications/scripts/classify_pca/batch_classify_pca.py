@@ -154,6 +154,8 @@ if __name__=="__main__":
         cl = bnb.kmeans_pytorch_for_averages(Texp_zero, pca_zero, cvecs, num_clusters = final_classes)
         del Texp_zero, pca_zero
         # torch.cuda.empty_cache()
+        file_cero = output+"_0.mrcs"
+        save_images(cl.cpu().detach().numpy(), sampling, file_cero) 
 
         
     
