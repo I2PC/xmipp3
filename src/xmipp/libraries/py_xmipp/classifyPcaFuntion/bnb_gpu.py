@@ -481,7 +481,7 @@ class BnBgpu:
 
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             
-            # clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)
+            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)
                     
         #Sort classes        
         if iter < 7:
@@ -2838,8 +2838,8 @@ class BnBgpu:
             #sharpen_power = (0.08 * resolutions).clamp(min=0.3, max=2.5)
         if sharpen_power is None:
             # factorR = torch.where(resolutions > 8, 0.1, 0.08)
-            # sharpen_power = (factorR * resolutions).clamp(min=0.3, max=2.5)
-            sharpen_power = (0.05 * resolutions).clamp(min=0.3, max=2.5)
+            factorR = torch.where(resolutions > 8, 0.08, torch.where(resolutions < 15, 0.06, 0.03))
+            sharpen_power = (factorR * resolutions).clamp(min=0.3, max=2.5)
   
             sharpen_power = sharpen_power.view(B, 1, 1)  # broadcasting por imagen
         else:
