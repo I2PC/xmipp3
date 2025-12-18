@@ -368,7 +368,8 @@ class BnBgpu:
             thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
             
         if iter > 0 and iter < 5:# and cycles == 0:
-            num = int(classes/2)
+            # num = int(classes/2)
+            num = classes
             newCL = [[] for i in range(classes)]
         else:
             num = classes
@@ -426,7 +427,8 @@ class BnBgpu:
                                                 (matches[initBatch:endBatch, 2] >= thr_high[n])
                                             )
                                         ]
-                    newCL[n + num].append(non_class_images)
+                    # newCL[n + num].append(non_class_images)
+                    newCL[nnum-1].append(non_class_images)
 
                 
             elif iter >= 5 and iter < 15:
@@ -3456,7 +3458,7 @@ class BnBgpu:
         else:  #test with 49Gb GPU
             if dim <= 64:
                 expBatchSize = 50000 
-                expBatchSize2 = 80000
+                expBatchSize2 = 100000
                 numFirstBatch = 2
                 initClBatch = 100000
             elif dim <= 128:
@@ -3465,9 +3467,9 @@ class BnBgpu:
                 numFirstBatch = 2
                 initClBatch = 100000
             elif dim <= 256:
-                expBatchSize = 20000 
-                expBatchSize2 = 30000
-                numFirstBatch = 4 
+                expBatchSize = 15000 
+                expBatchSize2 = 20000
+                numFirstBatch = 5 
                 initClBatch = 30000
                 
                 
