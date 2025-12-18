@@ -307,7 +307,7 @@ class BnBgpu:
     
     
     @torch.no_grad()
-    def get_robust_zscore_thresholds(self, classes, matches, threshold=2.0, bins=200):
+    def get_robust_zscore_thresholds(self, classes, matches, threshold=1.0, bins=200):
         
         thr_low = torch.full((classes,), float('-inf'), device=matches.device)
         thr_high = torch.full((classes,), float('inf'), device=matches.device)
