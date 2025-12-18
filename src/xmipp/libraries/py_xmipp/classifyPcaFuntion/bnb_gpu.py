@@ -428,7 +428,7 @@ class BnBgpu:
                                             )
                                         ]
                     # newCL[n + num].append(non_class_images)
-                    newCL[nnum-1].append(non_class_images)
+                    newCL[num-1].append(non_class_images)
 
                 
             elif iter >= 5 and iter < 15:
