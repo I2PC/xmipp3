@@ -479,7 +479,7 @@ class BnBgpu:
             res_classes = self.frc_resolution_tensor(newCL, sampling, rcut=cut)
             print(res_classes)
 
-            # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             
             # clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)
                     
@@ -488,12 +488,12 @@ class BnBgpu:
             clk = clk[torch.argsort(torch.tensor([len(cls_list) for cls_list in newCL], device=clk.device), descending=True)]
         
 
-        # if iter in [10, 13]:
-        #     clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
-        #                         intensity_percentile=50, smooth_sigma=1.0)
-        # if 1 < iter < 7 and iter % 2 == 0:
-        #     clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
-        #                         intensity_percentile=50, smooth_sigma=1.0)
+        if iter in [10, 13]:
+            clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
+                                intensity_percentile=50, smooth_sigma=1.0)
+        if 1 < iter < 7 and iter % 2 == 0:
+            clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
+                                intensity_percentile=50, smooth_sigma=1.0)
 
         
         if iter > 2 and iter < 12:
