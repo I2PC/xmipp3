@@ -420,15 +420,14 @@ class BnBgpu:
                                         ]
                     newCL[n].append(class_images)
                     
-                    non_class_images = transforIm[
-                                            (matches[initBatch:endBatch, 1] == n) &
-                                            (
-                                                (matches[initBatch:endBatch, 2] <= thr_low[n]) |
-                                                (matches[initBatch:endBatch, 2] >= thr_high[n])
-                                            )
-                                        ]
+                    # non_class_images = transforIm[
+                    #                         (matches[initBatch:endBatch, 1] == n) &
+                    #                         (
+                    #                             (matches[initBatch:endBatch, 2] <= thr_low[n]) |
+                    #                             (matches[initBatch:endBatch, 2] >= thr_high[n])
+                    #                         )
+                    #                     ]
                     # newCL[n + num].append(non_class_images)
-                    newCL[num-1].append(non_class_images)
 
                 
             elif iter >= 5 and iter < 15:
