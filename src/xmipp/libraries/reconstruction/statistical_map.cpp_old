@@ -86,65 +86,52 @@ void ProgStatisticalMap::writeStatisticalMap()
     #endif
 }
 
-void ProgStatisticalMap::writeMedianMap() 
+void ProgStatisticalMap::writeZscoresMap(FileName fnIn)
 {
-    medianMap.write(fn_out_median_map);
+    // ---- Basic sanity checks ----
+    if (fn_oroot.empty())
+        throw std::runtime_error("Output root directory 'fn_oroot' is empty.");
 
-    #ifdef DEBUG_WRITE_OUTPUT
-    std::cout << "Median map saved at: " << fn_out_median_map << std::endl;
-    #endif
-}
-
-void ProgStatisticalMap::writeMadMap() 
-{
-    MADMap.write(fn_out_mad_map);
-
-    #ifdef DEBUG_WRITE_OUTPUT
-    std::cout << "MAD map saved at: " << fn_out_mad_map << std::endl;
-    #endif
-}
-
-void ProgStatisticalMap::writeZscoresMap(FileName fnIn) 
-{
-    // Compose filename
+    // ---- Extract base name (without path, without extension) ----
     size_t lastSlashPos = fnIn.find_last_of("/\\");
-    size_t lastDotPos = fnIn.find_last_of('.');
-
-    FileName newFileName = fnIn.substr(lastSlashPos + 1, lastDotPos - lastSlashPos - 1) + "_Zscores.mrc";
-    FileName fnOut = fn_oroot + (fn_oroot.back() == '/' || fn_oroot.back() == '\\' ? "" : "/") + newFileName;
-
-    // Check if file already existes (the same pool map might contain to identical filenames
-    int counter = 1;
-    while (std::ifstream(fnOut)) 
-    {
-        fnOut = fn_oroot + (fn_oroot.back() == '/' || fn_oroot.back() == '\\' ? "" : "/") + fnIn.substr(fnIn.find_last_of("/\\") + 1, fnIn.find_last_of('.') - fnIn.find_last_of("/\\") - 1) + "_Zscores_" + std::to_string(counter++) + fnIn.substr(fnIn.find_last_of('.'));
+    if (lastSlashPos == FileName::npos) {
+        lastSlashPos = static_cast<size_t>(-1); // so lastSlashPos + 1 == 0
     }
 
-    //Write output Z-scores volume
-    V_Zscores.write(fnOut);
-}
-
-void ProgStatisticalMap::writeZscoresMADMap(FileName fnIn) 
-{
-    // Compose filename
-    size_t lastSlashPos = fnIn.find_last_of("/\\");
     size_t lastDotPos = fnIn.find_last_of('.');
-
-    FileName newFileName = fnIn.substr(lastSlashPos + 1, lastDotPos - lastSlashPos - 1) + "_ZscoresMAD.mrc";
-    FileName fnOut = fn_oroot + (fn_oroot.back() == '/' || fn_oroot.back() == '\\' ? "" : "/") + newFileName;
-
-    // Check if file already existes (the same pool map might contain to identical filenames
-    int counter = 1;
-    while (std::ifstream(fnOut)) 
-    {
-        fnOut = fn_oroot + (fn_oroot.back() == '/' || fn_oroot.back() == '\\' ? "" : "/") + fnIn.substr(fnIn.find_last_of("/\\") + 1, fnIn.find_last_of('.') - fnIn.find_last_of("/\\") - 1) + "_ZscoresMAD_" + std::to_string(counter++) + fnIn.substr(fnIn.find_last_of('.'));
+    if (lastDotPos == FileName::npos || lastDotPos <= lastSlashPos) {
+        // No extension or dot is part of the path segment: treat whole filename as base
+        lastDotPos = fnIn.size();
     }
 
-    //Write output Z-scores volume
-    V_ZscoresMAD.write(fnOut);
+    FileName base = fnIn.substr(lastSlashPos + 1, lastDotPos - lastSlashPos - 1);
+
+    // ---- Build the output directory prefix with exactly one separator ----
+    const bool rootHasSep = (fn_oroot.back() == '/' || fn_oroot.back() == '\\');
+    const FileName sep = rootHasSep ? "" : FileName("/");
+
+    // ---- Try candidates until we find a free name ----
+    FileName fnOut;
+    for (int counter = 0;; ++counter) {
+        if (counter == 0) {
+            fnOut = fn_oroot + sep + base + "_Zscores.mrc";
+        } else {
+            fnOut = fn_oroot + sep + base + "_Zscores_" + std::to_string(counter) + ".mrc";
+        }
+
+        // If file does not exist, we can write to it
+        std::ifstream test(fnOut);
+        if (!test.good()) {
+            break;
+        }
+        // else keep looping and try the next suffix
+    }
+
+    // ---- Write output Z-scores volume ----
+       V_Zscores.write(fnOut);
 
     #ifdef DEBUG_WRITE_OUTPUT
-    std::cout << "Z-scores MAD map saved at: " << fnOut << std::endl;
+    std::cout << "Zscores map saved at : " << fnOut << std::endl;
     #endif
 }
 
@@ -247,7 +234,6 @@ void ProgStatisticalMap::run()
     
     mapPoolMD.read(fn_mapPool_statistical);
     Ndim = mapPoolMD.size();
-    size_t volCounter = 0;
 
     for (const auto& row : mapPoolMD)
 	{
@@ -273,13 +259,9 @@ void ProgStatisticalMap::run()
             << "Ndim: " << Ndim << std::endl;
             #endif
 
-            referenceMapPool().initZeros(Ndim, Zdim, Ydim, Xdim);
             avgVolume().initZeros(Zdim, Ydim, Xdim);
             stdVolume().initZeros(Zdim, Ydim, Xdim);
-            // avgDiffVolume().initZeros(Zdim, Ydim, Xdim);
-            medianMap().initZeros(Zdim, Ydim, Xdim);
-            MADMap().initZeros(Zdim, Ydim, Xdim);
-            V_ZscoresMAD().initZeros(Zdim, Ydim, Xdim);
+            avgDiffVolume().initZeros(Zdim, Ydim, Xdim);
 
             // For Dixon
             // stdVolume().initConstant(DBL_MAX);
@@ -288,99 +270,82 @@ void ProgStatisticalMap::run()
         }
 
         preprocessMap(fn_V);
-
-        // Load preprocess map in reference map pool
-        for(size_t k = 0; k < Zdim; k++)
-	    {
-            for(size_t j = 0; j <Xdim; j++)
-            {
-                for(size_t i = 0; i < Ydim; i++)
-                {
-                    DIRECT_NZYX_ELEM(referenceMapPool(), volCounter, k, i, j) = DIRECT_ZYX_ELEM(V(), k, i, j);
-                }
-            }
-        }
-
-        volCounter++;
+        // processStaticalMapDixon();
+        processStaticalMap();
     }
-
-    // Calculate median map
-    computeMedianMap();
-    computemMADMap();
-    writeMedianMap();
-    writeMadMap();
 
     computeStatisticalMaps();
     // calculateAvgDiffMap();
-    writeStatisticalMap();
 
     #ifdef DEBUG_STAT_MAP
     std::cout << "Statistical map succesfully calculated!" << std::endl;
     #endif
     
-    // // ---
-    // // Calculate Z-score maps from statistical map pool for histogram equalization
-    // // ---
-    // #ifdef VERBOSE_OUTPUT
-    // std::cout << "\n\n---Analyzing input map pool for histogram equalization---" << std::endl;
-    // #endif
+    writeStatisticalMap();
 
-    // for (const auto& row : mapPoolMD)
-	// {
-    //     row.getValue(MDL_IMAGE, fn_V);
+    // ---
+    // Calculate Z-score maps from statistical map pool for histogram equalization
+    // ---
+    #ifdef VERBOSE_OUTPUT
+    std::cout << "\n\n---Analyzing input map pool for histogram equalization---" << std::endl;
+    #endif
 
-    //     #ifdef DEBUG_WEIGHT_MAP
-    //     std::cout << "Anayzing volume " << fn_V << " against statistical map for histogram equalization..." << std::endl;
-    //     #endif
+    for (const auto& row : mapPoolMD)
+	{
+        row.getValue(MDL_IMAGE, fn_V);
 
-    //     V.clear();
-    //     V.read(fn_V);
+        #ifdef DEBUG_WEIGHT_MAP
+        std::cout << "Anayzing volume " << fn_V << " against statistical map for histogram equalization..." << std::endl;
+        #endif
 
-    //     preprocessMap(fn_V);
+        V.clear();
+        V.read(fn_V);
 
-    //     V_Zscores().initZeros(Zdim, Ydim, Xdim);
-    //     V_Percentile().initZeros(Zdim, Ydim, Xdim);
-    //     differentMask.initZeros(Zdim, Ydim, Xdim);
-    //     coincidentMask.initZeros(Zdim, Ydim, Xdim);
-    //     differentMask.initZeros(Zdim, Ydim, Xdim);
+        preprocessMap(fn_V);
 
-    //     // calculateZscoreMap();
-    //     calculateZscoreMap_GlobalSigma();
-    //     writeZscoresMap(fn_V);
-    //     writeMask(fn_V);
+        V_Zscores().initZeros(Zdim, Ydim, Xdim);
+        V_Percentile().initZeros(Zdim, Ydim, Xdim);
+        differentMask.initZeros(Zdim, Ydim, Xdim);
+        coincidentMask.initZeros(Zdim, Ydim, Xdim);
+        differentMask.initZeros(Zdim, Ydim, Xdim);
 
-    //     // double p = percentile(V_Zscores(), percentileThr);
-    //     // histogramEqualizationParameters.push_back(p);
+        // calculateZscoreMap();
+        calculateZscoreMap_GlobalSigma();
+        writeZscoresMap(fn_V);
+        writeMask(fn_V);
+
+        // double p = percentile(V_Zscores(), percentileThr);
+        // histogramEqualizationParameters.push_back(p);
         
-    //     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V_Zscores())
-    //     {
-    //         if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask, n) > 0)
-    //         {
-    //             zScoreAccumulator.push_back(DIRECT_MULTIDIM_ELEM(V_Zscores(), n));
-    //         }
-    //     }
+        FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V_Zscores())
+        {
+            if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask, n) > 0)
+            {
+                zScoreAccumulator.push_back(DIRECT_MULTIDIM_ELEM(V_Zscores(), n));
+            }
+        }
 
-    //     // double min;
-    //     // double max;
-    //     // V_Zscores().computeDoubleMinMax(min, max);
+        // double min;
+        // double max;
+        // V_Zscores().computeDoubleMinMax(min, max);
 
-    //     // #ifdef DEBUG_PERCENTILE
-    //     // std::cout << "Max value in Z-score map: " << max << std::endl;
-    //     // #endif
+        // #ifdef DEBUG_PERCENTILE
+        // std::cout << "Max value in Z-score map: " << max << std::endl;
+        // #endif
 
-    //     // histogramEqualizationParameters.push_back(max);        
-    // }
+        // histogramEqualizationParameters.push_back(max);        
+    }
 
-    // // Sort accumulated z-scores for percentile calculation
-    // // std::sort(zScoreAccumulator.begin(), zScoreAccumulator.end());
+    // Sort accumulated z-scores for percentile calculation
+    // std::sort(zScoreAccumulator.begin(), zScoreAccumulator.end());
 
-    // // // Calculate average transformation
-    // // double sum = std::accumulate(histogramEqualizationParameters.begin(), histogramEqualizationParameters.end(), 0.0);
-    // // equalizationParam =  sum / histogramEqualizationParameters.size();
+    // // Calculate average transformation
+    // double sum = std::accumulate(histogramEqualizationParameters.begin(), histogramEqualizationParameters.end(), 0.0);
+    // equalizationParam =  sum / histogramEqualizationParameters.size();
 
-    // // #ifdef DEBUG_PERCENTILE
-    // // std::cout << "Equalization parameter: " << equalizationParam << std::endl;
-    // // #endif
+    // #ifdef DEBUG_PERCENTILE
+    // std::cout << "Equalization parameter: " << equalizationParam << std::endl;
+    // #endif
 
     // ---
     // Compare input maps against statistical map
@@ -405,23 +370,21 @@ void ProgStatisticalMap::run()
         preprocessMap(fn_V);
 
         V_Zscores().initZeros(Zdim, Ydim, Xdim);
-        // V_Percentile().initZeros(Zdim, Ydim, Xdim);
-        // coincidentMask.initZeros(Zdim, Ydim, Xdim);
-        // differentMask.initZeros(Zdim, Ydim, Xdim);
-        V_ZscoresMAD().initZeros(Zdim, Ydim, Xdim);
-        calculateZscoreMADMap();
-        writeZscoresMADMap(fn_V);
+        V_Percentile().initZeros(Zdim, Ydim, Xdim);
+        coincidentMask.initZeros(Zdim, Ydim, Xdim);
+        differentMask.initZeros(Zdim, Ydim, Xdim);
 
         // calculateZscoreMap();
-        // calculateZscoreMap_GlobalSigma();
+        calculateZscoreMap_GlobalSigma();
         // calculateDixonMap();
         writeZscoresMap(fn_V);
-        // calculatePercetileMap();
-        // writePercentileMap(fn_V);
 
-        // weightMap();
-        // writeWeightedMap(fn_V);
-        // writeMask(fn_V);
+        calculatePercetileMap();
+        writePercentileMap(fn_V);
+
+        weightMap();
+        writeWeightedMap(fn_V);
+        writeMask(fn_V);
     }
 
     #ifdef DEBUG_WEIGHT_MAP
@@ -583,65 +546,6 @@ void ProgStatisticalMap::processStaticalMap()
     }
 }
 
-void ProgStatisticalMap::computeMedianMap()
-{ 
-    std::cout << "    Calculating median map..." << std::endl;
-
-    std::vector<double> voxelValues;
-    voxelValues.reserve(Ndim);
-
-    // Iterate for every voxel in the volume's shape
-    for(size_t k = 0; k < Zdim; k++)
-	{
-        for(size_t j = 0; j <Xdim; j++)
-		{
-			for(size_t i = 0; i < Ydim; i++)
-            {
-                if (DIRECT_ZYX_ELEM(proteinRadiusMask, k, i, j) > 0)
-                {
-                    for (size_t n = 0; n < Ndim; n++)
-                    {
-                        voxelValues.push_back(DIRECT_NZYX_ELEM(referenceMapPool(), n, k, i, j));
-                    }
-
-                    DIRECT_ZYX_ELEM(medianMap(), k, i, j) = median(voxelValues);
-                    voxelValues.clear();
-                }
-            }
-        }
-    }
-}
-
-void ProgStatisticalMap::computemMADMap()
-{ 
-    std::cout << "    Calculating MAD map..." << std::endl;
-
-    std::vector<double> voxelValues;
-    voxelValues.reserve(Ndim);
-
-    // Iterate for every voxel in the volume's shape
-    for(size_t k = 0; k < Zdim; k++)
-	{
-        for(size_t j = 0; j <Xdim; j++)
-		{
-			for(size_t i = 0; i < Ydim; i++)
-            {
-                if (DIRECT_ZYX_ELEM(proteinRadiusMask, k, i, j) > 0)
-                {
-                    for (size_t n = 0; n < Ndim; n++)
-                    {
-                        voxelValues.push_back(abs(DIRECT_NZYX_ELEM(referenceMapPool(), n, k, i, j) - DIRECT_ZYX_ELEM(medianMap(), k, i, j)));
-                    }
-
-                    DIRECT_ZYX_ELEM(MADMap(), k, i, j) = median(voxelValues);
-                    voxelValues.clear();
-                }                
-            }
-        }
-    }
-}
-
-
 void ProgStatisticalMap::computeStatisticalMaps()
 {
     std::cout << "Computing statisical map..." << std::endl;
@@ -710,20 +614,22 @@ void ProgStatisticalMap::computeSigmaNormMAD(double& sigmaNorm)
 
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(diffMap)
     {
-        if (DIRECT_MULTIDIM_ELEM(coincidentMask, n) > 0)
+        if (DIRECT_MULTIDIM_ELEM(positiveMask, n) > 0)
         {
+            // ***THIS IS AN OVERSIGHT! IT SHOULD BE THE MEDIAN MAP INSTEAD OF THE AVERAGE MAp
+            // BUT IT IS NOT CALCULATED IN THIS VERSION
             DIRECT_MULTIDIM_ELEM(diffMap, n) = DIRECT_MULTIDIM_ELEM(V(), n) - DIRECT_MULTIDIM_ELEM(avgVolume(), n);
         }
     }
 
     // Calculate abosule difference map median
     double median;
-    diffMap.computeMedian_within_binary_mask(coincidentMask, median);
+    diffMap.computeMedian_within_binary_mask(positiveMask, median);
 
     // Compute absolute deviations from the median
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(diffMap)
     {
-        if (DIRECT_MULTIDIM_ELEM(coincidentMask, n) > 0)
+        if (DIRECT_MULTIDIM_ELEM(positiveMask, n) > 0)
         {
             DIRECT_MULTIDIM_ELEM(diffMap, n) = std::fabs(DIRECT_MULTIDIM_ELEM(diffMap, n) - median);
         }
@@ -731,7 +637,7 @@ void ProgStatisticalMap::computeSigmaNormMAD(double& sigmaNorm)
 
     // Compute MAD
     double mad;
-    diffMap.computeMedian_within_binary_mask(coincidentMask, mad);
+    diffMap.computeMedian_within_binary_mask(positiveMask, mad);
     
     // Scale MAD to estimate sigma under normality
     // For a normal distribution, MAD ≈ 0.6745 * sigma.
@@ -898,34 +804,6 @@ void ProgStatisticalMap::calculateZscoreMap()
     }
 }
 
-void ProgStatisticalMap::calculateZscoreMADMap()
-{
-    std::cout << "    Calculating Zscore MAD map..." << std::endl;
-
-    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
-    {
-        double mad = DIRECT_MULTIDIM_ELEM(MADMap(), n);
-        double mu  = DIRECT_MULTIDIM_ELEM(medianMap(), n);
-        double val = DIRECT_MULTIDIM_ELEM(V(), n);
-
-        // Capturar los voxles con mad = 0. 
-        // Esto sucede si todos los valores son iguales o si estamos fuera de la mascara
-        double zscoreMAD = 0.0;
-        double zscore;
-        if (mad > 0.0)
-        {
-            zscoreMAD = (val - mu) / (1.4826 * mad);
-            zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / sqrt(mad*mad + DIRECT_MULTIDIM_ELEM(stdVolume(),n)*DIRECT_MULTIDIM_ELEM(stdVolume(),n));
-
-        }
-
-        DIRECT_MULTIDIM_ELEM(V_ZscoresMAD(), n) = zscoreMAD;
-        DIRECT_MULTIDIM_ELEM(V_Zscores(), n) = zscore;
-    }
-
-    std::cout << "    Zscore MAD map calculated successfully!" << std::endl;
-}
-
 void ProgStatisticalMap::calculateZscoreMap_GlobalSigma()
 {
     std::cout << "    Calculating Zscore map with global sigma correction..." << std::endl;
@@ -941,6 +819,7 @@ void ProgStatisticalMap::calculateZscoreMap_GlobalSigma()
             double div = num / dem;
 
             // Using 2.1213 as threshold corresponds a consistent intensity of 3 standard deviations between both maps
+            // if (div > 2.1213)
             if (div > 2.1213)
             {
                 DIRECT_MULTIDIM_ELEM(coincidentMask,n) = 1;
@@ -965,7 +844,8 @@ void ProgStatisticalMap::calculateZscoreMap_GlobalSigma()
     size_t numDifferentPx = 0;
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
-        if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask,n) > 0)
+        // if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask,n) > 0)
+        if (DIRECT_MULTIDIM_ELEM(V(),n) > 0)
         {
             // Classic Z-score
             // double zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / DIRECT_MULTIDIM_ELEM(stdVolume(),n);
@@ -981,7 +861,12 @@ void ProgStatisticalMap::calculateZscoreMap_GlobalSigma()
                 numDifferentPx++;
             }
         }
+        else
+        {
+            DIRECT_MULTIDIM_ELEM(V_Zscores(),n) = 0;
+        }
     }
+
     std::cout << "    Number of different pixels: " << numDifferentPx << std::endl;
 
     // Remove small components and closing 3D in different mask
@@ -1180,8 +1065,6 @@ void ProgStatisticalMap::generateSideInfo()
 
     fn_out_avg_map = fn_oroot + "statsMap_avg.mrc";
     fn_out_std_map = fn_oroot + "statsMap_std.mrc";
-    fn_out_median_map = fn_oroot + "statsMap_median.mrc";
-    fn_out_mad_map = fn_oroot + "statsMap_mad.mrc";
 
     if (protein_radius > 0) // Only if mas radius is provided
         createRadiusMask();
@@ -1234,26 +1117,7 @@ void ProgStatisticalMap::createRadiusMask()
     saveImage() = proteinRadiusMask;
     saveImage.write(debugFileFn);
     #endif   
-} 
-
-
-double ProgStatisticalMap::median(std::vector<double> v) {
-    if (v.empty()) {
-        throw std::invalid_argument("Cannot compute median of an empty vector");
-    }
-
-    std::sort(v.begin(), v.end());
-    size_t n = v.size();
-
-    if (n % 2 == 1) {
-        // Odd number of elements
-        return static_cast<double>(v[n / 2]);
-    } else {
-        // Even number of elements
-        return (static_cast<double>(v[n / 2 - 1]) + static_cast<double>(v[n / 2])) / 2.0;
-    }
-}
-
+}   
 
 double ProgStatisticalMap::normal_cdf(double z) {
     return 0.5 * (1.0 + std::erf(z / std::sqrt(2.0)));
