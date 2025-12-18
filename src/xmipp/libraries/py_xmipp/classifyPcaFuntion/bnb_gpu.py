@@ -481,7 +481,7 @@ class BnBgpu:
 
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             
-            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)
+            # clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)
                     
         #Sort classes        
         if iter < 7:
