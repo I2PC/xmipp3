@@ -479,7 +479,7 @@ class BnBgpu:
             res_classes = self.frc_resolution_tensor(newCL, sampling, rcut=cut)
             print(res_classes)
 
-            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
+            # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             
             # clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)
                     
