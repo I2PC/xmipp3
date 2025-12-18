@@ -441,14 +441,14 @@ class BnBgpu:
                                         ]
                     newCL[n].append(class_images)
                     
-                    non_class_images = transforIm[
-                        (matches[initBatch:endBatch, 1] == n) &
-                        (
-                            (matches[initBatch:endBatch, 2] <= thr_low[n]) |
-                            (matches[initBatch:endBatch, 2] >= thr_high[n])
-                        )
-                    ]
-                    newCL[num-1].append(non_class_images)
+                    # non_class_images = transforIm[
+                    #     (matches[initBatch:endBatch, 1] == n) &
+                    #     (
+                    #         (matches[initBatch:endBatch, 2] <= thr_low[n]) |
+                    #         (matches[initBatch:endBatch, 2] >= thr_high[n])
+                    #     )
+                    # ]
+                    # newCL[num-1].append(non_class_images)
                     
             
             else:
@@ -474,8 +474,7 @@ class BnBgpu:
 
         if iter > 1:
 
-            # cut = (25 if iter < 5 else 20) if sampling < 3 else (35 if iter < 5 else 30)
-            cut = 100
+            cut = (25 if iter < 5 else 20) if sampling < 3 else (35 if iter < 5 else 30)
             res_classes = self.frc_resolution_tensor(newCL, sampling, rcut=cut)
             print(res_classes)
 
@@ -2838,7 +2837,8 @@ class BnBgpu:
             #sharpen_power = (0.08 * resolutions).clamp(min=0.3, max=2.5)
         if sharpen_power is None:
             # factorR = torch.where(resolutions > 8, 0.1, 0.08)
-            factorR = torch.where(resolutions > 8, 0.08, torch.where(resolutions < 15, 0.06, 0.03))
+            factorR = torch.where(resolutions < 8, 0.08,
+                      torch.where(resolutions < 15, 0.06, 0.03))
             sharpen_power = (factorR * resolutions).clamp(min=0.3, max=2.5)
   
             sharpen_power = sharpen_power.view(B, 1, 1)  # broadcasting por imagen
