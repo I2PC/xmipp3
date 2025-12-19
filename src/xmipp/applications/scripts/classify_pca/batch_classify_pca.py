@@ -146,6 +146,7 @@ if __name__=="__main__":
         indices = np.random.choice(nExp, size=min(initClBatch, nExp), replace=False)
         Im_zero = mmap.data[indices].astype(np.float32)
         Texp_zero = torch.from_numpy(Im_zero).float().to(cuda)
+        Texp_zero = Texp_zero * bnb.create_gaussian_mask(Texp_zero, sigma)
         del(Im_zero)
         
         # PCA vectors 
