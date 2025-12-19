@@ -3512,12 +3512,12 @@ class BnBgpu:
             if iter < 4:
                 # ang = self.apply_jitter_annealing(-180, 180, 10, iter, max_iter)
                 # shiftMove = self.apply_jitter_annealing(-maxShift_20, maxShift_20+5, 5, iter, max_iter)
-                ang = self.apply_jitter_annealing(-180, 180, 5, iter, max_iter)
+                ang = self.apply_jitter_annealing(-180, 180, 3, iter, max_iter)
                 shiftMove = self.apply_jitter_annealing(-12, 15, 3, iter, max_iter)
             elif iter < 7:
                 # ang = self.apply_jitter_annealing(-180, 180, 8, iter, max_iter)
                 # shiftMove = self.apply_jitter_annealing(-maxShift_15, maxShift_15+4, 4, iter, max_iter)
-                ang = self.apply_jitter_annealing(-180, 180, 4, iter, max_iter)
+                ang = self.apply_jitter_annealing(-180, 180, 3, iter, max_iter)
                 shiftMove = self.apply_jitter_annealing(-12, 15, 3, iter, max_iter)
             elif iter < 10:
                 # ang = self.apply_jitter_annealing(-180, 180, 6, iter, max_iter)
