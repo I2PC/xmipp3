@@ -122,7 +122,8 @@ if __name__=="__main__":
     if refImages:
         maxRes = highRes
     else: 
-        maxRes = 18.0    
+        # maxRes = 18.0   
+        maxRes = 16.0 
     freqBn, cvecs, coef = pca.calculatePCAbasis(mmap, Ntrain, nBand, dim, sampling, maxRes, 
                                                 minRes=530, per_eig=per_eig_value, batchPCA=True)
 
@@ -248,7 +249,8 @@ if __name__=="__main__":
                     del(batch_projRef)  
                     
                     if mode == "create_classes":
-                        res_map = {4: 15, 7: 12, 10: 10, 13: highRes}
+                        # res_map = {4: 15, 7: 12, 10: 10, 13: highRes}
+                        res_map = {4: 14, 7: 12, 10: 10, 13: highRes}
                         
                         if iter in res_map:
                             del (freqBn, coef, grid_flat, cvecs)
