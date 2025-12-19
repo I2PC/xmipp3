@@ -368,8 +368,8 @@ class BnBgpu:
             thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
             
         if iter > 0 and iter < 5:# and cycles == 0:
-            num = int(classes/2)
-            # num = classes
+            # num = int(classes/2)
+            num = classes
             newCL = [[] for i in range(classes)]
         else:
             num = classes
@@ -420,14 +420,14 @@ class BnBgpu:
                                         ]
                     newCL[n].append(class_images)
                     
-                    non_class_images = transforIm[
-                                            (matches[initBatch:endBatch, 1] == n) &
-                                            (
-                                                (matches[initBatch:endBatch, 2] <= thr_low[n]) |
-                                                (matches[initBatch:endBatch, 2] >= thr_high[n])
-                                            )
-                                        ]
-                    newCL[n + num].append(non_class_images)
+                    # non_class_images = transforIm[
+                    #                         (matches[initBatch:endBatch, 1] == n) &
+                    #                         (
+                    #                             (matches[initBatch:endBatch, 2] <= thr_low[n]) |
+                    #                             (matches[initBatch:endBatch, 2] >= thr_high[n])
+                    #                         )
+                    #                     ]
+                    # newCL[n + num].append(non_class_images)
 
                 
             elif iter >= 5 and iter < 15:
@@ -2838,7 +2838,7 @@ class BnBgpu:
             #sharpen_power = (0.08 * resolutions).clamp(min=0.3, max=2.5)
         if sharpen_power is None:
             # factorR = torch.where(resolutions > 8, 0.1, 0.08)
-            factorR = torch.where(resolutions < 8, 0.1,
+            factorR = torch.where(resolutions < 6, 0.1,
                       torch.where(resolutions < 15, 0.08, 0.05))
             sharpen_power = (factorR * resolutions).clamp(min=0.3, max=2.5)
   
