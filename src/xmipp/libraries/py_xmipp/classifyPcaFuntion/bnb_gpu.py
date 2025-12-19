@@ -3402,9 +3402,10 @@ class BnBgpu:
     
         return torch.stack(averages)
     
-    def kmeans_pytorch_for_averages(self, Im_tensor, X_list, eigvect, num_clusters, num_iters=20):
+    def kmeans_pytorch_for_averages(self, Im_tensor, X, eigvect, num_clusters, num_iters=20):
 
-        X = torch.stack(X_list).float()
+        X = torch.stack(X).float()
+        X = X.view(Im_tensor.shape[0], eigvect[0].shape[1]).float()
         N, D = X.shape
         
         # 1. Normalización de features
