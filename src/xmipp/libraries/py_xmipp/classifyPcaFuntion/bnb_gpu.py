@@ -3350,7 +3350,7 @@ class BnBgpu:
         return output
     
     
-    def kmeans_pytorch_for_averages(self, Im_tensor, X, eigvect, num_clusters, num_iters=20, verbose=False):
+    def kmeans_pytorch_for_averages0(self, Im_tensor, X, eigvect, num_clusters, num_iters=20, verbose=False):
         """
         Fast K-Means in PyTorch.
     
@@ -3399,6 +3399,48 @@ class BnBgpu:
             averages.append(avg)
             
         del X, labels, centroids
+    
+        return torch.stack(averages)
+    
+    def kmeans_pytorch_for_averages(self, Im_tensor, X_list, eigvect, num_clusters, num_iters=20):
+
+        X = torch.stack(X_list).float()
+        N, D = X.shape
+        
+        # 1. Normalización de features
+        X = (X - X.mean(dim=0)) / (X.std(dim=0) + 1e-6)
+    
+        # 2. Inicialización K-Means++ (en lugar de randperm)
+        centroids = self.kmeans_plus_plus(X, num_clusters)
+    
+        for it in range(num_iters):
+            distances = torch.cdist(X, centroids, p=2)
+            labels = distances.argmin(dim=1)
+    
+            # Update centroids
+            counts = torch.bincount(labels, minlength=num_clusters).clamp(min=1).view(-1, 1)
+            centroids_sum = torch.zeros_like(centroids).scatter_add_(0, labels.view(-1, 1).expand(-1, D), X)
+            new_centroids = centroids_sum / counts
+            
+            # Check convergence (opcional)
+            if torch.allclose(centroids, new_centroids, atol=1e-4):
+                break
+            centroids = new_centroids
+    
+        # 3. Generación de Averages con Filtrado de Partículas (Top 60%)
+        averages = []
+        final_distances = torch.cdist(X, centroids, p=2)
+        for i in range(num_clusters):
+            mask = labels == i
+            if mask.any():
+                dists = final_distances[mask, i]
+                # Solo usamos las partículas más "puras" del cluster
+                cutoff = torch.quantile(dists, 0.6) 
+                pure_mask = dists <= cutoff
+                avg = Im_tensor[mask][pure_mask].mean(dim=0)
+            else:
+                avg = torch.zeros_like(Im_tensor[0])
+            averages.append(avg)
     
         return torch.stack(averages)
 
