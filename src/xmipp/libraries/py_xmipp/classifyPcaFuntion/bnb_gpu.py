@@ -483,8 +483,8 @@ class BnBgpu:
             clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)
                     
         #Sort classes        
-        if iter < 7:
-            clk = clk[torch.argsort(torch.tensor([len(cls_list) for cls_list in newCL], device=clk.device), descending=True)]
+        # if iter < 7:
+        #     clk = clk[torch.argsort(torch.tensor([len(cls_list) for cls_list in newCL], device=clk.device), descending=True)]
         
 
         if iter in [10, 13]:
