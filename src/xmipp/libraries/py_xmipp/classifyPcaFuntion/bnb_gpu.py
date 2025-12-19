@@ -307,7 +307,7 @@ class BnBgpu:
     
     
     @torch.no_grad()
-    def get_robust_zscore_thresholds(self, classes, matches, threshold=1.0, bins=200):
+    def get_robust_zscore_thresholds(self, classes, matches, threshold=2.0, bins=200):
         
         thr_low = torch.full((classes,), float('-inf'), device=matches.device)
         thr_high = torch.full((classes,), float('inf'), device=matches.device)
@@ -3431,7 +3431,8 @@ class BnBgpu:
             elif dim <= 128:
                 expBatchSize = 15000 
                 expBatchSize2 = 20000
-                numFirstBatch = 5
+                numFirstBatch = 1
+                # numFirstBatch = 5
                 initClBatch = 50000
             elif dim <= 256:
                 expBatchSize = 5000 
@@ -3510,16 +3511,24 @@ class BnBgpu:
             
             max_iter = 18
             if iter < 4:
-                ang = self.apply_jitter_annealing(-180, 180, 10, iter, max_iter)
-                shiftMove = self.apply_jitter_annealing(-maxShift_20, maxShift_20+5, 5, iter, max_iter)
+                # ang = self.apply_jitter_annealing(-180, 180, 10, iter, max_iter)
+                # shiftMove = self.apply_jitter_annealing(-maxShift_20, maxShift_20+5, 5, iter, max_iter)
+                ang = self.apply_jitter_annealing(-180, 180, 5, iter, max_iter)
+                shiftMove = self.apply_jitter_annealing(-12, 15, 3, iter, max_iter)
             elif iter < 7:
-                ang = self.apply_jitter_annealing(-180, 180, 8, iter, max_iter)
-                shiftMove = self.apply_jitter_annealing(-maxShift_15, maxShift_15+4, 4, iter, max_iter)
-            elif iter < 10:
-                ang = self.apply_jitter_annealing(-180, 180, 6, iter, max_iter)
-                shiftMove = self.apply_jitter_annealing(-12, 16, 4, iter, max_iter)
-            elif iter < 13:
+                # ang = self.apply_jitter_annealing(-180, 180, 8, iter, max_iter)
+                # shiftMove = self.apply_jitter_annealing(-maxShift_15, maxShift_15+4, 4, iter, max_iter)
                 ang = self.apply_jitter_annealing(-180, 180, 4, iter, max_iter)
+                shiftMove = self.apply_jitter_annealing(-12, 15, 3, iter, max_iter)
+            elif iter < 10:
+                # ang = self.apply_jitter_annealing(-180, 180, 6, iter, max_iter)
+                # shiftMove = self.apply_jitter_annealing(-12, 16, 4, iter, max_iter)
+                ang = self.apply_jitter_annealing(-180, 180, 3, iter, max_iter)
+                shiftMove = self.apply_jitter_annealing(-9, 12, 3, iter, max_iter)
+            elif iter < 13:
+                # ang = self.apply_jitter_annealing(-180, 180, 4, iter, max_iter)
+                # shiftMove = self.apply_jitter_annealing(-8, 10, 2, iter, max_iter)
+                ang = self.apply_jitter_annealing(-180, 180, 3, iter, max_iter)
                 shiftMove = self.apply_jitter_annealing(-8, 10, 2, iter, max_iter)
             elif iter < 18:
                 ang = self.apply_jitter_annealing(-90, 92, 2, iter, max_iter)
