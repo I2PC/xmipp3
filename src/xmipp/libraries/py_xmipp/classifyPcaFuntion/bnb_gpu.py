@@ -3402,46 +3402,83 @@ class BnBgpu:
     
         return torch.stack(averages)
     
-    def kmeans_pytorch_for_averages(self, Im_tensor, X, eigvect, num_clusters, num_iters=20):
-
-        X = torch.stack(X).float()
+    def kmeans_pytorch_for_averages(
+        self,
+        Im_tensor,
+        X,
+        eigvect,
+        num_clusters,
+        num_iters=20,
+        verbose=False
+    ):
+        """
+        Improved K-Means in PyTorch with better class separation.
+    
+        Args:
+            Im_tensor (torch.Tensor): (N, H, W) images
+            X (list or torch.Tensor): projected PCA features
+            eigvect: PCA eigenvectors (used only for shape)
+            num_clusters (int): number of clusters
+            num_iters (int): maximum number of iterations
+        Returns:
+            torch.Tensor: class averages
+        """
+    
+        # --- Prepare feature matrix ---
+        X = torch.stack(X)
         X = X.view(Im_tensor.shape[0], eigvect[0].shape[1]).float()
         N, D = X.shape
-        
-        # 1. Normalización de features
-        X = (X - X.mean(dim=0)) / (X.std(dim=0) + 1e-6)
     
-        # 2. Inicialización K-Means++ (en lugar de randperm)
-        centroids = self.kmeans_plus_plus(X, num_clusters)
+        # --- Normalize features (critical for separation) ---
+        X = (X - X.mean(dim=0)) / (X.std(dim=0) + 1e-8)
     
+        # --- K-means++ initialization ---
+        centroids = torch.empty((num_clusters, D), device=X.device)
+        idx = torch.randint(0, N, (1,), device=X.device)
+        centroids[0] = X[idx]
+    
+        for k in range(1, num_clusters):
+            dist = torch.cdist(X, centroids[:k]).min(dim=1)[0]
+            probs = dist / dist.sum()
+            next_idx = torch.multinomial(probs, 1)
+            centroids[k] = X[next_idx]
+    
+        # --- K-means iterations ---
         for it in range(num_iters):
             distances = torch.cdist(X, centroids, p=2)
             labels = distances.argmin(dim=1)
     
-            # Update centroids
-            counts = torch.bincount(labels, minlength=num_clusters).clamp(min=1).view(-1, 1)
-            centroids_sum = torch.zeros_like(centroids).scatter_add_(0, labels.view(-1, 1).expand(-1, D), X)
-            new_centroids = centroids_sum / counts
-            
-            # Check convergence (opcional)
-            if torch.allclose(centroids, new_centroids, atol=1e-4):
-                break
-            centroids = new_centroids
+            counts = torch.bincount(labels, minlength=num_clusters).clamp(min=1).unsqueeze(1)
+            centroids_sum = torch.zeros_like(centroids)
+            centroids_sum.scatter_add_(0, labels.unsqueeze(1).expand(-1, D), X)
+            centroids = centroids_sum / counts
     
-        # 3. Generación de Averages con Filtrado de Partículas (Top 60%)
+            if verbose:
+                inertia = (distances[torch.arange(N), labels] ** 2).sum().item()
+                print(f"Iteration {it+1}, Inertia: {inertia:.2f}")
+    
+        # --- Compute robust class averages ---
         averages = []
-        final_distances = torch.cdist(X, centroids, p=2)
         for i in range(num_clusters):
-            mask = labels == i
-            if mask.any():
-                dists = final_distances[mask, i]
-                # Solo usamos las partículas más "puras" del cluster
-                cutoff = torch.quantile(dists, 0.6) 
-                pure_mask = dists <= cutoff
-                avg = Im_tensor[mask][pure_mask].mean(dim=0)
+            class_mask = labels == i
+            class_images = Im_tensor[class_mask]
+    
+            if class_images.size(0) > 0:
+                class_dist = distances[class_mask, i]
+                med = class_dist.median()
+                mad = torch.median(torch.abs(class_dist - med)) + 1e-8
+                good = class_dist < med + 1.5 * mad
+    
+                if good.sum() > 0:
+                    avg = class_images[good].mean(dim=0)
+                else:
+                    avg = class_images.mean(dim=0)
             else:
                 avg = torch.zeros_like(Im_tensor[0])
+    
             averages.append(avg)
+    
+        del X, labels, centroids, distances
     
         return torch.stack(averages)
 
