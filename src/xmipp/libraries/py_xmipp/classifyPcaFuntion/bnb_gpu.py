@@ -474,8 +474,8 @@ class BnBgpu:
 
         if iter > 1:
 
-            # cut = (25 if iter < 5 else 20) if sampling < 3 else (35 if iter < 5 else 30)
-            cut=100
+            cut = (25 if iter < 5 else 20) if sampling < 3 else (35 if iter < 5 else 30)
+            # cut=100
             res_classes = self.frc_resolution_tensor(newCL, sampling, rcut=cut)
             print(res_classes)
 
@@ -484,8 +484,8 @@ class BnBgpu:
             clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)
                     
         #Sort classes        
-        # if iter < 7:
-        #     clk = clk[torch.argsort(torch.tensor([len(cls_list) for cls_list in newCL], device=clk.device), descending=True)]
+        if iter < 7:
+            clk = clk[torch.argsort(torch.tensor([len(cls_list) for cls_list in newCL], device=clk.device), descending=True)]
         
 
         if iter in [10, 13]:
