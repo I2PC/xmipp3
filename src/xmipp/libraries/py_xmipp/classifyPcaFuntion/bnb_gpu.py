@@ -2838,8 +2838,8 @@ class BnBgpu:
             #sharpen_power = (0.08 * resolutions).clamp(min=0.3, max=2.5)
         if sharpen_power is None:
             # factorR = torch.where(resolutions > 8, 0.1, 0.08)
-            factorR = torch.where(resolutions < 8, 0.08,
-                      torch.where(resolutions < 15, 0.06, 0.03))
+            factorR = torch.where(resolutions < 8, 0.1,
+                      torch.where(resolutions < 15, 0.08, 0.05))
             sharpen_power = (factorR * resolutions).clamp(min=0.3, max=2.5)
   
             sharpen_power = sharpen_power.view(B, 1, 1)  # broadcasting por imagen
