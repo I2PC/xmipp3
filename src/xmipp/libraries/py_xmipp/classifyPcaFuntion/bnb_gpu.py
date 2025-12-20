@@ -418,6 +418,7 @@ class BnBgpu:
             if iter == 2 or iter == 3:
                 
                 # for n in range(num):
+                print(classes)
                 for n in range(classes):
                     
                     class_images = transforIm[
@@ -435,7 +436,7 @@ class BnBgpu:
                                                     (matches[initBatch:endBatch, 2] >= thr_high[n])
                                                 )
                                             ]
-                        newCL[n + num].append(non_class_images)
+                        newCL[n + classes].append(non_class_images)
 
                 
             elif iter >= 5 and iter < 15:
