@@ -370,6 +370,7 @@ class BnBgpu:
         # if iter > 0 and iter < 5:# and cycles == 0:
         #     num = int(classes/2)
         #     newCL = [[] for i in range(classes)]
+        print(final_classes)
         if iter == 2: 
             num = int(final_classes/4)
             newCL = [[] for i in range(final_classes)]
