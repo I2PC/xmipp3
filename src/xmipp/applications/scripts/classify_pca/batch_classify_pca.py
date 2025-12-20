@@ -153,7 +153,7 @@ if __name__=="__main__":
         # PCA vectors 
         pca_zero = bnb.create_batchExp(Texp_zero, freqBn, coef, cvecs)
         
-        cl = bnb.kmeans_pytorch_for_averages(Texp_zero, pca_zero, cvecs, num_clusters = final_classes)
+        cl = bnb.kmeans_pytorch_for_averages(Texp_zero, pca_zero, cvecs, num_clusters = final_classes/2)
         del Texp_zero, pca_zero
         # torch.cuda.empty_cache()
         file_cero = output+"_0.mrcs"
@@ -270,7 +270,7 @@ if __name__=="__main__":
                     if mode == "create_classes":
                         cl, tMatrix, batch_projExp_cpu = bnb.create_classes(
                             mmap, tMatrix, iter, subset, expBatchSize, matches, vectorshift, 
-                            classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles)
+                            classes, final_classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles)
                     else:
                         torch.cuda.empty_cache()
                         cl, tMatrix, batch_projExp_cpu = bnb.align_particles_to_classes(expImages, 
