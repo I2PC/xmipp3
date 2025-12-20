@@ -420,14 +420,14 @@ class BnBgpu:
                                         ]
                     newCL[n].append(class_images)
                     
-                    # non_class_images = transforIm[
-                    #                         (matches[initBatch:endBatch, 1] == n) &
-                    #                         (
-                    #                             (matches[initBatch:endBatch, 2] <= thr_low[n]) |
-                    #                             (matches[initBatch:endBatch, 2] >= thr_high[n])
-                    #                         )
-                    #                     ]
-                    # newCL[n + num].append(non_class_images)
+                    non_class_images = transforIm[
+                                            (matches[initBatch:endBatch, 1] == n) &
+                                            (
+                                                (matches[initBatch:endBatch, 2] <= thr_low[n]) |
+                                                (matches[initBatch:endBatch, 2] >= thr_high[n])
+                                            )
+                                        ]
+                    newCL[n + num].append(non_class_images)
 
                 
             elif iter >= 5 and iter < 15:
@@ -503,7 +503,7 @@ class BnBgpu:
         
         clk = clk * self.create_circular_mask(clk)                
         
-        return(clk, tMatrix, batch_projExp_cpu)
+        return(clk[0:classes-1], tMatrix, batch_projExp_cpu)
     
     
     def align_particles_to_classes(self, data, cl, tMatrix, iter, expBatchSize, matches, vectorshift, classes, freqBn, coef, cvecs, mask, sigma, sampling):
