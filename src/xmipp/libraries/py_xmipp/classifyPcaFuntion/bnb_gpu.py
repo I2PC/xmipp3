@@ -357,7 +357,7 @@ class BnBgpu:
     
     
     @torch.no_grad()
-    def create_classes(self, mmap, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles):
+    def create_classes(self, mmap, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes, final_classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles):
         
         # print("----------create-classes-------------")        
         
@@ -367,11 +367,15 @@ class BnBgpu:
         elif iter >= 5:
             thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
             
-        if iter > 0 and iter < 5:# and cycles == 0:
-            # num = int(classes/2)
-            num = classes
-            # newCL = [[] for i in range(classes)]
-            newCL = [[] for i in range(2*classes)]
+        # if iter > 0 and iter < 5:# and cycles == 0:
+        #     num = int(classes/2)
+        #     newCL = [[] for i in range(classes)]
+        if iter == 2: 
+            num = int(final_classes/4)
+            newCL = [[] for i in range(final_classes)]
+        if iter == 3:
+            num = final_classes - classes
+            newCL = [[] for i in range(final_classes)]
         else:
             num = classes
             newCL = [[] for i in range(classes)]
@@ -410,9 +414,11 @@ class BnBgpu:
             count+=1
 
             
-            if iter > 0 and iter < 5:# and cycles == 0:
+            # if iter > 0 and iter < 5:# and cycles == 0:
+            if iter == 2 or iter == 3:
                 
-                for n in range(num):
+                # for n in range(num):
+                for n in range(classes):
                     
                     class_images = transforIm[
                                             (matches[initBatch:endBatch, 1] == n) &
@@ -421,14 +427,15 @@ class BnBgpu:
                                         ]
                     newCL[n].append(class_images)
                     
-                    non_class_images = transforIm[
-                                            (matches[initBatch:endBatch, 1] == n) &
-                                            (
-                                                (matches[initBatch:endBatch, 2] <= thr_low[n]) |
-                                                (matches[initBatch:endBatch, 2] >= thr_high[n])
-                                            )
-                                        ]
-                    newCL[n + num].append(non_class_images)
+                    if n < num:
+                        non_class_images = transforIm[
+                                                (matches[initBatch:endBatch, 1] == n) &
+                                                (
+                                                    (matches[initBatch:endBatch, 2] <= thr_low[n]) |
+                                                    (matches[initBatch:endBatch, 2] >= thr_high[n])
+                                                )
+                                            ]
+                        newCL[n + num].append(non_class_images)
 
                 
             elif iter >= 5 and iter < 15:
