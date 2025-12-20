@@ -374,7 +374,7 @@ class BnBgpu:
         if iter == 2: 
             num = int(final_classes/4)
             newCL = [[] for i in range(final_classes)]
-        if iter == 3:
+        elif iter == 3:
             num = final_classes - classes
             newCL = [[] for i in range(final_classes)]
         else:
