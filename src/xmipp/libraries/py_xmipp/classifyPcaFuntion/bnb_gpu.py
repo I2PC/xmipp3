@@ -430,6 +430,9 @@ class BnBgpu:
                     
                     if n < num:
                         print(n)
+                        print(newCL.shape)
+                        print(classes)
+                        print(n + classes)
                         non_class_images = transforIm[
                                                 (matches[initBatch:endBatch, 1] == n) &
                                                 (
