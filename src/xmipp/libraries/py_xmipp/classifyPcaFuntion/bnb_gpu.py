@@ -430,7 +430,7 @@ class BnBgpu:
                     
                     if n < num:
                         print(n)
-                        print(newCL.shape)
+                        print(len(newCL))
                         print(classes)
                         print(n + classes)
                         non_class_images = transforIm[
