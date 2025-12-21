@@ -370,7 +370,6 @@ class BnBgpu:
         # if iter > 0 and iter < 5:# and cycles == 0:
         #     num = int(classes/2)
         #     newCL = [[] for i in range(classes)]
-        print(final_classes)
         if iter == 3: 
             num = int(final_classes/4)
             newCL = [[] for i in range(final_classes)]
@@ -520,7 +519,7 @@ class BnBgpu:
         
         clk = clk * self.create_circular_mask(clk)                
         
-        return(clk[0:classes-1], tMatrix, batch_projExp_cpu)
+        return(clk, tMatrix, batch_projExp_cpu)
     
     
     def align_particles_to_classes(self, data, cl, tMatrix, iter, expBatchSize, matches, vectorshift, classes, freqBn, coef, cvecs, mask, sigma, sampling):
