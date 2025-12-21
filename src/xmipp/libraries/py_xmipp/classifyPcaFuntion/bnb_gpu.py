@@ -371,10 +371,10 @@ class BnBgpu:
         #     num = int(classes/2)
         #     newCL = [[] for i in range(classes)]
         print(final_classes)
-        if iter == 2: 
+        if iter == 3: 
             num = int(final_classes/4)
             newCL = [[] for i in range(final_classes)]
-        elif iter == 3:
+        elif iter == 4:
             num = final_classes - classes
             newCL = [[] for i in range(final_classes)]
         else:
@@ -416,7 +416,8 @@ class BnBgpu:
 
             
             # if iter > 0 and iter < 5:# and cycles == 0:
-            if iter == 2 or iter == 3:
+            print(iter)
+            if iter == 3 or iter == 4:
                 
                 # for n in range(num):
                 print(classes)
@@ -441,6 +442,8 @@ class BnBgpu:
                                                     (matches[initBatch:endBatch, 2] >= thr_high[n])
                                                 )
                                             ]
+                        print("non_class_images")
+                        print(non_class_images.shape)
                         newCL[n + classes].append(non_class_images)
 
                 
