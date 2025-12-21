@@ -371,8 +371,8 @@ class BnBgpu:
         #     num = int(classes/2)
         #     newCL = [[] for i in range(classes)]
         if iter == 3: 
-            num = int(final_classes/4)
-            newCL = [[] for i in range(final_classes)]
+            num = final_classes//4
+            newCL = [[] for i in range(classes+num)]
         elif iter == 4:
             num = final_classes - classes
             newCL = [[] for i in range(final_classes)]
@@ -415,11 +415,9 @@ class BnBgpu:
 
             
             # if iter > 0 and iter < 5:# and cycles == 0:
-            print(iter)
             if iter == 3 or iter == 4:
                 
                 # for n in range(num):
-                print(classes)
                 for n in range(classes):
                     
                     class_images = transforIm[
@@ -430,10 +428,6 @@ class BnBgpu:
                     newCL[n].append(class_images)
                     
                     if n < num:
-                        print(n)
-                        print(len(newCL))
-                        print(classes)
-                        print(n + classes)
                         non_class_images = transforIm[
                                                 (matches[initBatch:endBatch, 1] == n) &
                                                 (
@@ -441,8 +435,6 @@ class BnBgpu:
                                                     (matches[initBatch:endBatch, 2] >= thr_high[n])
                                                 )
                                             ]
-                        print("non_class_images")
-                        print(non_class_images.shape)
                         newCL[n + classes].append(non_class_images)
 
                 
