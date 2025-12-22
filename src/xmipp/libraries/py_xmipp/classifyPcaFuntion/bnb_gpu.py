@@ -361,23 +361,19 @@ class BnBgpu:
         
         # print("----------create-classes-------------")        
         
-        if iter > 0 and iter < 5:# and cycles == 0:
-            # print("--------", iter, "-----------")
-            thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
-        elif iter >= 5:
+        if iter > 0:# and cycles == 0:
             thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
             
         # if iter > 0 and iter < 5:# and cycles == 0:
         #     num = int(classes/2)
         #     newCL = [[] for i in range(classes)]
         if iter == 3: 
-            num = final_classes//4
-            newCL = [[] for i in range(classes+num)]
+            split = (final_classes - classes) // 2
+            newCL = [[] for i in range(classes+split)]
         elif iter >= 4 and (final_classes - classes) > 0:
-            num = final_classes - classes
+            split = final_classes - classes
             newCL = [[] for i in range(final_classes)]
         else:
-            num = classes
             newCL = [[] for i in range(classes)]
 
 
@@ -418,7 +414,7 @@ class BnBgpu:
             # if iter == 3 or iter == 4:
             if iter >= 3 and (final_classes - classes) > 0:
                 
-                # for n in range(num):
+                # for n in range(split):
                 for n in range(classes):
                     
                     class_images = transforIm[
@@ -428,7 +424,7 @@ class BnBgpu:
                                         ]
                     newCL[n].append(class_images)
                     
-                    if n < num:
+                    if n < split:
                         non_class_images = transforIm[
                                                 (matches[initBatch:endBatch, 1] == n) &
                                                 (
@@ -441,7 +437,7 @@ class BnBgpu:
                 
             elif iter >= 5 and iter < 15:
       
-                for n in range(num):
+                for n in range(classes):
 
                     class_images = transforIm[
                         (matches[initBatch:endBatch, 1] == n) &
@@ -457,11 +453,11 @@ class BnBgpu:
                     #         (matches[initBatch:endBatch, 2] >= thr_high[n])
                     #     )
                     # ]
-                    # newCL[num-1].append(non_class_images)
+                    # newCL[split-1].append(non_class_images)
                     
             
             else:
-                for n in range(num):
+                for n in range(classes):
                     class_images = transforIm[matches[initBatch:endBatch, 1] == n]
                     newCL[n].append(class_images)
                     
@@ -494,12 +490,12 @@ class BnBgpu:
                     
         #Sort classes        
         # if iter < 7:
-        if iter > 1:
+        # if iter > 1:
             valid_mask = torch.tensor([cls.shape[0] > 0 for cls in newCL], device=clk.device)
             clk = clk[valid_mask]
             res_classes = res_classes[valid_mask]
         
-        if iter > 1:# and iter < 7:
+        # if iter > 1:# and iter < 7:
             # clk = clk[torch.argsort(torch.tensor([len(cls_list) for cls_list in newCL], device=clk.device), descending=True)]
             clk = clk[torch.argsort(res_classes)]
 
@@ -2853,7 +2849,7 @@ class BnBgpu:
             #sharpen_power = (0.08 * resolutions).clamp(min=0.3, max=2.5)
         if sharpen_power is None:
             # factorR = torch.where(resolutions > 8, 0.1, 0.08)
-            factorR = torch.where(resolutions < 10, 0.1,
+            factorR = torch.where(resolutions < 8, 0.1,
                       torch.where(resolutions < 14, 0.08, 0.06))
             sharpen_power = (factorR * resolutions).clamp(min=0.3, max=2.5)
   
