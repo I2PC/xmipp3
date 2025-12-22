@@ -373,7 +373,7 @@ class BnBgpu:
         if iter == 3: 
             num = final_classes//4
             newCL = [[] for i in range(classes+num)]
-        elif iter == 4:
+        elif iter >= 4 and (final_classes - classes) > 0:
             num = final_classes - classes
             newCL = [[] for i in range(final_classes)]
         else:
@@ -415,7 +415,8 @@ class BnBgpu:
 
             
             # if iter > 0 and iter < 5:# and cycles == 0:
-            if iter == 3 or iter == 4:
+            # if iter == 3 or iter == 4:
+            if iter == 3 and (final_classes - classes) > 0:
                 
                 # for n in range(num):
                 for n in range(classes):
@@ -2852,8 +2853,8 @@ class BnBgpu:
             #sharpen_power = (0.08 * resolutions).clamp(min=0.3, max=2.5)
         if sharpen_power is None:
             # factorR = torch.where(resolutions > 8, 0.1, 0.08)
-            factorR = torch.where(resolutions < 8, 0.1,
-                      torch.where(resolutions < 12, 0.08, 0.06))
+            factorR = torch.where(resolutions < 10, 0.1,
+                      torch.where(resolutions < 14, 0.08, 0.06))
             sharpen_power = (factorR * resolutions).clamp(min=0.3, max=2.5)
   
             sharpen_power = sharpen_power.view(B, 1, 1)  # broadcasting por imagen
