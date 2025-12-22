@@ -416,7 +416,7 @@ class BnBgpu:
             
             # if iter > 0 and iter < 5:# and cycles == 0:
             # if iter == 3 or iter == 4:
-            if iter == 3 and (final_classes - classes) > 0:
+            if iter >= 3 and (final_classes - classes) > 0:
                 
                 # for n in range(num):
                 for n in range(classes):
