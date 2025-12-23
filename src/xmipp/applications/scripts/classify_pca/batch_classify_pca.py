@@ -198,26 +198,24 @@ if __name__=="__main__":
             
             all_averages.append(cl_block)
             
-            del Im_block, Texp_block, pca_block
             file_cero = output+"_0.mrcs"
             file_cero = output+"0_%s.mrcs"%(b)
             save_images(cl_block.cpu().detach().numpy(), sampling, file_cero)
+            del Im_block, Texp_block, pca_block, cl_block, indices
         
         # Concatenar todos los promedios parciales
         all_averages_tensor = torch.cat(all_averages, dim=0)
         
         pca_features = bnb.create_batchExp(all_averages_tensor, freqBn, coef, cvecs)
         
-        # K-means final sobre los promedios para obtener las clases finales
+        # K-means final sobre los promedios para obtener las clases finales        
         cl = bnb.kmeans_pytorch_for_averages(
-            all_averages_tensor,
-            pca_features,  # aquí usamos el mismo tensor como "X" para K-means
-            cvecs,
-            num_clusters=num_clusters_total
-        )
+            all_averages_tensor, pca_features, cvecs, num_clusters=num_clusters_total)
         
-        del all_averages, all_averages_tensor
-        
+        # Limpieza final absoluta
+        del all_averages, all_averages_tensor, pca_features
+        torch.cuda.empty_cache()
+                
         
         file_cero = output+"_0.mrcs"
         save_images(cl.cpu().detach().numpy(), sampling, file_cero) 
