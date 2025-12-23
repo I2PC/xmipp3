@@ -3413,15 +3413,7 @@ class BnBgpu:
     
         return torch.stack(averages)
     
-    def kmeans_pytorch_for_averages(
-        self,
-        Im_tensor,
-        X,
-        eigvect,
-        num_clusters,
-        num_iters=20,
-        verbose=False
-    ):
+    def kmeans_pytorch_for_averages(self, Im_tensor, X, eigvect, num_clusters, num_iters=20, verbose=False):
         """
         Improved K-Means in PyTorch with better class separation.
     
