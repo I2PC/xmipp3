@@ -156,36 +156,48 @@ if __name__=="__main__":
         # cl = bnb.kmeans_pytorch_for_averages(Texp_zero, pca_zero, cvecs, num_clusters = (final_classes * 65 // 100) )
         # del Texp_zero, pca_zero
         
-        num_clusters_total = final_classes * 65 // 100  # 65
-        num_rounds = 3
+        num_clusters_total = final_classes * 65 // 100  # 65%
+        num_rounds = max(1, min(3, nExp // initClBatch)) 
         
-        clusters_per_round = [num_clusters_total//3, num_clusters_total//3, 
-                              num_clusters_total -(2 *num_clusters_total//3)]  # [20, 20, 25]
+        base = num_clusters_total // num_rounds
+        rest = num_clusters_total % num_rounds
+        clusters_per_round = [
+            base + (1 if i < rest else 0) for i in range(num_rounds)
+        ]
         
-        all_indices = np.random.permutation(nExp)
-        all_indices = all_indices[0:150000]
-        ptr = 0
+        block_size = int(np.ceil(nExp / num_rounds))
+        
         all_averages = []
 
         for r, k_round in enumerate(clusters_per_round):
         
-            # cuántas partículas usar en esta ronda
-            batch_size = min(initClBatch, nExp - ptr)
-            if batch_size <= 0:
+            if k_round == 0:
+                continue
+        
+            start = r * block_size
+            end = min((r + 1) * block_size, nExp)
+            if end <= start:
                 break
         
-            indices = all_indices[ptr:ptr + batch_size]
-            ptr += batch_size
-        
+            # seleccionar partículas dentro del bloque
+            block_len = end - start
+            batch_size = min(initClBatch, block_len)
+            
+            indices = np.random.choice(
+                        np.arange(start, end),
+                        size=batch_size,
+                        replace=False
+                    )
+                            
             # cargar imágenes
             Im_zero = mmap.data[indices].astype(np.float32)
-            Texp_zero = torch.from_numpy(Im_zero).float().to(cuda)
-            Texp_zero = Texp_zero * bnb.create_circular_mask(Texp_zero)
+            Texp_zero = torch.from_numpy(Im_zero).to(cuda)
+            Texp_zero *= bnb.create_circular_mask(Texp_zero)
         
             # PCA
             pca_zero = bnb.create_batchExp(Texp_zero, freqBn, coef, cvecs)
         
-            # k-means parcial
+            # K-means parcial
             cl_round = bnb.kmeans_pytorch_for_averages(
                 Texp_zero,
                 pca_zero,
@@ -196,8 +208,9 @@ if __name__=="__main__":
             all_averages.append(cl_round)
         
             del Im_zero, Texp_zero, pca_zero
+        
         cl = torch.cat(all_averages, dim=0)
-        del(all_averages)
+        del all_averages
         
         
         file_cero = output+"_0.mrcs"
