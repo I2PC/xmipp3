@@ -14,6 +14,7 @@ import torch.nn.functional as F
 import kornia
 import mrcfile
 import random
+import math
 
 
 
@@ -160,7 +161,7 @@ class BnBgpu:
        
     #Applying rotation and shift
     @torch.no_grad()
-    def precalculate_projection(self, prjTensorCpu, freqBn, grid_flat, coef, cvecs, rot, shift):
+    def precalculate_projection_old(self, prjTensorCpu, freqBn, grid_flat, coef, cvecs, rot, shift):
                     
         shift_tensor = torch.Tensor(shift).to(self.cuda)       
         prjTensor = prjTensorCpu.to(self.cuda)
@@ -173,6 +174,45 @@ class BnBgpu:
         del(band_shifted)
 
         return(projBatch)
+    
+    @torch.no_grad()
+    def precalculate_projection(self, prjTensorCpu, freqBn, grid_flat, coef, cvecs, rot, shift):
+
+        device = self.cuda
+        prj = prjTensorCpu.to(device, non_blocking=True)   # (N,H,W)
+    
+        N, H, W = prj.shape
+        prj = prj.unsqueeze(1)  # (N,1,H,W)
+    
+        # --- matriz de rotación ---
+        theta = math.radians(rot)
+        c, s = math.cos(theta), math.sin(theta)
+    
+        A = torch.tensor([[ c, -s, 0.0],
+                          [ s,  c, 0.0]],
+                         device=device, dtype=torch.float32)
+    
+        A = A.expand(N, -1, -1) 
+    
+        # --- grid y rotación ---
+        grid = F.affine_grid(A, prj.size(), align_corners=False)
+        prj_rot = F.grid_sample(prj, grid, mode="bilinear", padding_mode="zeros",align_corners=False)
+    
+        prj_rot = prj_rot.squeeze(1)  # (N,H,W)
+        del prj, grid, A
+    
+        rotFFT = torch.fft.rfft2(prj_rot, norm="forward")
+        del prj_rot
+    
+        shift_tensor = torch.as_tensor(shift, device=device) 
+    
+        band_shifted = self.precShiftBand(rotFFT, freqBn, grid_flat, coef, shift_tensor)
+        del(rotFFT)
+        
+        projBatch = self.phiProjRefs(band_shifted, cvecs)
+        del(band_shifted)
+    
+        return projBatch
     
     @torch.no_grad()
     def create_batchExp(self, Texp, freqBn, coef, vecs):
