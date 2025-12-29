@@ -212,10 +212,8 @@ class BnBgpu:
         # FFT y shift
         rotFFT = torch.fft.rfft2(prj_rot, norm="forward")
         shift_tensor = torch.as_tensor(shift, device=device, dtype=torch.float32)
-        print(shift_tensor.shape)
         band_shifted = self.precShiftBand(rotFFT, freqBn, grid_flat, coef, shift_tensor)
         projBatch = self.phiProjRefs(band_shifted, cvecs)
-        print(projBatch[0].shape)
     
         del prj_rot, rotFFT, band_shifted
         return projBatch

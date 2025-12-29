@@ -215,7 +215,9 @@ if __name__=="__main__":
         
         # pca_features = bnb.create_batchExp(all_averages_tensor, freqBn, coef, cvecs)
         
-        # K-means final sobre los promedios para obtener las clases finales        
+        # K-means final sobre los promedios para obtener las clases finales 
+        print(all_averages_tensor.shape)  
+        print(pca_features.shape)     
         cl = bnb.kmeans_pytorch_for_averages(
             all_averages_tensor, pca_features, cvecs, num_clusters=num_clusters_total)
         
