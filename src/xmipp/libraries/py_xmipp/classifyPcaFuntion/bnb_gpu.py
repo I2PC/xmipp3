@@ -176,42 +176,46 @@ class BnBgpu:
         return(projBatch)
     
     @torch.no_grad()
-    def precalculate_projection(self, prjTensorCpu, freqBn, grid_flat, coef, cvecs, rot, shift):
-
+    def precalculate_projection_multirot_vectorized(self, prjTensorCpu, freqBn, grid_flat, coef, cvecs, rot_tensor, shift):
         device = self.cuda
-        prj = prjTensorCpu.to(device, non_blocking=True)   # (N,H,W)
-    
+        prj = prjTensorCpu.to(device, dtype=torch.float32, non_blocking=True)
         N, H, W = prj.shape
-        prj = prj.unsqueeze(1)  # (N,1,H,W)
     
-        # --- matriz de rotación ---
-        theta = math.radians(rot)
-        c, s = math.cos(theta), math.sin(theta)
+        # Asegurarse que rot_tensor es un vector 1D
+        rot_tensor = torch.as_tensor(rot_tensor, device=device, dtype=torch.float32).flatten()
+        num_angles = rot_tensor.numel()
     
-        A = torch.tensor([[ c, -s, 0.0],
-                          [ s,  c, 0.0]],
-                         device=device, dtype=torch.float32)
+        # Expandir imágenes para cada ángulo
+        prj_exp = prj.unsqueeze(0).repeat(num_angles, 1, 1, 1)  # (num_angles, N, H, W)
+        prj_exp = prj_exp.view(-1, 1, H, W)                     # (N*num_angles, 1, H, W)
     
-        A = A.expand(N, -1, -1) 
+        # Crear matrices de rotación
+        theta = rot_tensor * math.pi / 180.0  # convertir a radianes
+        c = torch.cos(theta)
+        s = torch.sin(theta)
+        A = torch.zeros((num_angles, 2, 3), device=device)
+        A[:,0,0] = c
+        A[:,0,1] = -s
+        A[:,1,0] = s
+        A[:,1,1] = c
     
-        # --- grid y rotación ---
-        grid = F.affine_grid(A, prj.size(), align_corners=False)
-        prj_rot = F.grid_sample(prj, grid, mode="bilinear", padding_mode="zeros",align_corners=False)
+        # Repetir matrices para todas las imágenes
+        A_exp = A.unsqueeze(1).repeat(1, N, 1, 1).view(-1, 2, 3)  # (N*num_angles, 2, 3)
     
-        prj_rot = prj_rot.squeeze(1)  # (N,H,W)
-        del prj, grid, A
+        # Grid sampling
+        grid = F.affine_grid(A_exp, prj_exp.size(), align_corners=False)
+        prj_rot = F.grid_sample(prj_exp, grid, mode="bilinear", padding_mode="zeros", align_corners=False)
+        prj_rot = prj_rot.squeeze(1)
     
+        del prj_exp, A_exp, grid
+    
+        # FFT y shift
         rotFFT = torch.fft.rfft2(prj_rot, norm="forward")
-        del prj_rot
-    
-        shift_tensor = torch.as_tensor(shift, device=device) 
-    
+        shift_tensor = torch.as_tensor(shift, device=device, dtype=torch.float32)
         band_shifted = self.precShiftBand(rotFFT, freqBn, grid_flat, coef, shift_tensor)
-        del(rotFFT)
-        
         projBatch = self.phiProjRefs(band_shifted, cvecs)
-        del(band_shifted)
     
+        del prj_rot, rotFFT, band_shifted
         return projBatch
     
     @torch.no_grad()
