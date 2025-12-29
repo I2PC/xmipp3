@@ -208,6 +208,10 @@ if __name__=="__main__":
         # Concatenar todos los promedios parciales
         all_averages_tensor = torch.cat(all_averages, dim=0)
         
+        rot_matrix = torch.arange(-180, 180, 10, dtype=torch.float32)
+        all_averages_tensor = bnb.precalculate_projection(all_averages_tensor, freqBn, grid_flat, 
+                                                            coef, cvecs, rot_matrix, [0,0])
+        
         pca_features = bnb.create_batchExp(all_averages_tensor, freqBn, coef, cvecs)
         
         # K-means final sobre los promedios para obtener las clases finales        
