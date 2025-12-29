@@ -181,12 +181,14 @@ if __name__=="__main__":
             
             # Selección aleatoria de partículas dentro del bloque
             batch_size = min(initClBatch, block_len)
+            print(start, end)
             indices = np.random.choice(np.arange(start, end), size=batch_size, replace=False)
             
             # Cargar imágenes
             Im_block = mmap.data[indices].astype(np.float32)
             Texp_block = torch.from_numpy(Im_block).to(cuda)
             Texp_block *= bnb.create_circular_mask(Texp_block)
+            print(Texp_block.shape)
             
             # PCA
             pca_block = bnb.create_batchExp(Texp_block, freqBn, coef, cvecs)
@@ -205,6 +207,7 @@ if __name__=="__main__":
         
         # Concatenar todos los promedios parciales
         all_averages_tensor = torch.cat(all_averages, dim=0)
+        print(all_averages_tensor.shape)
         
         pca_features = bnb.create_batchExp(all_averages_tensor, freqBn, coef, cvecs)
         
