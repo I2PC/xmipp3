@@ -216,7 +216,6 @@ if __name__=="__main__":
         
         # K-means final sobre los promedios para obtener las clases finales 
         print(all_averages_tensor.shape)  
-        print(pca_features.shape)     
         cl = bnb.kmeans_pytorch_for_averages(
             all_averages_tensor, pca_features, cvecs, num_clusters=num_clusters_total)
         
