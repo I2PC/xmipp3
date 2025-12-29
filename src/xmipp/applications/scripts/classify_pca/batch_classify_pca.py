@@ -208,6 +208,9 @@ if __name__=="__main__":
         # Concatenar todos los promedios parciales
         all_averages_tensor = torch.cat(all_averages, dim=0)
         print(all_averages_tensor.shape)
+        file_cero = output+"_0.mrcs"
+        save_images(all_averages_tensor.cpu().detach().numpy(), sampling, file_cero)
+        exit()
         
         pca_features = bnb.create_batchExp(all_averages_tensor, freqBn, coef, cvecs)
         
