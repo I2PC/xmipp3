@@ -206,6 +206,7 @@ if __name__=="__main__":
         
         # Concatenar todos los promedios parciales
         cl = torch.cat(all_averages, dim=0)
+        del all_averages
         
         if cl.shape[0] > num_clusters_total: 
         
@@ -217,9 +218,8 @@ if __name__=="__main__":
             # K-means final sobre los promedios para obtener las clases finales 
             cl = bnb.kmeans_pytorch_for_averages(
                 cl, pca_block, cvecs, num_clusters=num_clusters_total)
-        
-        # Limpieza final absoluta
-        del all_averages, pca_block
+
+            del pca_block
         torch.cuda.empty_cache()
                 
         
