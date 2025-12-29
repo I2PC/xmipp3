@@ -176,7 +176,7 @@ class BnBgpu:
         return(projBatch)
     
     @torch.no_grad()
-    def precalculate_projection_multirot_vectorized(self, prjTensorCpu, freqBn, grid_flat, coef, cvecs, rot_tensor, shift):
+    def precalculate_projection(self, prjTensorCpu, freqBn, grid_flat, coef, cvecs, rot_tensor, shift):
         device = self.cuda
         prj = prjTensorCpu.to(device, dtype=torch.float32, non_blocking=True)
         N, H, W = prj.shape
