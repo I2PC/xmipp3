@@ -156,72 +156,57 @@ if __name__=="__main__":
         # cl = bnb.kmeans_pytorch_for_averages(Texp_zero, pca_zero, cvecs, num_clusters = (final_classes * 65 // 100) )
         # del Texp_zero, pca_zero
         
-        num_clusters_total = final_classes * 65 // 100  # 65%
-        # num_rounds = max(1, min(3, nExp // initClBatch)) 
+        num_clusters_total = final_classes * 65 // 100  
+        max_classes_per_round = 50
         
-        # base = num_clusters_total // num_rounds
-        # rest = num_clusters_total % num_rounds
-        # clusters_per_round = [
-        #     base + (1 if i < rest else 0) for i in range(num_rounds)
-        # ]
+        clusters_per_round = []
+        remaining = num_clusters_total
         
-        # block_size = int(np.ceil(nExp / num_rounds))
-        block_size = 200000
-        num_blocks = int(np.ceil(nExp / block_size))
+        while remaining > 0:
+            n = min(remaining, max_classes_per_round)
+            clusters_per_round.append(n)
+            remaining -= n
         
+        num_rounds = len(clusters_per_round) 
+        
+        block_size = (nExp + num_rounds - 1) // num_rounds
         all_averages = []
-
-        for b in range(num_blocks):
-            start = b * block_size
-            end = min((b + 1) * block_size, nExp)
-            
-            block_len = end - start
-            if block_len == 0:
-                continue
-            
-            # Selección aleatoria de partículas dentro del bloque
-            batch_size = min(initClBatch, block_len)
-            print(start, end)
-            indices = np.random.choice(np.arange(start, end), size=batch_size, replace=False)
-            
-            # Cargar imágenes
-            Im_block = mmap.data[indices].astype(np.float32)
-            Texp_block = torch.from_numpy(Im_block).to(cuda)
-            Texp_block *= bnb.create_circular_mask(Texp_block)
-            
-            # PCA
-            pca_block = bnb.create_batchExp(Texp_block, freqBn, coef, cvecs)
-            
-            # K-means parcial para este bloque
-            cl_block = bnb.kmeans_pytorch_for_averages(
-                Texp_block, pca_block, cvecs, num_clusters=num_clusters_total
-            )
-            
-            all_averages.append(cl_block)
-            
-            file_cero = output+"_0.mrcs"
-            file_cero = output+"0_%s.mrcs"%(b)
-            save_images(cl_block.cpu().detach().numpy(), sampling, file_cero)
-            del Im_block, Texp_block, pca_block, cl_block, indices
         
-        # Concatenar todos los promedios parciales
+        for r, k_round in enumerate(clusters_per_round):
+        
+            if k_round == 0:
+                continue
+        
+            start = r * block_size
+            end = min(start + block_size, nExp)
+            block_len = end - start
+            if block_len <= 0:
+                break
+        
+            batch_size = min(initClBatch, block_len)
+        
+            # selección aleatoria dentro del bloque
+            indices = np.random.choice(block_len, size=batch_size, replace=False) + start
+        
+            Im_zero = mmap.data[indices].astype(np.float32)
+            Texp_zero = torch.as_tensor(Im_zero, device=cuda)
+            Texp_zero *= bnb.create_circular_mask(Texp_zero)
+        
+            pca_zero = bnb.create_batchExp(Texp_zero, freqBn, coef, cvecs)
+        
+            cl_round = bnb.kmeans_pytorch_for_averages(
+                Texp_zero, pca_zero, cvecs, num_clusters=k_round
+            )
+            file_cero = output+"0_%s.mrcs"%(r)
+            save_images(cl.cpu().detach().numpy(), sampling, file_cero)
+        
+            all_averages.append(cl_round)
+        
+            del Im_zero, Texp_zero, pca_zero
+        
         cl = torch.cat(all_averages, dim=0)
         del all_averages
         
-        if cl.shape[0] > num_clusters_total: 
-        
-            rot_matrix = torch.arange(-180, 180, 10, dtype=torch.float32)
-            cl = bnb.rotate_batch(cl, rot_matrix)
-            
-            pca_block = bnb.create_batchExp(cl, freqBn, coef, cvecs)
-            
-            # K-means final sobre los promedios para obtener las clases finales 
-            cl = bnb.kmeans_pytorch_for_averages(
-                cl, pca_block, cvecs, num_clusters=num_clusters_total)
-
-            del pca_block
-        torch.cuda.empty_cache()
-                
         
         file_cero = output+"_0.mrcs"
         save_images(cl.cpu().detach().numpy(), sampling, file_cero) 
