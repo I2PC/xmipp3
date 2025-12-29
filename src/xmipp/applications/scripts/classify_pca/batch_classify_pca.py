@@ -207,7 +207,7 @@ if __name__=="__main__":
         # Concatenar todos los promedios parciales
         cl = torch.cat(all_averages, dim=0)
         
-        if cl.shape > num_clusters_total: 
+        if cl.shape[0] > num_clusters_total: 
         
             rot_matrix = torch.arange(-180, 180, 10, dtype=torch.float32)
             cl = bnb.rotate_batch(cl, rot_matrix)
