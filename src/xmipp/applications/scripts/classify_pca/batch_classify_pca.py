@@ -188,7 +188,6 @@ if __name__=="__main__":
             Im_block = mmap.data[indices].astype(np.float32)
             Texp_block = torch.from_numpy(Im_block).to(cuda)
             Texp_block *= bnb.create_circular_mask(Texp_block)
-            print(Texp_block.shape)
             
             # PCA
             pca_block = bnb.create_batchExp(Texp_block, freqBn, coef, cvecs)
@@ -206,21 +205,21 @@ if __name__=="__main__":
             del Im_block, Texp_block, pca_block, cl_block, indices
         
         # Concatenar todos los promedios parciales
-        all_averages_tensor = torch.cat(all_averages, dim=0)
-        print(all_averages_tensor.shape)
+        cl = torch.cat(all_averages, dim=0)
         
-        rot_matrix = torch.arange(-180, 180, 10, dtype=torch.float32)
-        all_averages_tensor = bnb.rotate_batch(all_averages_tensor, rot_matrix)
+        if cl.shape > num_clusters_total: 
         
-        pca_features = bnb.create_batchExp(all_averages_tensor, freqBn, coef, cvecs)
-        
-        # K-means final sobre los promedios para obtener las clases finales 
-        print(all_averages_tensor.shape)  
-        cl = bnb.kmeans_pytorch_for_averages(
-            all_averages_tensor, pca_features, cvecs, num_clusters=num_clusters_total)
+            rot_matrix = torch.arange(-180, 180, 10, dtype=torch.float32)
+            cl = bnb.rotate_batch(cl, rot_matrix)
+            
+            pca_block = bnb.create_batchExp(cl, freqBn, coef, cvecs)
+            
+            # K-means final sobre los promedios para obtener las clases finales 
+            cl = bnb.kmeans_pytorch_for_averages(
+                cl, pca_block, cvecs, num_clusters=num_clusters_total)
         
         # Limpieza final absoluta
-        del all_averages, all_averages_tensor, pca_features
+        del all_averages, pca_block
         torch.cuda.empty_cache()
                 
         
