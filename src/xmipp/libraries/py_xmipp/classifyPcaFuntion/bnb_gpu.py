@@ -206,6 +206,7 @@ class BnBgpu:
         grid = F.affine_grid(A_exp, prj_exp.size(), align_corners=False)
         prj_rot = F.grid_sample(prj_exp, grid, mode="bilinear", padding_mode="zeros", align_corners=False)
         prj_rot = prj_rot.squeeze(1)
+        print(prj_rot.shape)
     
         del prj_exp, A_exp, grid
     
