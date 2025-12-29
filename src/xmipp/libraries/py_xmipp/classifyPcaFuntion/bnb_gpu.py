@@ -206,15 +206,16 @@ class BnBgpu:
         grid = F.affine_grid(A_exp, prj_exp.size(), align_corners=False)
         prj_rot = F.grid_sample(prj_exp, grid, mode="bilinear", padding_mode="zeros", align_corners=False)
         prj_rot = prj_rot.squeeze(1)
-        print(prj_rot.shape)
     
         del prj_exp, A_exp, grid
     
         # FFT y shift
         rotFFT = torch.fft.rfft2(prj_rot, norm="forward")
         shift_tensor = torch.as_tensor(shift, device=device, dtype=torch.float32)
+        print(shift_tensor.shape)
         band_shifted = self.precShiftBand(rotFFT, freqBn, grid_flat, coef, shift_tensor)
         projBatch = self.phiProjRefs(band_shifted, cvecs)
+        print(projBatch[0].shape)
     
         del prj_rot, rotFFT, band_shifted
         return projBatch
