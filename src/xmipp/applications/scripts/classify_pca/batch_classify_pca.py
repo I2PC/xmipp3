@@ -198,11 +198,11 @@ if __name__=="__main__":
                 Texp_zero, pca_zero, cvecs, num_clusters=k_round
             )
             file_cero = output+"0_%s.mrcs"%(r)
-            save_images(cl.cpu().detach().numpy(), sampling, file_cero)
+            save_images(cl_round.cpu().detach().numpy(), sampling, file_cero)
         
             all_averages.append(cl_round)
         
-            del Im_zero, Texp_zero, pca_zero
+            del Im_zero, Texp_zero, pca_zero, cl_round
         
         cl = torch.cat(all_averages, dim=0)
         del all_averages
