@@ -210,10 +210,9 @@ if __name__=="__main__":
         print(all_averages_tensor.shape)
         
         rot_matrix = torch.arange(-180, 180, 10, dtype=torch.float32)
-        pca_features = bnb.precalculate_projection(all_averages_tensor, freqBn, grid_flat, 
-                                                            coef, cvecs, rot_matrix, [[0,0]])
+        all_averages_tensor = bnb.rotate_batch(all_averages_tensor, rot_matrix)
         
-        # pca_features = bnb.create_batchExp(all_averages_tensor, freqBn, coef, cvecs)
+        pca_features = bnb.create_batchExp(all_averages_tensor, freqBn, coef, cvecs)
         
         # K-means final sobre los promedios para obtener las clases finales 
         print(all_averages_tensor.shape)  
