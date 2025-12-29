@@ -166,7 +166,7 @@ if __name__=="__main__":
         # ]
         
         # block_size = int(np.ceil(nExp / num_rounds))
-        block_size = 50000
+        block_size = 200000
         num_blocks = int(np.ceil(nExp / block_size))
         
         all_averages = []
