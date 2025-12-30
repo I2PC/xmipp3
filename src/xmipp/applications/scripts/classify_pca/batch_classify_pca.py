@@ -103,6 +103,8 @@ if __name__=="__main__":
     #Read Images
     mmap = mrcfile.mmap(expFile, permissive=True)
     nExp = mmap.data.shape[0]
+    global_perm = np.random.permutation(nExp)
+    global_ptr = 0
     dim = mmap.data.shape[1]
     
     if mask and (sigma is None):
@@ -242,7 +244,17 @@ if __name__=="__main__":
                 initBatch = endBatch
                 endBatch = min( endBatch + expBatchSize2, nExp)
             
-            expImages = mmap.data[initBatch:endBatch].astype(np.float32)
+            # expImages = mmap.data[initBatch:endBatch].astype(np.float32)
+            batch_size = endBatch - initBatch
+            if global_ptr + batch_size > nExp:
+                global_perm = np.random.permutation(nExp)
+                global_ptr = 0
+            
+            indices = global_perm[global_ptr:global_ptr + batch_size]
+            global_ptr += batch_size
+            
+            expImages = mmap.data[indices].astype(np.float32)
+            
             Texp = torch.from_numpy(expImages).float().to(cuda)
                   
             if i < initStep:          
