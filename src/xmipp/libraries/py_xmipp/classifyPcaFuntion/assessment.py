@@ -44,7 +44,7 @@ class evaluation:
         star.loc[:, "shiftY"] = shiftVec[:, 1].cpu().numpy().astype(float)
     
         # starfile.write(star, new, overwrite=True)
-        starfile.write({"particles": star}, new, overwrite=True)
+        starfile.write({"Particles": star}, new, overwrite=True)
         
         
         
