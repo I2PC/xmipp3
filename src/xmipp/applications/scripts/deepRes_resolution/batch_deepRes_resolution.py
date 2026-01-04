@@ -27,9 +27,7 @@
 
 from keras.models import load_model
 from keras.utils import Sequence
-import matplotlib.pyplot as plt
 import numpy as np
-import os
 import sys
 import argparse
 import xmippLib
@@ -116,11 +114,11 @@ class VolumeManager(Sequence):
                     if (self.x+self.y+self.z)%2==0:
                         break
             ok=self.advancePos()
-        return ok 
+        return ok
 
 
     def __getitem__(self,idx):
-        count=0;
+        count=0
         batchX = []
         ok = True 
         while (count<maxSize and ok):
@@ -129,10 +127,12 @@ class VolumeManager(Sequence):
             ok=self.advance()
             count+=1
         batchX=np.asarray(batchX).astype("float32")
-        #print("count = ", count) 
+        #tf.print(f'count = {count}', output_stream=sys.stdout)
+
         batchX = batchX.reshape(count, batchX.shape[1], batchX.shape[2], batchX.shape[3], 1)      
 
-        #print("batchX.shape = ", batchX.shape)
+        #tf.print(f'batchX.shape = {batchX.shape}', output_stream=sys.stdout)
+
         return (batchX)
    
 
@@ -214,7 +214,7 @@ def produceOutput(fnVolInOrNumpy, fnMaskOrNumpy, model, sampling, Y, fnVolOut):
 
     if fnVolOut is not None:
       Vxmipp = xmippLib.Image()
-      Vxmipp.setData(V)
+      Vxmipp.setData(V.astype(np.float32))
       Vxmipp.write(fnVolOut)
     return V
 
@@ -226,8 +226,9 @@ def main(fnModel, fnVolIn, fnMask, sampling, fnVolOut):
     fnModel= XmippScript.getModel("deepRes", "model_w7.h5")
 
   model = load_model(fnModel)
-  manager = VolumeManager(fnVolIn, fnMask)
-  Y = model.predict_generator(manager, manager.getNumberOfBlocks())
+  #tf.print(f'load_model', output_stream=sys.stdout)
+  Vmanager = VolumeManager(fnVolIn, fnMask)
+  Y = model.predict_generator(Vmanager, steps=Vmanager.st)
 
   if fnModel == XmippScript.getModel("deepRes", "model_w13.h5"):
     model = 1

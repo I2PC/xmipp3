@@ -9,26 +9,27 @@ jobs:
     strategy:
       matrix:
         os:
-        - 'ubuntu-22.04'
+        - 'ubuntu-24.04'
 
         cuda:
-        - {version: '11.8.0', method: 'network'} 
-        - {version: '12.2.2', method: 'network'} 
+        - {version: '12.6.0', method: 'network'} 
         - {version: 'None'}
 
         compiler:
         - {cc: gcc, cxx: g++}
 
         include:
-          - os: 'ubuntu-20.04'
-            cuda: {version: '11.3.1', method: 'network'}
+          - os: 'ubuntu-22.04'
+            cuda: {version: '11.8.0', method: 'network'}
             compiler: {cc: gcc-9, cxx: g++-9, update-alternatives: True}
-          - os: 'ubuntu-20.04'
-            cuda: {version: '10.2.89', method: 'local'}
-            compiler: {cc: gcc-8, cxx: g++-8, update-alternatives: True}
-    
+
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Extract branch name
+        shell: bash
+        run: echo "branch=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}" >> $GITHUB_OUTPUT
+        id: extract_branch
+
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -42,9 +43,11 @@ jobs:
       - uses: actions/setup-python@main
         with:
           python-version: '3.9.15'
-      - run: |
+      
+      - name: Install Python dependencies
+        run: |
           python -m pip install --upgrade pip
-          python -m pip install numpy
+          python -m pip install numpy xmipp3_installer==2.*
 
       - uses: Jimver/cuda-toolkit@master
         if: matrix.cuda.version != 'None'
@@ -57,14 +60,13 @@ jobs:
       - uses: actions/checkout@main
         with:
           fetch-depth: 0
-          ref: ${{ github.head_ref }}
+          ref: ${{ steps.extract_branch.outputs.branch }}
 
-      - name: Compile Xmipp with all dependencies in branch ${{ github.head_ref }} (if such branch exists, default is devel)
+      # Variable in the name is only evaluated once the workflow reaches this step
+      - name: Compile Xmipp with all dependencies in branch ${{ steps.extract_branch.outputs.branch }} (if such branch exists, default is devel)
         env:
-          BRANCH_NAME: ${{ github.head_ref }}
-          SEND_INSTALLATION_STATISTICS: 'OFF'
-        run: |
-          ./xmipp all -b $BRANCH_NAME --keep-output || (cat compilation.log && false)
+          BRANCH_NAME: ${{ steps.extract_branch.outputs.branch }}
+        run: echo "SEND_INSTALLATION_STATISTICS=OFF" > xmipp.conf && ./xmipp all -b $BRANCH_NAME --keep-output || (cat compilation.log && false)
 
       - name: Cat
         run: cat xmipp.conf

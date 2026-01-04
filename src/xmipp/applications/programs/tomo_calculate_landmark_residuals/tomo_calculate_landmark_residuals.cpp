@@ -1,7 +1,6 @@
 /***************************************************************************
  *
- * Authors: Federico P. de Isidro Gomez			  fp.deisidro@cnb.csic.es
- * Authors:     J.L. Vilas
+ * Authors:    Federico P. de Isidro Gomez			  fp.deisidro@cnb.csic.es
  *
  * Unidad de  Bioinformatica of Centro Nacional de Biotecnologia , CSIC
  *
@@ -24,6 +23,6 @@
  *  e-mail address 'xmipp@cnb.csic.es'
  ***************************************************************************/
 
-#include <tomo/tomo_average_subtomos.h>
+#include <tomo/tomo_calculate_landmark_residuals.h>
 
-RUN_XMIPP_PROGRAM(ProgAverageSubtomos)
+RUN_XMIPP_PROGRAM(ProgTomoCalculateLandmarkResiduals)

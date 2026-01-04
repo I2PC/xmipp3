@@ -651,7 +651,6 @@ void ProgContinuousCreateResiduals::processImage(const FileName &fnImg, const Fi
 void ProgContinuousCreateResiduals::postProcess()
 {
 	MetaData &ptrMdOut = getOutputMd();
-	ptrMdOut.removeDisabled();
 	if (contCost==CONTCOST_L1)
 	{
 		double minCost=1e38;

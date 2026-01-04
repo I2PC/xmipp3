@@ -1,7 +1,6 @@
 /***************************************************************************
  *
- * Authors: Federico P. de Isidro Gomez			  fp.deisidro@cnb.csic.es
- * Authors:     J.L. Vilas
+ * Authors:    Federico P. de Isidro Gomez			  fp.deisidro@cnb.csic.es
  *
  * Unidad de  Bioinformatica of Centro Nacional de Biotecnologia , CSIC
  *
@@ -24,6 +23,11 @@
  *  e-mail address 'xmipp@cnb.csic.es'
  ***************************************************************************/
 
-#include <tomo/tomo_average_subtomos.h>
+#include <tomo/tomo_detect_landmarks.cpp>
 
-RUN_XMIPP_PROGRAM(ProgAverageSubtomos)
+int main(int argc, char **argv)
+{
+	ProgTomoDetectLandmarks program;
+    program.read(argc, argv);
+    return program.tryRun();
+}

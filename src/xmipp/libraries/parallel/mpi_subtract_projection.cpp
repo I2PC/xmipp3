@@ -47,12 +47,10 @@ void MpiProgSubtractProjection::preProcess()
     // Get the volume padded size from rank 0
     int realSize;
     int origin;
-    int realSizeMask;
-    int originMask;
 
     if (!realSpaceProjector)
     {
-        if (node->rank == 0)
+        if (rank == 0)
         {
             realSize = (int)XSIZE(projector->VfourierRealCoefs);
             origin = STARTINGX(projector->VfourierRealCoefs);
@@ -62,9 +60,6 @@ void MpiProgSubtractProjection::preProcess()
         MPI_Bcast(&origin, 1, MPI_INT, 0, MPI_COMM_WORLD);
         MPI_Bcast(&(projector->volumePaddedSize), 1, MPI_INT, 0, MPI_COMM_WORLD); 
         MPI_Bcast(&projector->volumeSize, 1, MPI_INT, 0, MPI_COMM_WORLD);
-
-        MPI_Bcast(&realSizeMask, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Bcast(&originMask, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
         if (rank != 0)
         {
@@ -81,6 +76,39 @@ void MpiProgSubtractProjection::preProcess()
         {
             projector->produceSideInfoProjection();
         }
+    }
+
+    // Power noise estimation params
+    if(noiseEstimationBool)
+    {
+        int powerNoiseSizeX;
+        int powerNoiseSizeY;
+        int powerNoiseOriginX;
+        int powerNoiseOriginY;
+
+        if (rank == 0)
+        {
+            powerNoiseSizeX = (int)XSIZE(powerNoise);
+            powerNoiseSizeY = (int)YSIZE(powerNoise);
+            powerNoiseOriginX = STARTINGX(powerNoise);
+            powerNoiseOriginY = STARTINGY(powerNoise);
+        }
+
+        MPI_Bcast(&powerNoiseSizeX, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&powerNoiseSizeY, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&powerNoiseOriginX, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&powerNoiseOriginY, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+        if (rank != 0)
+        {
+            powerNoise.resizeNoCopy(powerNoiseSizeY, powerNoiseSizeX);
+            STARTINGX(powerNoise)=powerNoiseOriginX;
+            STARTINGY(powerNoise)=powerNoiseOriginY;
+        }
+
+        MPI_Bcast(&max_noiseEst, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&min_noiseEst, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(MULTIDIM_ARRAY(powerNoise), (int)MULTIDIM_SIZE(powerNoise), MPI_DOUBLE, 0, MPI_COMM_WORLD);
     }
 
     MetaData &mdIn = *getInputMd();
@@ -113,6 +141,16 @@ void MpiProgSubtractProjection::finishProcessing()
     MDaux.sort(getOutputMd(), MDL_GATHER_ID);
     MDaux.removeLabel(MDL_GATHER_ID);
     getOutputMd() = MDaux;
+
+    if (rank == 0)
+    {
+        MPI_Reduce(MPI_IN_PLACE, MULTIDIM_ARRAY(powerNoise), (int)MULTIDIM_SIZE(powerNoise), MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+    }
+    else
+    {
+        MPI_Reduce(MULTIDIM_ARRAY(powerNoise), nullptr, (int)MULTIDIM_SIZE(powerNoise), MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+    }
+
     if (node->isMaster())
         ProgSubtractProjection::finishProcessing();
 }

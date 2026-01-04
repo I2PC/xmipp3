@@ -88,6 +88,8 @@ ProgSubtractProjection::~ProgSubtractProjection()
 	subtract = checkParam("--subtract");
 	realSpaceProjector = checkParam("--realSpaceProjection");
 	ignoreCTF = checkParam("--ignoreCTF");
+
+	noiseEstimationBool = checkParam("--noise_est");
  }
 
  // Show ====================================================================
@@ -103,6 +105,11 @@ ProgSubtractProjection::~ProgSubtractProjection()
 	<< "Sampling rate:\t" << sampling << std::endl
 	<< "Padding factor:\t" << padFourier << std::endl
     << "Max. Resolution:\t" << maxResol << std::endl;
+
+	if (noiseEstimationBool)
+	{
+		std::cout << "Computing noise estimation " << std::endl;
+	}
  }
 
  // Usage ===================================================================
@@ -120,7 +127,7 @@ ProgSubtractProjection::~ProgSubtractProjection()
     //Parameters
 	XmippMetadataProgram::defineParams();
     addParamsLine("--ref <volume>\t: Reference volume to subtract");
-    addParamsLine("[--mask_roi <mask_roi=\"\">]     : 3D mask for region of interest to keep or subtract, no mask implies subtraction of whole images");
+    addParamsLine("[--mask_roi <mask_roi=\"\">]		: 3D mask for region of interest to keep or subtract, no mask implies subtraction of whole images");
  	addParamsLine("--cirmaskrad <c=-1.0>			: Apply circular mask to proyected particles. Radius = -1 fits a sphere in the reference volume.");
 	addParamsLine("or --mask <mask=\"\">            : Provide a mask to be applied. Any desity out of the mask is removed from further analysis.");
 	addParamsLine("[--sampling <sampling=1>]		: Sampling rate (A/pixel)");
@@ -134,6 +141,8 @@ ProgSubtractProjection::~ProgSubtractProjection()
 	addParamsLine("[--subtract]						: The mask contains the region to SUBTRACT");
 	addParamsLine("[--realSpaceProjection]			: Project volume in real space to avoid Fourier artifacts");
 	addParamsLine("[--ignoreCTF]					: Do not consider CTF in the subtraction. Use if particles have been CTF corrected.");
+	addParamsLine("[--noise_est]					: Compute noise estimation from the subtracted regin of the particles. \
+													  This caluclation do not modifies the subtration, just produces a noise estimation.");
 
 	// Example
     addExampleLine("A typical use is:",false);
@@ -149,7 +158,7 @@ ProgSubtractProjection::~ProgSubtractProjection()
 	I().setXmippOrigin();
  }
 
- void ProgSubtractProjection::writeParticle(MDRow &rowOut, FileName fnImgOut, Image<double> &img, double R2a, double b0save, double b1save, double b, double avg, double std, double zScore) 
+ void ProgSubtractProjection::writeParticle(MDRow &rowOut, FileName fnImgOut, Image<double> &img, double R2a, double b0save, double b1save, double b) 
  {
 	img.write(fnImgOut);
 
@@ -158,9 +167,6 @@ ProgSubtractProjection::~ProgSubtractProjection()
 	rowOut.setValue(MDL_SUBTRACTION_BETA0, b0save); 
 	rowOut.setValue(MDL_SUBTRACTION_BETA1, b1save); 
 	rowOut.setValue(MDL_SUBTRACTION_B, b); 
-	rowOut.setValue(MDL_AVG, avg); 
-	rowOut.setValue(MDL_STDDEV, std); 
-	rowOut.setValue(MDL_ZSCORE, zScore); 
 	if (nonNegative && (disable || R2a < 0))
 	{
 		rowOut.setValue(MDL_ENABLED, -1);
@@ -357,6 +363,153 @@ Matrix1D<double> ProgSubtractProjection::checkBestModel(MultidimArray< std::comp
 	return R2;
 }
 
+void ProgSubtractProjection::generateNoiseEstimationSideInfo()
+{
+	// Initialize powerNoise
+	powerNoise.initZeros((int)Ydim, (int)Xdim/2 +1);
+
+	// Calculate boundaries for noise estimation 
+	// (make a more eficinet sampling of the subtracted region)
+	if(maskVolProvided)
+	{
+		int minX = Xdim;
+		int minY = Ydim;
+		int minZ = Zdim;
+		int maxX = 0;
+		int maxY = 0;
+		int maxZ = 0;
+
+		long n = 0;
+
+		for(size_t k=0; k<Zdim; ++k)
+		{
+			for(size_t i=0; i<Ydim; ++i)
+			{
+				for(size_t j=0; j<Xdim; ++j)
+				{
+					if (DIRECT_MULTIDIM_ELEM(maskVol(), n) > 0) {
+						minX = std::min(minX, (int)i);
+						minY = std::min(minY, (int)j);
+						minZ = std::min(minZ, (int)k);
+						maxX = std::max(maxX, (int)i);
+						maxY = std::max(maxY, (int)j);
+						maxZ = std::max(maxZ, (int)k);
+					}
+
+					++n;
+				}
+			}
+		}
+
+		min_noiseEst = std::min(minX, std::min(minY, minZ));
+		max_noiseEst = std::max(maxX, std::max(maxY, maxZ));
+	}
+	else
+	{
+		// Assuming square particles
+		max_noiseEst = int((double)Xdim/2 + cirmaskrad/2);
+		min_noiseEst = int((double)Xdim/2 - cirmaskrad/2);
+	}
+
+	#ifdef DEBUG_NOISE_ESTIMATION
+	std::cout << "max_noiseEst  " << max_noiseEst << " min_noiseEst " << min_noiseEst  << std::endl;
+	#endif
+}
+
+void ProgSubtractProjection::noiseEstimation()
+{
+	#ifdef DEBUG_NOISE_ESTIMATION
+	std::cout << "Estimating noise from particle..." << std::endl;
+	#endif
+
+    srand(time(0)); // Seed for random number generation
+	double scallignFactor = (Xdim * Ydim) / (cropSize * cropSize);
+    bool invalidRegion;
+    MultidimArray< double > noiseCrop;
+
+	#ifdef DEBUG_NOISE_ESTIMATION
+	std::cout << "max_noiseEst  " << max_noiseEst << " min_noiseEst " << min_noiseEst  << std::endl;
+	std::cout << "(Ydim/2) " << (Ydim/2) << " (Xdim/2) " << (Xdim/2) << std::endl;
+	std::cout << "scallignFactor " << scallignFactor << std::endl;
+	#endif
+
+	do {
+		invalidRegion = false;
+		noiseCrop.initZeros((int)Ydim, (int)Xdim);
+
+		int x = min_noiseEst + rand() % (max_noiseEst - min_noiseEst + 1);
+		int y = min_noiseEst + rand() % (max_noiseEst - min_noiseEst + 1);
+
+		#ifdef DEBUG_NOISE_ESTIMATION
+		std::cout << "x  " << x << " y " << y  << std::endl;
+		#endif
+
+		for (size_t i = 0; i < cropSize; i++)
+		{
+			for (size_t j = 0; j < cropSize; j++)
+			{
+
+				if (DIRECT_A2D_ELEM(Pmask(), y + i, x + j) == 0 || DIRECT_A2D_ELEM(PmaskRoi(), y + i, x + j) > 0)
+				{
+					invalidRegion = true;
+
+					#ifdef DEBUG_NOISE_ESTIMATION
+					std::cout << "Invalid region. Trying again..." << std::endl;
+					#endif
+				
+					break;
+				}
+
+				#ifdef DEBUG_NOISE_ESTIMATION
+				std::cout << "(Ydim/2) - (cropSize/2) + i  " << (Ydim/2) - (cropSize/2) + i << " (Xdim/2) - (cropSize/2) + j " << (Xdim/2) - (cropSize/2) + j << std::endl;
+				#endif
+
+				DIRECT_A2D_ELEM(noiseCrop,  (Ydim/2) - (cropSize/2) + i, (Xdim/2) - (cropSize/2) + j) = scallignFactor * DIRECT_A2D_ELEM(Idiff(), y + i, x + j);
+			}
+
+			if (invalidRegion) {
+				break;
+			}
+		}
+	} while (invalidRegion);
+
+	#ifdef DEBUG_NOISE_ESTIMATION
+	size_t lastindex = fn_out.find_last_of(".");
+	std::string rawname = fn_out.substr(0, lastindex);
+
+	Image<double> saveImage;
+	std::string debugFileFn = rawname + "_noiseCrop.mrc";
+
+	saveImage() = noiseCrop;
+	saveImage.write(debugFileFn);
+	#endif
+
+	FourierTransformer transformerNoise;
+	MultidimArray<std::complex<double>> noiseSpectrum;
+	transformerNoise.FourierTransform(noiseCrop, noiseSpectrum, false);
+
+	#ifdef DEBUG_NOISE_ESTIMATION
+	MultidimArray< double > noiseSpectrumReal;
+	noiseSpectrumReal.initZeros(YSIZE(noiseSpectrum), XSIZE(noiseSpectrum)); 
+
+	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(noiseSpectrum)
+		DIRECT_MULTIDIM_ELEM(noiseSpectrumReal,n) = DIRECT_MULTIDIM_ELEM(noiseSpectrum,n).real();
+
+	Image<double> saveImageHalf;
+	debugFileFn = rawname + "_noiseSpectrumReal.mrc";
+
+	saveImageHalf() = noiseSpectrumReal;
+	saveImageHalf.write(debugFileFn);
+	#endif
+
+	FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(noiseSpectrum)
+		DIRECT_MULTIDIM_ELEM(powerNoise,n) += (DIRECT_MULTIDIM_ELEM(noiseSpectrum,n) * std::conj(DIRECT_MULTIDIM_ELEM(noiseSpectrum,n))).real();
+		
+	#ifdef DEBUG_NOISE_ESTIMATION
+	std::cout << "Noise sucessfully estimated from particle." << std::endl;
+	#endif
+}
+
  // Main methods ===================================================================
 void ProgSubtractProjection::preProcess() 
 {
@@ -365,13 +518,10 @@ void ProgSubtractProjection::preProcess()
 	V.read(fnVolR);
 	V().setXmippOrigin();
 
-	// Create 2D circular mask to avoid edge artifacts after wrapping
-	size_t Xdim;
-	size_t Ydim;
-	size_t Zdim;
-	size_t Ndim;
+	// Read input vol dimensions
 	V.getDimensions(Xdim, Ydim, Zdim, Ndim);
-
+	
+	// Read input mask or create 2D circular if not provided
 	if (maskVolProvided)
 	{
 		maskVol.read(fnMaskVol);
@@ -389,8 +539,6 @@ void ProgSubtractProjection::preProcess()
 		if (cirmaskrad == -1.0)
 			cirmaskrad = (double)XSIZE(V())/2;
 
-		/// *** Check again with real data
-		// RaisedCosineMask(maskVol(), cirmaskrad*0.8, cirmaskrad*0.9);
 		RaisedCosineMask(maskVol(), cirmaskrad, cirmaskrad);
 
 		#ifdef DEBUG_OUTPUT_FILES
@@ -452,6 +600,12 @@ void ProgSubtractProjection::preProcess()
 
 	if (rank==0)
 	{
+		// Initialize noise power variables
+		if (noiseEstimationBool)
+		{
+			generateNoiseEstimationSideInfo();
+		}
+
 		if (!realSpaceProjector)
 		{
 			// If  Fourier projector one volume is shared by all execution and this operation is done only once
@@ -475,7 +629,7 @@ void ProgSubtractProjection::preProcess()
 			projector = new FourierProjector(padFourier, cutFreq, xmipp_transformation::BSPLINE3);
 		}
 	}
- }
+}
 
 void ProgSubtractProjection::processImage(const FileName &fnImg, const FileName &fnImgOut, const MDRow &rowIn, MDRow &rowOut)
  { 
@@ -662,10 +816,35 @@ void ProgSubtractProjection::processImage(const FileName &fnImg, const FileName 
 	I.write(fnImgOut.substr(0, dotPos) + "_I" + fnImgOut.substr(dotPos));
 	#endif
 
-	// Compute particle stats after subtraction
-	double avg;
-	double std;
-	double zScore;
+	// Estimate noise after sutraction
+	if(noiseEstimationBool)
+	{
+		noiseEstimation();
+	}
 
-	writeParticle(rowOut, fnImgOut, Idiff, R2adj(0), beta0save, beta1save, b, avg, std, zScore); 
+	writeParticle(rowOut, fnImgOut, Idiff, R2adj(0), beta0save, beta1save, b); 
+}
+
+void ProgSubtractProjection::finishProcessing()
+{
+	if (allow_time_bar && verbose && !single_image)
+        progress_bar(time_bar_size);
+    writeOutput();
+
+	if(noiseEstimationBool)
+	{
+		FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(powerNoise)
+		{
+			DIRECT_MULTIDIM_ELEM(powerNoise,n) /= (int)mdInSize;
+		}
+
+		Image<double> saveImage;
+		size_t lastindex = fn_out.find_last_of("/\\");
+		std::string noiseEstOuputFile = fn_out.substr(0, lastindex) + "/noisePower.mrc";
+
+		std::cout << "Saving noise power at: " << noiseEstOuputFile << std::endl;
+
+		saveImage() = powerNoise;
+		saveImage.write(noiseEstOuputFile);
+	}
 }

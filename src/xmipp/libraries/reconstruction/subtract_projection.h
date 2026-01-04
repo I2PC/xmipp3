@@ -34,8 +34,10 @@
  #include "data/fourier_projection.h"
  #include "core/xmipp_metadata_program.h"
 
- #define DEBUG
+//  #define DEBUG
 //  #define DEBUG_OUTPUT_FILES
+//  #define DEBUG_NOISE_ESTIMATION
+
 
 /**@defgroup ProgSubtractProjection Subtract projections
    @ingroup ReconsLibrary */
@@ -67,6 +69,19 @@ class ProgSubtractProjection: public XmippMetadataProgram
     bool ignoreCTF;
 	MultidimArray<int> wi;
 
+    // Input volume dimensions
+    size_t Xdim;
+	size_t Ydim;
+	size_t Zdim;
+	size_t Ndim;
+
+    // Variables for noise estimation
+    bool noiseEstimationBool;
+    MultidimArray< double > powerNoise;
+    size_t cropSize = 11; // Crop size to properly estimate noise
+    int max_noiseEst;
+    int min_noiseEst;
+
     // Data variables
  	Image<double> V; // volume
  	Image<double> vM; // mask 3D
@@ -96,7 +111,6 @@ class ProgSubtractProjection: public XmippMetadataProgram
     MultidimArray< std::complex<double> > IiMFourier;
 	MultidimArray< std::complex<double> > PiMFourier;
 
-
     FourierTransformer transformerIiM;
 	FourierTransformer transformerPiM;
 
@@ -122,7 +136,7 @@ class ProgSubtractProjection: public XmippMetadataProgram
     bool disable;
     /// Read and write methods
     void readParticle(const MDRow &rowIn);
-    void writeParticle(MDRow &rowOut, FileName, Image<double> &, double, double, double, double, double, double, double);
+    void writeParticle(MDRow &rowOut, FileName, Image<double> &, double, double, double, double);
     /// Processing methods
     void createMask(const FileName &, Image<double> &, Image<double> &);
     Image<double> binarizeMask(Projection &) const;
@@ -130,10 +144,12 @@ class ProgSubtractProjection: public XmippMetadataProgram
     Image<double> applyCTF(const MDRow &, Projection &);
     void processParticle(const MDRow &rowIn, int sizeImg);
     MultidimArray< std::complex<double> > computeEstimationImage(const MultidimArray<double> &, 
-        const MultidimArray<double> *, FourierTransformer &);
+    const MultidimArray<double> *, FourierTransformer &);
     double evaluateFitting(const MultidimArray< std::complex<double> > &, const MultidimArray< std::complex<double> > &) const;
     Matrix1D<double> checkBestModel(MultidimArray< std::complex<double> > &, const MultidimArray< std::complex<double> > &, 
-        const MultidimArray< std::complex<double> > &, const MultidimArray< std::complex<double> > &) const;
+    const MultidimArray< std::complex<double> > &, const MultidimArray< std::complex<double> > &) const;
+    void generateNoiseEstimationSideInfo();
+    void noiseEstimation();
 
     int rank; // for MPI version
     FourierProjector *projector;
@@ -154,6 +170,7 @@ class ProgSubtractProjection: public XmippMetadataProgram
     void defineParams() override;
     void preProcess() override;
     void processImage(const FileName &fnImg, const FileName &fnImgOut, const MDRow &rowIn, MDRow &rowOut) override;
+    void finishProcessing();
  };
  //@}
 #endif

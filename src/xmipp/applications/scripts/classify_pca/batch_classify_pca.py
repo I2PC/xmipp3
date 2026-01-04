@@ -59,6 +59,7 @@ if __name__=="__main__":
                                                     "It is only used if the --mask option is applied.")
     parser.add_argument("-o", "--output", help="Root directory for the output files", required=True)
     parser.add_argument("-stExp", "--sartExp", help="star file for images")
+    parser.add_argument("-g", "--gpu",  help="GPU ID set. Just one GPU is allowed", required=False)
 
     
     args = parser.parse_args()
@@ -74,7 +75,11 @@ if __name__=="__main__":
     sigma = args.sigma
     output = args.output
     expStar = args.sartExp
-           
+    gpuId = str(args.gpu)
+
+    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    os.environ["CUDA_VISIBLE_DEVICES"] = gpuId
+
     torch.cuda.is_available()
     torch.cuda.current_device()
     cuda = torch.device('cuda:0')

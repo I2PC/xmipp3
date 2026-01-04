@@ -65,7 +65,8 @@ if __name__=="__main__":
     parser.add_argument("-t", "--training", help="number of image for training", required=True)
     parser.add_argument("-o", "--output", help="Root directory for the output files, for example: train_pca", required=True)
     parser.add_argument("--batchPCA",  action="store_true", help="BatchPCA only and not onlinePCA")
-    
+    parser.add_argument("-g", "--gpu",  help="GPU ID set. Just one GPU is allowed", required=False)
+
     args = parser.parse_args()
 
     expFile = args.mrc  
@@ -75,10 +76,15 @@ if __name__=="__main__":
     minRes = float(args.lowres)
     per_eig = float(args.perc)
     train = int(args.training)
+    gpuId = str(args.gpu)
     output = args.output
     batchPCA = args.batchPCA
     nBand = 1
-    
+
+    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    os.environ["CUDA_VISIBLE_DEVICES"] = gpuId
+
+
     torch.cuda.is_available()
     torch.cuda.current_device()
     cuda = torch.device('cuda:0')
