@@ -245,14 +245,11 @@ class ScriptDeepConsensus3D(XmippScript):
         sys.exit(0)
 
     def do_train(self) -> None:
-        # TODO Steps:
-        # Instantiate a NN
-        # Generate the settings (patch, batch, etc)
-        # Generate a dataloader with specified settings
-        # Activate the data augmentation
-        # Train on the specified data
-        # Save the checkpoints, final result.
-        pass
+        modelman.build()
+        # TODO: Actually bring the vols/labels
+        #modelman.train(train_volumes, train_labels,
+        #               val_volumes=val_volumes, val_labels=val_labels,
+        #               epochs = self.nn_epochs, steps_per_epoch=200)
 
     def do_score(self) -> None:
         # TODO Steps:
