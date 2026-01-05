@@ -28,6 +28,7 @@
 * Initial version: sept 2023
 **************************************************************************
 """
+
 import sys
 import os
 import numpy as np
@@ -35,7 +36,10 @@ from keras.optimizers import adam_v2
 from xmipp_base import XmippScript
 import xmippLib
 
-from xmippPyModules.deepPickingConsensusTomo.deepPickingConsensusTomo_networks_sx import NetMan
+from xmippPyModules.deepPickingConsensusTomo.dpc3d_data_manager import DataManDPC3D
+from xmippPyModules.deepPickingConsensusTomo.dpc3d_parameter_manager import ParaManDPC3D
+from xmippPyModules.deepPickingConsensusTomo.dpc3d_model_manager import ModelManDPC3D
+
 
 MODEL_TRAIN_NEW         = 0
 MODEL_TRAIN_PRETRAIN    = 1
@@ -46,16 +50,42 @@ NN_TRAINWORDS           = ["train", "training", "t"]
 NN_SCOREWORDS           = ["score", "scoring", "s", "predict"]
 NN_NAME                 = "dpc_nn.h5"
 
-DEFAULT_MP              = 8
+DEFAULT_MP              = 16
 
 class ScriptDeepConsensus3D(XmippScript):
     
     _conda_env = "xmipp_DLTK_v1.0"
+    n_cpus : int
+    s_gpus : str
+    l_gpus : list[int]
+    exec_mode : str
+    net_path : str
+    net_name : str
+    net_pointer : str
+    cons_box_size : tuple[int, int, int]
+    cons_samp_rate : float 
+    cons_batch_size: int
+    tight_box_size: bool
+    
+    nn_train_type : int
+    nn_epochs : int
+    nn_reg : float
+    nn_ensemble : bool
+    nn_learning_rate : float
+    nn_val_frac : float
 
-    def __init__(self):
+    path_pos : str
+    path_neg : str
+    path_doubt : str
+
+    paraman : ParaManDPC3D
+    dataman : ParaManDPC3D
+    modelman : ModelManDPC3D
+
+    def __init__(self) -> None:
         XmippScript.__init__(self)
 
-    def defineParams(self):
+    def defineParams(self) -> None:
         self.addUsageLine('DeepConsensus3D. Launches a CNN to process cryoET (tomo) subvolumes.\n'
                           'It can be used in these cases:\n'
                           '1) Train network from scratch\n'
@@ -66,22 +96,17 @@ class ScriptDeepConsensus3D(XmippScript):
 
         # Application parameters
         self.addParamsLine('==== Application ====')
-        self.addParamsLine('[ -t <numThreads=4> ] : Number of threads')
+        self.addParamsLine('[ -t <numThreads=16> ] : Number of threads')
         self.addParamsLine(' -g <gpuId> : comma separated GPU Ids. Set to -1 to use all CUDA_VISIBLE_DEVICES') 
         self.addParamsLine(' --mode <execMode> : training or scoring')
         self.addParamsLine(' --netpath <netpath> : path for network models read/write (needed in any case)')
-        self.addParamsLine(' --batchsize <size=16> : amount of images that will be fed each time to the network.')
         self.addParamsLine('[ --netname <filename> ] : filename of the network to load, only for train-pretrain or score-pretrain')
 
         # Tomo
         self.addParamsLine('==== Tomo ====')
-        self.addParamsLine(' --consboxsize <boxsize> : desired box size (int)')
-        self.addParamsLine(' --conssamprate <samplingrate> : desired sampling rate (float)')
-
-        # Score parameters
-        self.addParamsLine('==== Scoring mode ====')
-        self.addParamsLine('[ --inputvolpath <path> ] : path to the metadata files of the input doubtful subtomos (mrc)')
-        self.addParamsLine('[ --outputpath <path> ] : path for the program to write the scored coordinates (xmd)')
+        self.addParamsLine(' --consboxsize <boxsize> : box size (int)')
+        self.addParamsLine(' --conssamprate <samplingrate> : sampling rate (float)')
+        self.addParamsLine('[ --tightboxsize ] : to be added if the box is tightly bound to the ROI.')
 
         # Train parameters
         self.addParamsLine('==== Training mode ====')
@@ -92,173 +117,155 @@ class ScriptDeepConsensus3D(XmippScript):
         self.addParamsLine('[ -e <numberOfEpochs=5> ]  : Number of training epochs (int).')
         self.addParamsLine('[ -l <learningRate=0.0001> ] : Learning rate (float).')
         self.addParamsLine('[ -r <regStrength=0.00001> ] : L2 regularization level (float).')
-        self.addParamsLine('[ -s ] : Autostop on convergency detection.')
         self.addParamsLine('[ --ensemble <numberOfModels=1> ] : If set, an ensemble of models will be used in a voting instead one.')
 
-    def parseParams(self):
+        # Score parameters
+        self.addParamsLine('==== Scoring mode ====')
+        self.addParamsLine('[ --inputvolpath <path> ] : path to the metadata files of the subtomos (mrc) to be scored')
+        self.addParamsLine('[ --outputpath <path> ] : path for the program to write the scored coordinates (xmd)')
+
+    def parseParams(self) -> None:
         """
         This function does the reading of input flags and parameters. It sanity-checks all
         inputs to make sure the program does not unnecesarily crash later.
         """
 
-        # Default for CPU threads
+        # CMD or default for CPU threads
         if self.checkParam('-t'):
-            self.numThreads = self.getIntParam('-t')
+            self.n_cpus = self.getIntParam('-t')
         else:
-            self.numThreads = DEFAULT_MP
-        # GPU acceleration - assuming GPU is always used
-        gpustr : str = self.getParam('-g')
-        self.gpus : list = [ int(item) for item in gpustr.split(",")]
-        # -1 means all CUDA_VISIBLE_DEVICES must be used
+            self.n_cpus = DEFAULT_MP
+
+        # GPU Management
+        if not self.checkparam('-g'):
+             print("No GPUs were specified, but this program requires GPU. Exiting...")
+             sys.exit(-1)
+        # What does CMD say?
+        self.s_gpus : str = self.getParam('-g')
+        self.gpus = [ int(item) for item in self.s_gpus.split(",")]
+
+        # Use all GPU option
         if -1 in self.gpus:
             if 'CUDA_VISIBLE_DEVICES' in os.environ:
-                gpustr = os.environ.get('CUDA_VISIBLE_DEVICES')
-                self.gpus : list = [int(item) for item in gpustr.split(",")]
-        # Execution mode
-        self.execMode = str(self.getParam('--mode'))
-        # Netpath
-        self.netPath = self.getParam('--netpath')
-        if not os.path.isdir(self.netPath):
-            print("Network path is not a valid path")
-        # Netname
-        if self.checkParam('--netname'):
-            self.netName = self.getParam('--netname')
-            self.netPointer = os.path.join(self.netPath, self.netName)
-            if not os.path.isfile(self.netPath+self.netName):
-                print("NN file does not exist inside path")
-        else:
-            self.netName = NN_NAME
-        # Consensuated boxsize and sampling ratesize
-        self.consBoxSize : int = self.getIntParam('--consboxsize')
-        self.consSampRate : float = self.getDoubleParam('--conssamprate')
-        # Desired batch size
-        self.batchSize : int = self.getIntParam('--batchsize')
-       
-        # The desired running mode is training
-        if self.execMode.strip() in NN_TRAINWORDS:
-            self.execMode = "train"
-            print("Execution mode is: TRAINING", flush=True)
+                envvar_cuda = os.environ.get('CUDA_VISIBLE_DEVICES')
+                self.s_gpus =  envvar_cuda if envvar_cuda is not None else ""
+                self.l_gpus = [int(item) for item in self.s_gpus.split(",")]
+            else:
+                print("CUDA_VISIBLE_DEVICES is not present, but program was asked to infer all GPUs."
+                       "Please set the GPU to other than -1 and run again. Exiting...")
+                sys.exit(-1)
 
-            # Training type
-            self.trainType = int(self.getParam('--ttype'))
-            # Read paths
-            self.posPath : str = self.getParam('--truevolpath')
-            self.negPath : str = self.getParam('--falsevolpath')
-            self.doubtPath = None
-            # Learning rate
-            self.learningRate = float(self.getDoubleParam('-l'))
-            
+        # Network files
+        self.net_path = self.getParam('--netpath')
+        if not os.path.isdir(self.net_path):
+            print("Network path is not a valid path")
+            sys.exit(-1)
+        if self.checkParam('--netname'):
+            self.net_name = self.getParam('--netname') # Get from CLI
+        else:
+            self.net_name = NN_NAME # Set default
+        self.net_pointer = os.path.join(self.net_path, self.net_name)
+        if not os.path.isfile(self.net_pointer):
+                print(f"NN model file {self.net_pointer} was not found")
+                print("Loading will fail and training will create/override the file")
+
+        # Data information
+        self.cons_box_size = self.getIntParam('--consboxsize')
+        self.cons_samp_rate = self.getDoubleParam('--conssamprate')
+        if self.checkParam('--tightboxsize'): # Will affect bounding boxes and patching algorithm
+            self.tight_box_size = True
+        else:
+            self.tight_box_size = False
+
+        self.nn_learning_rate = float(self.getDoubleParam('-l'))
+
+        # Training or scoring?
+        mode : str = self.getParam('--mode')
+        if mode.strip() in NN_TRAINWORDS: # TRAIN NEW OR EXISTING
+            self.exec_mode = "train"
+            print("Execution mode is TRAINING")
+            self.train_type = int(self.getParam('--ttype'))
+            self.path_pos = self.getParam('--truevolpath')
+            self.path_neg = self.getParam('--falsevolpath')
+            self.nn_val_frac = self.getDoubleParam('--valfrac')
+
             # Epochs for training
             if self.checkParam('-e'):
                 self.nEpochs = int(self.getIntParam('-e'))
             else:
-                self.nEpochs = 5
+                self.nEpochs = 20
             # Regularization strenght
             if self.checkParam('-r'):
                 self.regStrength= float(self.getDoubleParam('-r'))
             else:
                 self.regStrength = 1.0e-5
-            # Auto stop feature
-            self.autoStop = self.checkParam('-s')
+
             # Ensemble amount
             if self.checkParam('--ensemble'):
                 self.ensemble = self.getIntParam('--ensemble')
             else:
                 self.ensemble = 1
-            # Check if it's in the correct range and set to default if needed
+            
+            # Guard - Check if it's in the correct range and set to default if needed
             if self.trainType not in [0, 1, 2]:
-                print("Training mode %d not recognized. Running a new model instead." % self.trainType)
+                print("Training mode %d not recognized. Running a new model instead lol." % self.trainType)
                 self.trainType = MODEL_TRAIN_NEW
             else:
                 print("Training in mode: " +  MODEL_TRAIN_TYPELIST[self.trainType])
-            # Validation fraction
-            self.valFrac = self.getDoubleParam('--valfrac')
+            
 
-        # The desired mode is scoring
-        elif self.execMode.strip() in NN_SCOREWORDS:
-            print("Execution mode is: SCORING", flush=True)
-            self.execMode = "score"
-
-            if self.checkParam('-l'):
-                self.learningRate = float(self.getDoubleParam('-l'))
-            else:
-                self.learningRate = 1.0e-5
-
-            # Input/Output
-            self.doubtPath = str(self.getParam('--inputvolpath'))
-            self.posPath = None
-            self.negPath = None
+        elif mode.strip() in NN_SCOREWORDS: # SCORE MODE
+            self.exec_mode = "score"
+            print("Execution mode is INFERENCE/SCORING")
+            # In scoring, we want all input data in one set (doubt)
+            self.path_doubt = str(self.getParam('--inputvolpath'))
             if not os.path.exists(self.doubtPath):
                 print("Path to input subtomograms does not exist. Exiting.")
                 sys.exit(-1)
-            self.outputFile = str(self.getParam('--outputpath'))
-            
-    def run(self):
-        '''
-        Instantiates the data managing class object (DataMan) and then launches the appropriate
-        program to train or score with the neural network.
-        '''
-        print("deep_picking_consensus_tomo.py is launched\nParsing input...", flush=True)
-        self.parseParams()
-        print("Execution will be done using %d threads." % self.numThreads, flush = True)
-        gpustring = str(self.gpus)
-        print("Execution will use GPUS with ID: " + gpustring, flush=True)
+            self.outputFile = str(self.getParam('--outputpath'))  
+        else:
+            print("Unrecognized --mode parameter. Exiting...")
+            sys.exit(-1)
+        
+    def run(self) -> None:
+        """
+        Logic for the main loop of the application. Selects running types, finds configurations using libraries
+        and dispatches the actual work.
+        """
 
-        if self.execMode == "train":
-            self.doTrain()
-        elif self.execMode == "score":
-            self.doScore()
+        print("XMIPP3 DPC3D is running")
+        print("Parsing inputs...")
+        self.parseParams()
+        print(f"Threds: {self.n_cpus} and GPUs:{self.s_gpus}")
+
+        if self.exec_mode == "train":
+            self.do_train()
+        if self.exec_mode == "score":
+            self.do_score()
         sys.exit(0)
 
-    def doTrain(self):
-        
-        netMan = NetMan(nThreads = self.numThreads, gpuIDs = self.gpus, rootPath = self.netPath,
-                        batchSize = self.batchSize, boxSize = self.consBoxSize, posPath = self.posPath, negPath = self.negPath,
-                        doubtPath = self.doubtPath, netName = self.netName)
+    def do_train(self) -> None:
+        # TODO Steps:
+        # Instantiate a NN
+        # Generate the settings (patch, batch, etc)
+        # Generate a dataloader with specified settings
+        # Activate the data augmentation
+        # Train on the specified data
+        # Save the checkpoints, final result.
+        pass
 
-        # Generate or load a model, depending on what is wanted
-        if self.trainType == MODEL_TRAIN_NEW:
-            amount_of_data = 1
-            netMan.createNetwork(self.consBoxSize, amount_of_data)
-            # TODO: use amount_of_data correctly here and in netman
-        elif self.trainType == MODEL_TRAIN_PRETRAIN:
-            netMan.loadNetwork(modelFile = self.netPointer)
-        else:
-            print("Specified NN training mode yet implemented, use new or pretrained")
-            exit(-1)
-        
-        # netMan.net.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
-        netMan.compileNetwork(pLoss='binary_crossentropy', pOptimizer=adam_v2.Adam(learning_rate=self.learningRate), pMetrics=['accuracy'])
-        netMan.trainNetwork(nEpochs = self.nEpochs, learningRate = self.learningRate, autoStop=True)
+    def do_score(self) -> None:
+        # TODO Steps:
+        # Find the NN weights file, load them
+        # Ensure loaded model is compatible with data shape
+        # Score the data
+        pass
 
-    def doScore(self):
-        netMan = NetMan(nThreads = self.numThreads, gpuIDs = self.gpus, rootPath = self.netPath,
-                        batchSize = self.batchSize, boxSize = self.consBoxSize, posPath = self.posPath, negPath = None,
-                        doubtPath = self.doubtPath, netName = self.netName)
-        netMan.loadNetwork(modelFile = self.netPointer)
-        netMan.compileNetwork(pLoss='binary_crossentropy', pOptimizer=adam_v2.Adam(learning_rate=self.learningRate), pMetrics=['accuracy'])
-        netMan.predictNetwork()
-        netMan.writeScoresXMD(self.outputFile)
-    
-    def writeResults(self, results, file):
-        # Write results vector in numpy format TXT
-        txtname = file + ".txt"
-        np.savetxt(txtname, results)
-
-        md = xmippLib.MetaData()
-        for item in results:
-            row_id = md.addObject()
-            # Save the coordinates of the representative
-            md.setValue(xmippLib.MDL_XCOOR, int(), row_id)
-            md.setValue(xmippLib.MDL_YCOOR, int(), row_id)
-            md.setValue(xmippLib.MDL_ZCOOR, int(), row_id)
-            # Save the probability
-            # TODO: QUE XXXXXX ES ESE XXXX? MIRAR PROBABILIDADES
-            # md.setValue(xmippLib.XXXXXXXXXX, float(), row_id)
-            # A futuro: interesante guardar cuantas representa
-        
-        md.write(file)
-        print("Written predictions to " + file)
+    def do_write(self) -> None:
+        # TODO Steps:
+        # np.savetxt the information
+        # xmippLib per-row add object to MD and write predictions
+        pass
 
 if __name__ == '__main__':
     ScriptDeepConsensus3D().tryRun()
