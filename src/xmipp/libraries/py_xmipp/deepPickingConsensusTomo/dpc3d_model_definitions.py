@@ -129,6 +129,63 @@ def decoder_block(
     return x
 
 
+def build_cryoet_encoder(
+    input_shape,
+    base_channels=16,
+    depth=4,
+    anisotropic_levels=2,
+    norm="group",
+    groups=8,
+):
+    inputs = tf.keras.Input(shape=input_shape)
+    x = inputs
+
+    # Encoder
+    for d in range(depth):
+        filters = base_channels * (2 ** d)
+        anisotropic = d < anisotropic_levels
+        x, _ = encoder_block(
+            x,
+            filters,
+            anisotropic=anisotropic,
+            norm=norm,
+            groups=groups,
+        )
+
+    # Bottleneck
+    filters = base_channels * (2 ** depth)
+    x = conv_block(x, filters, (3, 3, 3), norm, groups)
+    x = conv_block(x, filters, (3, 3, 3), norm, groups)
+    x = channel_attention(x)
+
+    return tf.keras.Model(inputs, x, name="cryoet_encoder")
+
+def add_classification_head(
+    encoder,
+    dropout=0.2,
+):
+    x = encoder.output
+
+    # Global pooling collapses spatial dimensions
+    x = tf.keras.layers.GlobalAveragePooling3D()(x)
+
+    if dropout > 0:
+        x = tf.keras.layers.Dropout(dropout)(x)
+
+    # Binary classification
+    outputs = tf.keras.layers.Dense(
+        1,
+        activation="sigmoid",
+        dtype="float32",  # force FP32 output
+    )(x)
+
+    return tf.keras.Model(
+        encoder.input,
+        outputs,
+        name="cryoet_classifier",
+    )
+
+
 @register_arch("unet3d")
 def build_unet_3d(
     input_shape,
