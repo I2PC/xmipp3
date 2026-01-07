@@ -123,7 +123,13 @@ def get_gpu_base_alignment(index: int) -> int:
         print("Detected older GPU architecture, using alignment 8.")
         return 8  # Older architectures  
 
-def estimate_3d_vram_aniso(patch_size, base_channels, depth, batch_size, dtype_bytes=2, overhead_factor=1.25):
+def estimate_3d_vram_aniso(
+                            patch_size: tuple[int, int, int],
+                            base_channels: int, 
+                            depth: int, 
+                            batch_size: int, 
+                            dtype_bytes: int = 2, 
+                            overhead_factor: float = 1.25):
     """Estimate VRAM for a 3D encoder with anisotropic patches."""
     Pz, Px, Py = patch_size
     total_bytes = 0
