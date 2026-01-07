@@ -559,8 +559,8 @@ class BnBgpu:
 
         if iter > 1:
 
-            # cut = (25 if iter < 5 else 20) if sampling < 3 else (35 if iter < 5 else 30)
-            cut=100
+            cut = (25 if iter < 5 else 20) if sampling < 3 else (35 if iter < 5 else 30)
+            # cut=100
             res_classes = self.frc_resolution_tensor(newCL, sampling, rcut=cut)
             print(res_classes)
 
