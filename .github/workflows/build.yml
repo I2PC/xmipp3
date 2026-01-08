@@ -47,7 +47,8 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install numpy xmipp3_installer==2.*
+          python -m pip install numpy 
+          python -m pip install git+https://github.com/I2PC/xmipp3-installer.git@v2.0.4
 
       - uses: Jimver/cuda-toolkit@master
         if: matrix.cuda.version != 'None'
