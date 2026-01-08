@@ -3695,8 +3695,8 @@ class BnBgpu:
 
 
     def compact_classes(self, class_avgs,
-                               coarse_thr=0.96,
-                               fine_thr=0.93,
+                               coarse_thr=0.8,
+                               fine_thr=0.8,
                                angle_step=10):
         device = class_avgs.device
         K,H,W = class_avgs.shape
