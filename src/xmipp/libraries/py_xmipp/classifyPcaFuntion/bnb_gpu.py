@@ -3568,77 +3568,75 @@ class BnBgpu:
 
         X = torch.stack(X)
         X = X.view(Im_tensor.shape[0], eigvect[0].shape[1]).float()
-        X = torch.nn.functional.normalize(X, dim=1)
         N, D = X.shape
+    
+        # Normalización robusta
+        X = (X - X.mean(dim=0)) / (X.std(dim=0) + 1e-6)
     
         # --- K-means++ inicialización ---
         centroids = torch.empty((num_clusters, D), device=X.device)
-        centroids[0] = X[torch.randint(0, N, (1,), device=X.device)]
+        idx = torch.randint(0, N, (1,), device=X.device)
+        centroids[0] = X[idx]
     
         for k in range(1, num_clusters):
             dist = torch.cdist(X, centroids[:k]).min(dim=1)[0]
-            probs = dist / dist.sum()
-            centroids[k] = X[torch.multinomial(probs, 1)]
+            probs = dist / (dist.sum() + 1e-8)
+            next_idx = torch.multinomial(probs, 1)
+            centroids[k] = X[next_idx]
     
+        # --- Iteraciones principales ---
         for it in range(num_iters):
     
-            Cn = torch.nn.functional.normalize(centroids, dim=1)
-            distances = 1 - torch.matmul(X, Cn.T)      # coseno
-    
+            distances = torch.cdist(X, centroids, p=2)
             labels = distances.argmin(dim=1)
-            counts = torch.bincount(labels, minlength=num_clusters).float().clamp(min=1)
     
-            # --- Penalización por densidad (salva clases pequeñas) ---
-            density_penalty = torch.log(counts + 1)
-            density_penalty = density_penalty / density_penalty.mean()
-            adjusted_dist = distances * density_penalty.unsqueeze(0)
-            labels = adjusted_dist.argmin(dim=1)
+            counts = torch.bincount(labels, minlength=num_clusters).float()
     
-            # --- Actualizar centroides ---
+            # --- rescate suave de clusters pequeños ---
+            min_size = max(4, int(0.01 * N))
+            small = counts < min_size
+            if small.any():
+                worst = distances[:, small].max(dim=0).indices
+                centroids[small] = X[worst]
+    
+            # --- actualización estándar ---
+            counts = counts.clamp(min=1)
             centroids.zero_()
             centroids.scatter_add_(0, labels.unsqueeze(1).expand(-1, D), X)
             centroids /= counts.unsqueeze(1)
     
-            # --- Repulsión entre centroides cercanos ---
+            # --- repulsión débil si colapsan ---
             Cdist = torch.cdist(centroids, centroids)
-            mask = (Cdist < 0.25) & (Cdist > 0)
-            repulsion = torch.zeros_like(centroids)
-    
-            for i in range(num_clusters):
-                close = mask[i]
-                if close.any():
-                    repulsion[i] = centroids[i] - centroids[close].mean(dim=0)
-    
-            centroids += 0.2 * repulsion
-    
-            # --- Re-siembra de clases raras cada 5 iteraciones ---
-            if it % 5 == 0:
-                rare = counts < torch.median(counts)
-                if rare.any():
-                    idx = torch.argmax(distances[:, rare], dim=0)
-                    centroids[rare] = X[idx]
+            mask = (Cdist < 0.15) & (Cdist > 0)
+            if mask.any():
+                centroids += torch.randn_like(centroids) * 0.01
     
             if verbose:
-                inertia = distances[torch.arange(N), labels].sum().item()
-                print(f"Iter {it+1}, inertia: {inertia:.3f}")
+                inertia = (distances[torch.arange(N), labels] ** 2).sum().item()
+                print(f"Iter {it+1:02d}  inertia = {inertia:.2e}")
     
-        # --- Promedios robustos (MAD agresivo) ---
+        # --- Promedios robustos ---
         averages = []
         for i in range(num_clusters):
-            class_mask = labels == i
-            imgs = Im_tensor[class_mask]
+            mask = labels == i
+            class_imgs = Im_tensor[mask]
     
-            if imgs.size(0) > 0:
-                d = distances[class_mask, i]
+            if class_imgs.shape[0] > 0:
+                d = distances[mask, i]
                 med = d.median()
-                mad = torch.median(torch.abs(d - med)) + 1e-8
-                good = d < med + 0.5 * mad
+                mad = torch.median(torch.abs(d - med)) + 1e-6
+                good = d < med + 2.5 * mad
     
-                avg = imgs[good].mean(0) if good.sum() > 0 else imgs.mean(0)
+                if good.sum() > 0:
+                    avg = class_imgs[good].mean(dim=0)
+                else:
+                    avg = class_imgs.mean(dim=0)
             else:
                 avg = torch.zeros_like(Im_tensor[0])
     
             averages.append(avg)
+    
+        del X, labels, centroids, distances
     
         return torch.stack(averages)
 
