@@ -566,7 +566,7 @@ class BnBgpu:
 
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             
-            # boost = 1.5 if iter < 6 else None
+            # boost = 0.3 if iter < 6 else None
             boost = None
             clk = self.highpass_cosine_sharpen(clk, res_classes, sampling, factorR = boost)
                     
@@ -579,7 +579,7 @@ class BnBgpu:
         
         # if iter > 1:# and iter < 7:
             # clk = clk[torch.argsort(torch.tensor([len(cls_list) for cls_list in newCL], device=clk.device), descending=True)]
-            clk = clk[torch.argsort(res_classes)]
+            clk = clk[torch.argsort(res_classes, descending=True)]
 
         if iter in [10, 13]:
             clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
@@ -2941,8 +2941,7 @@ class BnBgpu:
             else:
                 factorR = torch.as_tensor(factorR, device=resolutions.device, dtype=resolutions.dtype)
                 factorR = factorR.expand_as(resolutions)
-            print("factorR")
-            print(factorR)
+
             sharpen_power = (factorR * resolutions).clamp(min=0.3, max=2.5)
   
             sharpen_power = sharpen_power.view(B, 1, 1)  # broadcasting por imagen
@@ -3651,6 +3650,95 @@ class BnBgpu:
         del X, labels, centroids, distances
     
         return torch.stack(averages)
+    
+    
+    def radial_descriptor(self, imgs, nbins=32):
+        K,H,W = imgs.shape
+        Fimage = torch.fft.fftshift(torch.fft.fft2(imgs), dim=(-2,-1))
+        Fmag = torch.abs(Fimage)
+    
+        yy,xx = torch.meshgrid(
+            torch.arange(H,device=imgs.device)-H//2,
+            torch.arange(W,device=imgs.device)-W//2,
+            indexing="ij"
+        )
+        r = torch.sqrt(xx**2 + yy**2)
+        rbin = torch.clamp((r / r.max() * (nbins-1)).long(), 0, nbins-1)
+    
+        desc = torch.zeros((K,nbins),device=imgs.device)
+        for i in range(nbins):
+            mask = (rbin==i)
+            desc[:,i] = Fmag[:,mask].mean(dim=1)
+    
+        return F.normalize(desc, dim=1)
+    
+    def rotate_classes(self, imgs, angles):
+        """imgs [M,H,W], angles [A] -> [M,A,H,W]"""
+        M,H,W = imgs.shape
+        A = angles.numel()
+        
+        theta = angles * math.pi / 180
+        c,s = torch.cos(theta), torch.sin(theta)
+        
+        T = torch.zeros((A,2,3), device=imgs.device)
+        T[:,0,0] = c;  T[:,0,1] = -s
+        T[:,1,0] = s;  T[:,1,1] =  c
+        
+        # Affine grid expects batch dimension
+        grid = F.affine_grid(T, [A,1,H,W], align_corners=False)
+        
+        imgs_exp = imgs.unsqueeze(1).expand(M,A,H,W).reshape(M*A,1,H,W)
+        grid_exp = grid.repeat(M,1,1,1)
+        
+        out = F.grid_sample(imgs_exp, grid_exp, align_corners=False)
+        return out.view(M,A,H,W)
+
+
+    def compact_classes(self, class_avgs,
+                               coarse_thr=0.96,
+                               fine_thr=0.93,
+                               angle_step=10):
+        device = class_avgs.device
+        K,H,W = class_avgs.shape
+    
+        desc = self.radial_descriptor(class_avgs)       # [K,nbins]
+        sim = desc @ desc.T
+    
+        used = torch.zeros(K, dtype=torch.bool, device=device)
+        kept = []
+    
+        angles = torch.arange(-180,180,angle_step, device=device).float()
+        num_compact = 0 
+    
+        for i in range(K):
+            if used[i]: continue
+            used[i] = True
+    
+            cand = torch.where(sim[i] > coarse_thr)[0]
+            cand = cand[cand > i]
+    
+            if cand.numel() == 0:
+                kept.append(class_avgs[i])
+                continue
+    
+            imgs = class_avgs[cand]
+            rots = self.rotate_classes(imgs, angles)  # [M,A,H,W]
+            base = class_avgs[i].unsqueeze(0).unsqueeze(0)  # [1,1,H,W] para broadcasting
+    
+            corr = (rots * base).mean(dim=(-1,-2))  # [M,A]
+            best = corr.max(dim=1).values          # [M]
+    
+            merge = best > fine_thr
+            used[cand[merge]] = True
+            
+            if merge.sum() > 0:
+                num_compact += 1
+    
+            group = torch.cat([base.squeeze(0), imgs[merge]], dim=0)
+            kept.append(group.mean(dim=0))
+            
+        print(f"Número de compactaciones realizadas: {num_compact}")
+        return torch.stack(kept)
 
 
 
