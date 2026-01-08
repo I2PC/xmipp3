@@ -3566,89 +3566,77 @@ class BnBgpu:
     
     def kmeans_pytorch_for_averages(self, Im_tensor, X, eigvect, num_clusters, num_iters=25, verbose=False):
 
-        X = torch.stack(X) if isinstance(X, list) else X
-        X = X.view(Im_tensor.shape[0], -1).float()
+        X = torch.stack(X)
+        X = X.view(Im_tensor.shape[0], eigvect[0].shape[1]).float()
         N, D = X.shape
-        
-        # Normalización para que todas las dimensiones del PCA pesen igual
-        X = (X - X.mean(dim=0)) / (X.std(dim=0) + 1e-8)
     
-        # --- Inicialización K-means++ ---
+        # Normalización robusta
+        X = (X - X.mean(dim=0)) / (X.std(dim=0) + 1e-6)
+    
+        # --- K-means++ inicialización ---
         centroids = torch.empty((num_clusters, D), device=X.device)
         idx = torch.randint(0, N, (1,), device=X.device)
         centroids[0] = X[idx]
     
         for k in range(1, num_clusters):
             dist = torch.cdist(X, centroids[:k]).min(dim=1)[0]
-            # Elevamos al cuadrado para penalizar más a los alejados (más dispersión)
-            probs = (dist ** 2) / (dist ** 2).sum()
+            probs = dist / (dist.sum() + 1e-8)
             next_idx = torch.multinomial(probs, 1)
             centroids[k] = X[next_idx]
     
-        # --- Bucle de Iteraciones ---
+        # --- Iteraciones principales ---
         for it in range(num_iters):
-            distances = torch.cdist(X, centroids, p=2) # (N, num_clusters)
+    
+            distances = torch.cdist(X, centroids, p=2)
             labels = distances.argmin(dim=1)
-            
-            # --- ESTRATEGIA: Rescate de centroides y colapso de redundantes ---
-            counts = torch.bincount(labels, minlength=num_clusters)
-            
-            # 1. Identificar centroides vacíos o "muy débiles" (menos del 0.5% de la media)
-            min_particles = max(1, N // (num_clusters * 20))
-            weak_clusters = (counts < min_particles).nonzero(as_tuple=True)[0]
-            
-            if len(weak_clusters) > 0:
-                # Buscamos las partículas con mayor error (las más alejadas de sus centros)
-                errors = distances[torch.arange(N), labels]
-                _, outlier_idx = torch.topk(errors, len(weak_clusters))
-                centroids[weak_clusters] = X[outlier_idx]
-                
-                # Recalcular tras el rescate
-                distances = torch.cdist(X, centroids, p=2)
-                labels = distances.argmin(dim=1)
-                counts = torch.bincount(labels, minlength=num_clusters)
     
-            # 2. Actualización de posiciones
-            centroids_sum = torch.zeros_like(centroids)
-            centroids_sum.scatter_add_(0, labels.unsqueeze(1).expand(-1, D), X)
-            centroids = centroids_sum / counts.clamp(min=1).unsqueeze(1)
+            counts = torch.bincount(labels, minlength=num_clusters).float()
     
-            if verbose and it % 5 == 0:
-                inertia = distances[torch.arange(N), labels].mean().item()
-                print(f"Iter {it}, Error medio: {inertia:.4f}, Clases activas: {len(counts[counts>0])}")
+            # --- rescate suave de clusters pequeños ---
+            min_size = max(4, int(0.01 * N))
+            small = counts < min_size
+            if small.any():
+                worst = distances[:, small].max(dim=0).indices
+                centroids[small] = X[worst]
     
-        # --- Generación de Promedios Robustos ---
+            # --- actualización estándar ---
+            counts = counts.clamp(min=1)
+            centroids.zero_()
+            centroids.scatter_add_(0, labels.unsqueeze(1).expand(-1, D), X)
+            centroids /= counts.unsqueeze(1)
+    
+            # --- repulsión débil si colapsan ---
+            Cdist = torch.cdist(centroids, centroids)
+            mask = (Cdist < 0.15) & (Cdist > 0)
+            if mask.any():
+                centroids += torch.randn_like(centroids) * 0.01
+    
+            if verbose:
+                inertia = (distances[torch.arange(N), labels] ** 2).sum().item()
+                print(f"Iter {it+1:02d}  inertia = {inertia:.2e}")
+    
+        # --- Promedios robustos ---
         averages = []
-        final_distances = torch.cdist(X, centroids, p=2)
-        
         for i in range(num_clusters):
-            class_mask = labels == i
-            class_images = Im_tensor[class_mask]
+            mask = labels == i
+            class_imgs = Im_tensor[mask]
     
-            if class_images.size(0) > 2:  # Necesitamos al menos 3 para el MAD
-                class_dist = final_distances[class_mask, i]
-                med = class_dist.median()
-                # MAD: Median Absolute Deviation
-                mad = torch.median(torch.abs(class_dist - med)) + 1e-8
-                
-                # Filtramos partículas que están a más de 1.5 MAD (Outliers de la clase)
-                good_mask = class_dist < (med + 1.5 * mad)
-                
-                if good_mask.any():
-                    avg = class_images[good_mask].mean(dim=0)
+            if class_imgs.shape[0] > 0:
+                d = distances[mask, i]
+                med = d.median()
+                mad = torch.median(torch.abs(d - med)) + 1e-6
+                good = d < med + 2.5 * mad
+    
+                if good.sum() > 0:
+                    avg = class_imgs[good].mean(dim=0)
                 else:
-                    avg = class_images.mean(dim=0)
-            elif class_images.size(0) > 0:
-                avg = class_images.mean(dim=0)
+                    avg = class_imgs.mean(dim=0)
             else:
-                # Si no hay nada, devolvemos un "espacio en blanco" (evita errores de stack)
                 avg = torch.zeros_like(Im_tensor[0])
-                
+    
             averages.append(avg)
     
-        # Limpieza de memoria GPU rápida
-        del X, labels, centroids, distances, final_distances
-        torch.cuda.empty_cache()
+        del X, labels, centroids, distances
     
         return torch.stack(averages)
 
