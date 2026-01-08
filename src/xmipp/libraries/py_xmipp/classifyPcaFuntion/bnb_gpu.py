@@ -492,7 +492,7 @@ class BnBgpu:
             
             # if iter > 0 and iter < 5:# and cycles == 0:
             # if iter == 3 or iter == 4:
-            if iter >= 3 and (final_classes - classes) > 0:
+            if 3 <= iter < 15 and (final_classes - classes) > 0:
                 
                 # for n in range(split):
                 for n in range(classes):
@@ -559,14 +559,16 @@ class BnBgpu:
 
         if iter > 1:
 
-            # cut = (25 if iter < 5 else 20) if sampling < 3 else (35 if iter < 5 else 30)
-            cut=100
+            cut = (25 if iter < 5 else 20) if sampling < 3 else (35 if iter < 5 else 30)
+            # cut=100
             res_classes = self.frc_resolution_tensor(newCL, sampling, rcut=cut)
             print(res_classes)
 
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             
-            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)
+            # boost = 1.5 if iter < 6 else None
+            boost = None
+            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling, factorR = boost)
                     
         #Sort classes        
         # if iter < 7:
@@ -2903,6 +2905,7 @@ class BnBgpu:
         # R_high: float = 25.0,
         boost_max: float = None,        # si None, se ajusta para energía
         sharpen_power: float = None,    # si None, se ajusta automáticamente según resolución
+        factorR: float = None,
         eps: float = 1e-8,
         normalize: bool = True,
         max_iter: int = 20
@@ -2925,12 +2928,21 @@ class BnBgpu:
         f_cutoff = (1.0 / resolutions.clamp(min=1e-3)).view(B, 1, 1)  # [B, 1, 1]
     
         # === Ajuste dinámico de sharpen_power por resolución ===
-#            # sharpen_power = (0.1 * resolutions).clamp(min=0.3, max=2.5)
+#           # sharpen_power = (0.1 * resolutions).clamp(min=0.3, max=2.5)
             #sharpen_power = (0.08 * resolutions).clamp(min=0.3, max=2.5)
         if sharpen_power is None:
             # factorR = torch.where(resolutions > 8, 0.1, 0.08)
-            factorR = torch.where(resolutions < 6, 0.1,
-                      torch.where(resolutions < 14, 0.08, 0.06))
+            if factorR is None:
+                factorR = torch.where(
+                    resolutions < 6,  torch.tensor(0.1, device=resolutions.device),
+                    torch.where(resolutions < 14, torch.tensor(0.08, device=resolutions.device),
+                                               torch.tensor(0.06, device=resolutions.device))
+                )
+            else:
+                factorR = torch.as_tensor(factorR, device=resolutions.device, dtype=resolutions.dtype)
+                factorR = factorR.expand_as(resolutions)
+            print("factorR")
+            print(factorR)
             sharpen_power = (factorR * resolutions).clamp(min=0.3, max=2.5)
   
             sharpen_power = sharpen_power.view(B, 1, 1)  # broadcasting por imagen
