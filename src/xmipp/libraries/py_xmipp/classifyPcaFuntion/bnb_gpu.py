@@ -579,7 +579,8 @@ class BnBgpu:
         
         # if iter > 1:# and iter < 7:
             # clk = clk[torch.argsort(torch.tensor([len(cls_list) for cls_list in newCL], device=clk.device), descending=True)]
-            clk = clk[torch.argsort(res_classes, descending=True)]
+            if iter < 15:
+                clk = clk[torch.argsort(res_classes, descending=True)]
 
         if iter in [10, 13]:
             clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
