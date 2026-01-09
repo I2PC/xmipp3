@@ -450,7 +450,7 @@ class BnBgpu:
         if iter == 3: 
             split = (final_classes - classes) // 2
             newCL = [[] for i in range(classes+split)]
-        elif iter >= 4 and (final_classes - classes) > 0:
+        elif 4 <= iter < 15 and final_classes > classes:
             split = final_classes - classes
             newCL = [[] for i in range(final_classes)]
         else:
@@ -570,17 +570,15 @@ class BnBgpu:
             boost = None
             clk = self.highpass_cosine_sharpen(clk, res_classes, sampling, factorR = boost)
                     
-        #Sort classes        
-        # if iter < 7:
-        # if iter > 1:
-            valid_mask = torch.tensor([cls.shape[0] > 0 for cls in newCL], device=clk.device)
-            clk = clk[valid_mask]
-            res_classes = res_classes[valid_mask]
-        
-        # if iter > 1:# and iter < 7:
-            # clk = clk[torch.argsort(torch.tensor([len(cls_list) for cls_list in newCL], device=clk.device), descending=True)]
+            #Sort classes        
             if iter < 15:
+                valid_mask = torch.tensor([cls.shape[0] > 0 for cls in newCL], device=clk.device)
+                clk = clk[valid_mask]
+                res_classes = res_classes[valid_mask]
+                
                 clk = clk[torch.argsort(res_classes, descending=True)]
+            elif iter < 16:
+                clk = clk[torch.argsort(torch.tensor([len(cls_list) for cls_list in newCL], device=clk.device), descending=True)]
 
         if iter in [10, 13]:
             clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
@@ -3674,25 +3672,40 @@ class BnBgpu:
         return F.normalize(desc, dim=1)
     
     def rotate_classes(self, imgs, angles):
-        """imgs [M,H,W], angles [A] -> [M,A,H,W]"""
         M,H,W = imgs.shape
         A = angles.numel()
-        
+    
         theta = angles * math.pi / 180
         c,s = torch.cos(theta), torch.sin(theta)
-        
+    
         T = torch.zeros((A,2,3), device=imgs.device)
         T[:,0,0] = c;  T[:,0,1] = -s
         T[:,1,0] = s;  T[:,1,1] =  c
-        
-        # Affine grid expects batch dimension
-        grid = F.affine_grid(T, [A,1,H,W], align_corners=False)
-        
-        imgs_exp = imgs.unsqueeze(1).expand(M,A,H,W).reshape(M*A,1,H,W)
-        grid_exp = grid.repeat(M,1,1,1)
-        
-        out = F.grid_sample(imgs_exp, grid_exp, align_corners=False)
+    
+        grid = F.affine_grid(T, [A,1,H,W], align_corners=False)   # [A,H,W,2]
+    
+        imgs = imgs[:,None,:,:].expand(M,A,H,W).reshape(M*A,1,H,W)
+        grid = grid.repeat(M,1,1,1)
+    
+        out = F.grid_sample(imgs, grid, align_corners=False)
         return out.view(M,A,H,W)
+    
+    
+    def norm_xcorr(self, imgs, ref):
+        # imgs [M,A,H,W]   ref [1,1,H,W]
+        M,A,H,W = imgs.shape
+    
+        imgs = imgs.view(M*A, H*W)
+        ref  = ref.view(1, H*W)
+    
+        imgs = imgs - imgs.mean(dim=1, keepdim=True)
+        ref  = ref  - ref.mean(dim=1, keepdim=True)
+    
+        imgs = F.normalize(imgs, dim=1)
+        ref  = F.normalize(ref,  dim=1)
+    
+        corr = torch.mm(imgs, ref.T).view(M,A)
+        return corr
 
 
     def compact_classes(self, class_avgs,
@@ -3714,7 +3727,8 @@ class BnBgpu:
         for i in range(K):
             if used[i]: continue
             used[i] = True
-    
+            print("sim")
+            print(sim[i])
             cand = torch.where(sim[i] > coarse_thr)[0]
             cand = cand[cand > i]
     
@@ -3725,9 +3739,15 @@ class BnBgpu:
             imgs = class_avgs[cand]
             rots = self.rotate_classes(imgs, angles)  # [M,A,H,W]
             base = class_avgs[i].unsqueeze(0).unsqueeze(0)  # [1,1,H,W] para broadcasting
+            
+            rots_n = F.normalize(rots.flatten(2), dim=2).view_as(rots)
+            base_n = F.normalize(base.flatten(2), dim=2).view_as(base)
+            
+            corr = self.norm_xcorr(rots, base_n)   # [M,A]
+            best = corr.max(dim=1).values
     
-            corr = (rots * base).mean(dim=(-1,-2))  # [M,A]
-            best = corr.max(dim=1).values          # [M]
+            print("best")
+            print(best)
     
             merge = best > fine_thr
             used[cand[merge]] = True

@@ -77,8 +77,9 @@ if __name__=="__main__":
     
     expFile = args.exp
     sampling = float(args.sampling)
-    classes = int(args.classes)
-    final_classes = classes  
+    # classes = int(args.classes)
+    # final_classes = classes  
+    final_classes = int(args.classes)
     refImages = args.ref
     niter = 18
     mask = args.mask
@@ -213,7 +214,7 @@ if __name__=="__main__":
         file_cero = output+"_0.mrcs"
         save_images(cl.cpu().detach().numpy(), sampling, file_cero) 
         
-        cl = bnb.compact_classes(cl)
+        # cl = bnb.compact_classes(cl)
         file_cero = output+"_0_compact.mrcs"
         save_images(cl.cpu().detach().numpy(), sampling, file_cero)
 
@@ -329,7 +330,7 @@ if __name__=="__main__":
                         cl, tMatrix, batch_projExp_cpu = bnb.create_classes(
                             mmap, tMatrix, iter, subset, expBatchSize, matches, vectorshift, 
                             classes, final_classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles)
-                        cl = bnb.compact_classes(cl)
+                        # cl = bnb.compact_classes(cl)
                     else:
                         torch.cuda.empty_cache()
                         cl, tMatrix, batch_projExp_cpu = bnb.align_particles_to_classes(expImages, 
