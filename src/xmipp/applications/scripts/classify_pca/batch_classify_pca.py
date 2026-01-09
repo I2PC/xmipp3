@@ -214,11 +214,7 @@ if __name__=="__main__":
         file_cero = output+"_0.mrcs"
         save_images(cl.cpu().detach().numpy(), sampling, file_cero) 
         
-        # cl = bnb.compact_classes(cl)
-        file_cero = output+"_0_compact.mrcs"
-        save_images(cl.cpu().detach().numpy(), sampling, file_cero)
-
-        
+        # cl = bnb.compact_classes(cl)        
     
     if refImages:
         num_batches = int(np.ceil(nExp / expBatchSize2))
