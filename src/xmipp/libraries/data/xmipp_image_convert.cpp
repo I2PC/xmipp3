@@ -68,6 +68,7 @@ void  ProgConvImg::defineParams()
     comments.addComment("++ spe : Princeton Instruments CCD camera");
     comments.addComment("++ spi, xmp : Spider");
     comments.addComment("++ tif : TIFF");
+    comments.addComment("++ eer : EER");
     comments.addComment("++ raw#xDim,yDim,[zDim],offset,datatype,[r] : RAW image file without header file");
     comments.addComment("++ where datatype can be: uint8,int8,uint16,int16,uint32,int32,long,float,double,");
     comments.addComment("++                        cint16,cint32,cfloat,cdouble,bool");
@@ -135,6 +136,10 @@ void  ProgConvImg::defineParams()
     //Examples
     addExampleLine("Put a selection file into a stack:",false);
     addExampleLine("xmipp_image_convert -i list.sel -o images.stk");
+    addExampleLine("Convert an EER file into mrc; 32 fractions (frames), 4K resoultion and uint16",false);
+    addExampleLine("xmipp_image_convert -i eerFile.eer#32,4K,uint16 -o images.mrc");
+    addExampleLine("Extract and convert one frame of an EER file into mrc; 32 fractions (frames), 4K resoultion and uint16",false);
+    addExampleLine("xmipp_image_convert -i 16@eerFile.eer#32,4K,uint16 -o frame16.mrc");
     addExampleLine("Convert a Spider volume to a MRC stack:",false);
     addExampleLine("xmipp_image_convert -i spider.vol -o stack.mrcs -t stk");
     addExampleLine("Create a stack of volumes with a Spider volume :",false);
