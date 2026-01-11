@@ -581,7 +581,7 @@ class BnBgpu:
                 lengths = torch.tensor([len(cls) for cls in newCL], device=clk.device)
 
                 valid_mask = lengths > 0
-                # res_classes = res_classes[valid_mask]
+                res_classes = res_classes[valid_mask]
                 sizes = lengths[valid_mask]
                 
                 clk = clk[valid_mask]
