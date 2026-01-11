@@ -572,14 +572,23 @@ class BnBgpu:
                     
             #Sort classes        
             if iter < 10:
-                valid_mask = torch.tensor([cls.shape[0] > 0 for cls in newCL], device=clk.device)
-                clk = clk[valid_mask]
-                res_classes = res_classes[valid_mask]
-                # clk = clk[torch.argsort(res_classes, descending=True)]
-                clk = clk[torch.argsort(torch.tensor([len(cls_list) for cls_list in newCL], device=clk.device), descending=True)]
+                # valid_mask = torch.tensor([cls.shape[0] > 0 for cls in newCL], device=clk.device)
+                # clk = clk[valid_mask]
+                # res_classes = res_classes[valid_mask]
+                # # clk = clk[torch.argsort(res_classes, descending=True)]
+                # clk = clk[torch.argsort(torch.tensor([len(cls_list) for cls_list in newCL], device=clk.device), descending=True)]
 
-            # elif iter < 16:
-            #     clk = clk[torch.argsort(torch.tensor([len(cls_list) for cls_list in newCL], device=clk.device), descending=True)]
+                lengths = torch.tensor([len(cls) for cls in newCL], device=clk.device)
+
+                valid_mask = lengths > 0
+                # res_classes = res_classes[valid_mask]
+                sizes = lengths[valid_mask]
+                
+                clk = clk[valid_mask]
+                # clk = clk[torch.argsort(res_classes, descending=True)]
+                clk = clk[torch.argsort(sizes, descending=True)]
+
+
 
         if iter in [10, 13]:
             clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
