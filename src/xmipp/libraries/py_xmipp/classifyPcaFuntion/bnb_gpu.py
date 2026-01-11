@@ -450,7 +450,7 @@ class BnBgpu:
         if iter == 3: 
             split = (final_classes - classes) // 2
             newCL = [[] for i in range(classes+split)]
-        elif 4 <= iter < 15 and final_classes > classes:
+        elif 4 <= iter < 10 and final_classes > classes:
             split = final_classes - classes
             newCL = [[] for i in range(final_classes)]
         else:
@@ -492,7 +492,7 @@ class BnBgpu:
             
             # if iter > 0 and iter < 5:# and cycles == 0:
             # if iter == 3 or iter == 4:
-            if 3 <= iter < 15 and (final_classes - classes) > 0:
+            if 3 <= iter < 10 and (final_classes - classes) > 0:
                 
                 # for n in range(split):
                 for n in range(classes):
@@ -571,14 +571,15 @@ class BnBgpu:
             clk = self.highpass_cosine_sharpen(clk, res_classes, sampling, factorR = boost)
                     
             #Sort classes        
-            if iter < 15:
+            if iter < 10:
                 valid_mask = torch.tensor([cls.shape[0] > 0 for cls in newCL], device=clk.device)
                 clk = clk[valid_mask]
                 res_classes = res_classes[valid_mask]
-                
-                clk = clk[torch.argsort(res_classes, descending=True)]
-            elif iter < 16:
+                # clk = clk[torch.argsort(res_classes, descending=True)]
                 clk = clk[torch.argsort(torch.tensor([len(cls_list) for cls_list in newCL], device=clk.device), descending=True)]
+
+            # elif iter < 16:
+            #     clk = clk[torch.argsort(torch.tensor([len(cls_list) for cls_list in newCL], device=clk.device), descending=True)]
 
         if iter in [10, 13]:
             clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
