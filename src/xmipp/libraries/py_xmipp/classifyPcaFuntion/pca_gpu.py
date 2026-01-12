@@ -154,7 +154,7 @@ class PCAgpu:
         return self.vecs_update
     
     
-    def errorVariance(self, eigvalue, variance, per_eig):
+    def errorVariance_old(self, eigvalue, variance, per_eig):
         
         self.eigs = torch.zeros(self.nBand, device=self.cuda)
         self.perc = torch.zeros(self.nBand, device=self.cuda)
@@ -170,6 +170,28 @@ class PCAgpu:
             self.error[n] = error_vect[0][int(self.eigs[n])]
             
         return(self.eigs, self.perc, self.error)
+    
+    
+    def errorVariance(self, eigvalue, variance, per_eig):
+    
+        B = self.nBand
+    
+        accum = torch.cumsum(eigvalue, dim=2)             
+        var_tot = variance.sum(dim=1, keepdim=True)        
+        error_vect = accum / var_tot.unsqueeze(-1)         
+    
+        N = variance.size(1)
+    
+        if per_eig >= 1:
+            self.eigs = torch.full((B,), N-1, device=self.cuda)
+        else:
+            self.eigs = torch.searchsorted(error_vect.squeeze(1), per_eig)
+            self.eigs.clamp_(max=N-1)
+    
+        self.perc  = (self.eigs + 1) / N * 100
+        self.error = error_vect.squeeze(1)[torch.arange(B, device=self.cuda), self.eigs.long()]
+    
+        return self.eigs, self.perc, self.error
                   
     
     def batchPCA(self, band, coef, firstSet):
