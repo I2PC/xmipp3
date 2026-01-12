@@ -2945,7 +2945,7 @@ class BnBgpu:
             # factorR = torch.where(resolutions > 8, 0.1, 0.08)
             if factorR is None:
                 factorR = torch.where(
-                    resolutions < 6,  torch.tensor(0.1, device=resolutions.device),
+                    resolutions < 10,  torch.tensor(0.1, device=resolutions.device),
                     torch.where(resolutions < 14, torch.tensor(0.08, device=resolutions.device),
                                                torch.tensor(0.06, device=resolutions.device))
                 )
