@@ -585,7 +585,7 @@ class BnBgpu:
                 sizes = lengths[valid_mask]
                 
                 clk = clk[valid_mask]
-                clk = clk[torch.argsort(res_classes, descending=True)]
+                clk = clk[torch.argsort(res_classes)]
                 # clk = clk[torch.argsort(sizes, descending=True)]
             elif iter < 15:
                 clk = clk[torch.argsort(torch.tensor([len(cls_list) for cls_list in newCL], device=clk.device), descending=True)]
