@@ -186,15 +186,16 @@ class PCAgpu:
             
             accum = torch.cumsum(vals, dim=1) / sum_var
 
-            if per_eig >= 1:
-                k = N - 1
-            else:
-                k = torch.searchsorted(accum.squeeze(0), per_eig).clamp(max=N-1)
+            # if per_eig >= 1:
+            #     k = N - 1
+            # else:
+            #     k = torch.searchsorted(accum.squeeze(0), per_eig).clamp(max=N-1)
+            k = torch.searchsorted(accum.squeeze(0), per_eig).clamp(max=N-1)
 
             self.eigs[n]  = k
             self.perc[n]  = (k + 1) / N * 100
             self.error[n] = accum[0, k] 
-            print(self.eigs)
+        print(self.eigs)
 
         return self.eigs, self.perc, self.error
                   
