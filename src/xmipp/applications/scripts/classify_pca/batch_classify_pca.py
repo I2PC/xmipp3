@@ -126,7 +126,7 @@ if __name__=="__main__":
         # maxRes = 18.0   
         maxRes = 16.0 
     freqBn, cvecs, coef = pca.calculatePCAbasis(mmap, Ntrain, nBand, dim, sampling, maxRes, 
-                                                minRes=530, per_eig=0.3, batchPCA=True)
+                                                minRes=530, per_eig=per_eig_value, batchPCA=True)
 
     grid_flat = flatGrid(freqBn, coef, nBand)
 
@@ -212,16 +212,6 @@ if __name__=="__main__":
         
         file_cero = output+"_0.mrcs"
         save_images(cl.cpu().detach().numpy(), sampling, file_cero) 
-        
-    if refImages:
-        maxRes = highRes
-    else: 
-        # maxRes = 18.0   
-        maxRes = 16.0 
-    freqBn, cvecs, coef = pca.calculatePCAbasis(mmap, Ntrain, nBand, dim, sampling, maxRes, 
-                                                minRes=530, per_eig=per_eig_value, batchPCA=True)
-
-    grid_flat = flatGrid(freqBn, coef, nBand)
         
     
     if refImages:
