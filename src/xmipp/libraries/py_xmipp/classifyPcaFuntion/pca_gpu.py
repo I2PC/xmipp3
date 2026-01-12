@@ -168,35 +168,34 @@ class PCAgpu:
             self.eigs[n] = (error_vect >= per_eig).nonzero()[0][1]
             self.perc[n] = ((self.eigs[n]+1)/variance[n].size(dim=0))*100
             self.error[n] = error_vect[0][int(self.eigs[n])]
-        print(self.eigs)  
-        exit() 
+
         return(self.eigs, self.perc, self.error)
     
     
     def errorVariance(self, eigvalue, variance, per_eig):
-    
+        
         self.eigs  = torch.zeros(self.nBand, device=self.cuda, dtype=torch.long)
         self.perc  = torch.zeros(self.nBand, device=self.cuda)
         self.error = torch.zeros(self.nBand, device=self.cuda)
-    
+
         for n in range(self.nBand):
-    
-            vals = eigvalue[n]          # [1, N]
-            var  = variance[n]          # [N]
-    
+            vals = eigvalue[n]         
+            var  = variance[n]          
             N = var.numel()
-    
+            sum_var = var.sum()
+            
+            accum = torch.cumsum(vals, dim=1) / sum_var
+
             if per_eig >= 1:
                 k = N - 1
             else:
-                accum = torch.cumsum(vals, dim=1) / var.sum()
                 k = torch.searchsorted(accum.squeeze(0), per_eig).clamp(max=N-1)
-    
+
             self.eigs[n]  = k
             self.perc[n]  = (k + 1) / N * 100
-            self.error[n] = vals[0, k] / var.sum()
-        print(self.eigs)  
-        exit() 
+            self.error[n] = accum[0, k] 
+            print(self.eigs)
+
         return self.eigs, self.perc, self.error
                   
     
