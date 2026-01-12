@@ -195,8 +195,7 @@ class PCAgpu:
             self.eigs[n]  = k
             self.perc[n]  = (k + 1) / N * 100
             self.error[n] = accum[0, k] 
-        print(self.eigs)
-
+            
         return self.eigs, self.perc, self.error
                   
     
