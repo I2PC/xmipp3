@@ -150,7 +150,7 @@ void ProgStatisticalMap::writeZscoresMap(FileName fnIn)
        V_Zscores.write(fnOut);
 
     #ifdef DEBUG_WRITE_OUTPUT
-    std::cout << "Zscores map saved at : " << fnOut << std::endl;
+    std::cout << "    Z-scores map saved at: " << fnOut << std::endl;
     #endif
 }
 
@@ -198,7 +198,7 @@ void ProgStatisticalMap::writeZscoresMADMap(FileName fnIn)
     V_ZscoresMAD.write(fnOut);
 
     #ifdef DEBUG_WRITE_OUTPUT
-    std::cout << "Z-scores MAD map saved at: " << fnOut << std::endl;
+    std::cout << "    Z-scores MAD map saved at: " << fnOut << std::endl;
        #endif
 }
 
@@ -278,8 +278,8 @@ void ProgStatisticalMap::writeMask(FileName fnIn)
     saveMask.write(fn_out_different_mask);
 
     #ifdef DEBUG_WRITE_OUTPUT
-    std::cout << "Coincident mask saved at : " << fn_out_coincident_mask << std::endl;
-    std::cout << "Different mask saved at : " << fn_out_different_mask << std::endl;
+    std::cout << "Coincident mask saved at: " << fn_out_coincident_mask << std::endl;
+    std::cout << "Different mask saved at: " << fn_out_different_mask << std::endl;
     #endif
 }
 
@@ -334,9 +334,6 @@ void ProgStatisticalMap::run()
             medianMap().initZeros(Zdim, Ydim, Xdim);
             MADMap().initZeros(Zdim, Ydim, Xdim);
             V_ZscoresMAD().initZeros(Zdim, Ydim, Xdim);
-
-            // For Dixon
-            // stdVolume().initConstant(DBL_MAX);
 
             dimInitialized = true;
         }
@@ -473,7 +470,6 @@ void ProgStatisticalMap::run()
 
         // calculateZscoreMap();
         // calculateZscoreMap_GlobalSigma();
-        // calculateDixonMap();
         writeZscoresMap(fn_V);
         // calculatePercetileMap();
         // writePercentileMap(fn_V);
@@ -643,26 +639,6 @@ void ProgStatisticalMap::preprocessMap(FileName fnIn)
 
 }
 
-void ProgStatisticalMap::processStaticalMapDixon()
-{ 
-    std::cout << "    Processing input map for statistical map calculation..." << std::endl;
-
-    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
-    {
-        // Reuse avg and std maps for min and max (memory efficient)
-        double value = DIRECT_MULTIDIM_ELEM(V(),n);
-
-        if(value > DIRECT_MULTIDIM_ELEM(avgVolume(),n))
-        {
-            DIRECT_MULTIDIM_ELEM(avgVolume(),n) = value;   // max
-        }
-        if(value < DIRECT_MULTIDIM_ELEM(stdVolume(),n))
-        {
-            DIRECT_MULTIDIM_ELEM(stdVolume(),n) = value;   // min
-        }
-    }
-}
-
 void ProgStatisticalMap::processStaticalMap()
 { 
     std::cout << "    Processing input map for statistical map calculation..." << std::endl;
@@ -767,32 +743,6 @@ void ProgStatisticalMap::calculateAvgDiffMap()
     avgDiffVolume() /= Ndim;
 
     avgDiffVolume.write(fn_oroot + "statsMap_avgDiff.mrc");
-}
-
-void ProgStatisticalMap::calculateDixonMap()
-{
-    std::cout << "    Calculating Dixon map..." << std::endl;
-    double dixonThreshold = 0.521;
-
-    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
-    {
-        // Compute Dixon
-        if (DIRECT_MULTIDIM_ELEM(V(),n) > DIRECT_MULTIDIM_ELEM(avgVolume(),n))
-        {
-            DIRECT_MULTIDIM_ELEM(V_Zscores(),n) = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / (DIRECT_MULTIDIM_ELEM(avgVolume(),n) - DIRECT_MULTIDIM_ELEM(stdVolume(),n));
-
-            if (DIRECT_MULTIDIM_ELEM(V_Zscores(),n) > dixonThreshold)
-            {
-               DIRECT_MULTIDIM_ELEM(V(),n) = 1;
-            }
-            
-        }
-        else
-        {
-            DIRECT_MULTIDIM_ELEM(V_Zscores(),n) = 0;
-            DIRECT_MULTIDIM_ELEM(V(),n) = 0;
-        }
-    }
 }
 
 void ProgStatisticalMap::computeSigmaNormMAD(double& sigmaNorm) 
@@ -998,7 +948,8 @@ void ProgStatisticalMap::calculateZscoreMADMap()
     double mapMAD;
     double foo;
     // computeSigmaNormMAD(mapMAD);
-    MADMap().computeAvgStdev(mapMAD, foo);
+    MADMap().computeAvgStdev_within_binary_mask(proteinRadiusMask, mapMAD, foo);
+    mapMAD = mapMAD * 1.4826; // Scale MAD to estimate sigma under normality
 
     std::cout << "    Global MAD value: " << mapMAD << std::endl;
 
@@ -1014,8 +965,10 @@ void ProgStatisticalMap::calculateZscoreMADMap()
         // if (val > 0.0)
         // {
             zscoreMAD = (val - median_local) / sqrt(mapMAD*mapMAD + mad_local * mad_local);
-            // zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / sqrt(mapMAD*mapMAD + DIRECT_MULTIDIM_ELEM(stdVolume(),n)*DIRECT_MULTIDIM_ELEM(stdVolume(),n));
-            zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / sqrt(mad_local*mad_local + DIRECT_MULTIDIM_ELEM(stdVolume(),n)*DIRECT_MULTIDIM_ELEM(stdVolume(),n));
+            // zscoreMAD = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / sqrt(mapMAD*mapMAD + mad_local * mad_local);
+            zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / sqrt(mapMAD*mapMAD + DIRECT_MULTIDIM_ELEM(stdVolume(),n)*DIRECT_MULTIDIM_ELEM(stdVolume(),n));
+            // zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / sqrt(mad_local*mad_local + DIRECT_MULTIDIM_ELEM(stdVolume(),n)*DIRECT_MULTIDIM_ELEM(stdVolume(),n));
+            // zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / sqrt(DIRECT_MULTIDIM_ELEM(stdVolume(),n)*DIRECT_MULTIDIM_ELEM(stdVolume(),n));
         // }
 
         DIRECT_MULTIDIM_ELEM(V_ZscoresMAD(), n) = zscoreMAD;

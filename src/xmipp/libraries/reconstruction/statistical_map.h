@@ -130,7 +130,6 @@ public:
     void calculateFSCoh();
     void preprocessMap(FileName fnIn);
     void processStaticalMap();
-    void processStaticalMapDixon();
     void computeStatisticalMaps();
     void calculateAvgDiffMap();
     void computeSigmaNormMAD(double& sigmaNorm);
@@ -138,7 +137,6 @@ public:
     void calculateZscoreMap();
     void calculateZscoreMap_GlobalSigma();
     void calculatePercetileMap();
-    void calculateDixonMap();
     void weightMap();
 
     // ---------------------- UTILS METHODS ------------------------------
