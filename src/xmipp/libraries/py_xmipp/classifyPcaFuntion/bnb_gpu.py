@@ -387,7 +387,7 @@ class BnBgpu:
     
     
     @torch.no_grad()
-    def get_robust_zscore_thresholds(self, classes, matches, threshold=2.0, bins=200):
+    def get_robust_zscore_thresholds(self, classes, matches, threshold=1.0, bins=200):
         
         thr_low = torch.full((classes,), float('-inf'), device=matches.device)
         thr_high = torch.full((classes,), float('inf'), device=matches.device)
@@ -569,23 +569,25 @@ class BnBgpu:
             clk = self.highpass_cosine_sharpen(clk, res_classes, sampling, factorR = boost)
                     
             #Sort classes        
-            if iter < 5:
+            if iter < iterSplit:
 
                 lengths = torch.tensor([len(cls) for cls in newCL], device=clk.device)
 
                 valid_mask = lengths > 0
-                res_classes = res_classes[valid_mask]
+                # res_classes = res_classes[valid_mask]
+                sizes = lengths[valid_mask]
                 clk = clk[valid_mask]
-                clk = clk[torch.argsort(res_classes)]
+                # clk = clk[torch.argsort(res_classes)]
+                clk = clk[torch.argsort(sizes, descending=True)]
                 
-            elif 5 <= iter < iterSplit:
-                
-                lengths = torch.tensor([len(cls) for cls in newCL], device=clk.device)
-
-                valid_mask = lengths > 0
-                res_classes = res_classes[valid_mask]                
-                clk = clk[valid_mask]
-                clk = clk[torch.argsort(res_classes, descending=True)]
+            # elif 5 <= iter < iterSplit:
+            #
+            #     lengths = torch.tensor([len(cls) for cls in newCL], device=clk.device)
+            #
+            #     valid_mask = lengths > 0
+            #     res_classes = res_classes[valid_mask]                
+            #     clk = clk[valid_mask]
+            #     clk = clk[torch.argsort(res_classes, descending=True)]
                 
             elif iter < 15:
                 clk = clk[torch.argsort(torch.tensor([len(cls_list) for cls_list in newCL], device=clk.device), descending=True)]
