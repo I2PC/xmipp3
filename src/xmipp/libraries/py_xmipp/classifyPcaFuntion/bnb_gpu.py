@@ -440,15 +440,15 @@ class BnBgpu:
     def create_classes(self, mmap, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes, final_classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles):
         
         # print("----------create-classes-------------") 
-        iterSplit = 7       
+        iterSplit = 4       
         
         if iter > 0:# and cycles == 0:
             thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
             
-        if iter == 3: 
+        if iter == 1: 
             split = (final_classes - classes) // 2
             newCL = [[] for i in range(classes+split)]
-        elif 4 <= iter < iterSplit and final_classes > classes:
+        elif 2 <= iter < iterSplit and final_classes > classes:
             split = final_classes - classes
             newCL = [[] for i in range(final_classes)]
         else:
@@ -490,7 +490,7 @@ class BnBgpu:
             
             # if iter > 0 and iter < 5:# and cycles == 0:
             # if iter == 3 or iter == 4:
-            if 3 <= iter < iterSplit and (final_classes - classes) > 0:
+            if 1 <= iter < iterSplit and (final_classes - classes) > 0:
                 
                 # for n in range(split):
                 for n in range(classes):
@@ -568,17 +568,17 @@ class BnBgpu:
             boost = None
             clk = self.highpass_cosine_sharpen(clk, res_classes, sampling, factorR = boost)
                     
-            #Sort classes        
-            if iter < iterSplit:
+        #Sort classes        
+        if iter < iterSplit:
+            
+            lengths = torch.tensor([len(cls) for cls in newCL], device=clk.device)
 
-                lengths = torch.tensor([len(cls) for cls in newCL], device=clk.device)
-
-                valid_mask = lengths > 0
-                # res_classes = res_classes[valid_mask]
-                sizes = lengths[valid_mask]
-                clk = clk[valid_mask]
-                # clk = clk[torch.argsort(res_classes)]
-                clk = clk[torch.argsort(sizes, descending=True)]
+            valid_mask = lengths > 0
+            # res_classes = res_classes[valid_mask]
+            sizes = lengths[valid_mask]
+            clk = clk[valid_mask]
+            # clk = clk[torch.argsort(res_classes)]
+            clk = clk[torch.argsort(sizes, descending=True)]
                 
             # elif 5 <= iter < iterSplit:
             #
@@ -589,8 +589,8 @@ class BnBgpu:
             #     clk = clk[valid_mask]
             #     clk = clk[torch.argsort(res_classes, descending=True)]
                 
-            elif iter < 15:
-                clk = clk[torch.argsort(torch.tensor([len(cls_list) for cls_list in newCL], device=clk.device), descending=True)]
+            # elif iter < 15:
+            #     clk = clk[torch.argsort(torch.tensor([len(cls_list) for cls_list in newCL], device=clk.device), descending=True)]
 
 
 
