@@ -582,7 +582,7 @@ class BnBgpu:
             # clk = self.enhance_averages_butterworth_normF(clk, sampling)
             
             # clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None, normalize=True)
-            clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling)
+            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)
             # print("--------BOOST-------")
             # print(boost.view(1, len(clk)))
             # print("--------SHARPEN-------")
