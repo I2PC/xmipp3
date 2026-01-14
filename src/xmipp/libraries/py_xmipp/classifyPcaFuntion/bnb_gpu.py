@@ -451,7 +451,7 @@ class BnBgpu:
             
 
         # if iter > 1 and iter < 7:# and cycles == 0:
-        if iter > 0 and iter < 5:# and cycles == 0:
+        if iter > 1 and iter < 6:# and cycles == 0:
             num = int(classes/2)
             newCL = [[] for i in range(classes)]
         else:
@@ -499,7 +499,7 @@ class BnBgpu:
 
             
             # if iter > 1 and iter < 7:# and cycles == 0:
-            if iter > 0 and iter < 5:# and cycles == 0:
+            if iter > 1 and iter < 6:# and cycles == 0:
                 
                 for n in range(num):
                     
@@ -608,9 +608,12 @@ class BnBgpu:
         #     print("HAGO UNSHARP")
         #     clk = self.unsharp_mask_norm(clk)
                     
-        #Sort classes        
-        if iter < 7:
-            clk = clk[torch.argsort(torch.tensor([len(cls_list) for cls_list in newCL], device=clk.device), descending=True)]
+        #Sort classes    
+        if iter < 6:
+            clk = clk[torch.argsort(res_classes)]
+                
+        # if iter < 7:
+        #     clk = clk[torch.argsort(torch.tensor([len(cls_list) for cls_list in newCL], device=clk.device), descending=True)]
         
 
         if iter in [10, 13]:
