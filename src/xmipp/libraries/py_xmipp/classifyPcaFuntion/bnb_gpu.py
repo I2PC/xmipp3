@@ -442,16 +442,16 @@ class BnBgpu:
             
         
         # if iter > 1 and iter < 7:# and cycles == 0:
-        if iter > 0 and iter < 5:# and cycles == 0:
+        if iter > 0 and iter < 6:# and cycles == 0:
             # print("--------", iter, "-----------")
             thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
         # elif iter >= 7:
-        elif iter >= 5:
+        elif iter >= 6:
             thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
             
 
         # if iter > 1 and iter < 7:# and cycles == 0:
-        if iter > 0 and iter < 5:# and cycles == 0:
+        if iter > 1 and iter < 6:# and cycles == 0:
             num = int(classes/2)
             newCL = [[] for i in range(classes)]
         else:
@@ -499,7 +499,7 @@ class BnBgpu:
 
             
             # if iter > 1 and iter < 7:# and cycles == 0:
-            if iter > 0 and iter < 5:# and cycles == 0:
+            if iter > 1 and iter < 6:# and cycles == 0:
                 
                 for n in range(num):
                     
@@ -521,7 +521,7 @@ class BnBgpu:
 
                 
             # elif iter >= 7:  
-            elif iter >= 5 and iter < 15:
+            elif iter >= 6 and iter < 15:
       
                 for n in range(num):
                     # class_images = transforIm[matches[initBatch:endBatch, 1] == n]
@@ -533,14 +533,14 @@ class BnBgpu:
                                         ]
                     newCL[n].append(class_images)
                     
-                    non_class_images = transforIm[
-                        (matches[initBatch:endBatch, 1] == n) &
-                        (
-                            (matches[initBatch:endBatch, 2] <= thr_low[n]) |
-                            (matches[initBatch:endBatch, 2] >= thr_high[n])
-                        )
-                    ]
-                    newCL[num-1].append(non_class_images)
+                    # non_class_images = transforIm[
+                    #     (matches[initBatch:endBatch, 1] == n) &
+                    #     (
+                    #         (matches[initBatch:endBatch, 2] <= thr_low[n]) |
+                    #         (matches[initBatch:endBatch, 2] >= thr_high[n])
+                    #     )
+                    # ]
+                    # newCL[num-1].append(non_class_images)
                     
             
             else:
@@ -609,8 +609,15 @@ class BnBgpu:
         #     clk = self.unsharp_mask_norm(clk)
                     
         #Sort classes        
-        if iter < 7:
-            clk = clk[torch.argsort(torch.tensor([len(cls_list) for cls_list in newCL], device=clk.device), descending=True)]
+            if iter < 6:
+                lengths = torch.tensor([len(cls) for cls in newCL], device=clk.device)
+                valid_mask = lengths > 0
+                res_classes = res_classes[valid_mask]
+                clk = clk[valid_mask]
+                clk = clk[torch.argsort(res_classes)]
+                
+        # if iter < 7:
+        #     clk = clk[torch.argsort(torch.tensor([len(cls_list) for cls_list in newCL], device=clk.device), descending=True)]
         
 
         if iter in [10, 13]:
