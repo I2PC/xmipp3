@@ -321,10 +321,13 @@ if __name__=="__main__":
                     classes = len(cl)
                     
                     if mode == "create_classes":
-                        cl, tMatrix, batch_projExp_cpu = bnb.create_classes(
-                            mmap, tMatrix, iter, subset, expBatchSize, matches, vectorshift, 
-                            classes, final_classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles)
+                        # cl, tMatrix, batch_projExp_cpu = bnb.create_classes(
+                        #     mmap, tMatrix, iter, subset, expBatchSize, matches, vectorshift, 
+                        #     classes, final_classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles)
                         # cl = bnb.compact_classes(cl)
+                        cl, tMatrix, batch_projExp_cpu = bnb.create(
+                            mmap, tMatrix, iter, subset, expBatchSize, matches, vectorshift, 
+                            classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles)
                     else:
                         torch.cuda.empty_cache()
                         cl, tMatrix, batch_projExp_cpu = bnb.align_particles_to_classes(expImages, 
