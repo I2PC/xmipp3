@@ -609,8 +609,8 @@ class BnBgpu:
         #     clk = self.unsharp_mask_norm(clk)
                     
         #Sort classes    
-        if iter < 6:
-            clk = clk[torch.argsort(res_classes)]
+            if iter < 7:
+                clk = clk[torch.argsort(res_classes)]
                 
         # if iter < 7:
         #     clk = clk[torch.argsort(torch.tensor([len(cls_list) for cls_list in newCL], device=clk.device), descending=True)]
