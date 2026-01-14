@@ -610,10 +610,10 @@ class BnBgpu:
                     
         #Sort classes        
             if iter < 6:
-                lengths = torch.tensor([len(cls) for cls in newCL], device=clk.device)
-                valid_mask = lengths > 0
-                res_classes = res_classes[valid_mask]
-                clk = clk[valid_mask]
+                # lengths = torch.tensor([len(cls) for cls in newCL], device=clk.device)
+                # valid_mask = lengths > 0
+                # res_classes = res_classes[valid_mask]
+                # clk = clk[valid_mask]
                 clk = clk[torch.argsort(res_classes)]
                 
         # if iter < 7:
