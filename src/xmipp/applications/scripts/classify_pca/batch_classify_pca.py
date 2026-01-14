@@ -159,7 +159,7 @@ if __name__=="__main__":
         # cl = bnb.kmeans_pytorch_for_averages(Texp_zero, pca_zero, cvecs, num_clusters = (final_classes * 65 // 100) )
         # del Texp_zero, pca_zero
         
-        num_clusters_total = final_classes * 65 // 100  
+        num_clusters_total = final_classes# * 65 // 100  
         max_classes_per_round = 50
         
         clusters_per_round = []
