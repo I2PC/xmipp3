@@ -435,9 +435,205 @@ class BnBgpu:
         return(thr) 
            
     
+    @torch.no_grad()
+    def create_classes(self, mmap, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles):
+        
+        # print("----------create-classes-------------")      
+            
+        
+        # if iter > 1 and iter < 7:# and cycles == 0:
+        if iter > 0 and iter < 5:# and cycles == 0:
+            # print("--------", iter, "-----------")
+            thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
+        # elif iter >= 7:
+        elif iter >= 5:
+            thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
+            
+
+        # if iter > 1 and iter < 7:# and cycles == 0:
+        if iter > 0 and iter < 5:# and cycles == 0:
+            num = int(classes/2)
+            newCL = [[] for i in range(classes)]
+        else:
+            num = classes
+            newCL = [[] for i in range(classes)]
+
+
+        step = int(np.ceil(nExp/expBatchSize))
+        batch_projExp_cpu = [0 for i in range(step)]
+        
+        #rotate and translations
+        rotBatch = -matches[:,3].view(nExp,1)
+        translations = list(map(lambda i: vectorshift[i], matches[:, 4].int()))
+        translations = torch.tensor(translations, device = self.cuda).view(nExp,2)
+        
+        centerIm = mmap.data.shape[1]/2 
+        centerxy = torch.tensor([centerIm,centerIm], device = self.cuda)
+        
+        count = 0
+        for initBatch in range(0, nExp, expBatchSize):
+            
+            endBatch = min(initBatch+expBatchSize, nExp)
+                        
+            transforIm, tMatrix[initBatch:endBatch] = self.center_particles_inverse_save_matrix(mmap.data[initBatch:endBatch], tMatrix[initBatch:endBatch], 
+                                                                             rotBatch[initBatch:endBatch], translations[initBatch:endBatch], centerxy)
+            
+   
+            if mask:
+                sigma_gauss = (0.75*sigma) if (iter < 10 and iter % 2 == 1) else (sigma)# if iter < 10 else sigma
+                # sigma_gauss = (0.5*sigma) if (iter < 5) else (0.5*sigma) if (5 <= iter < 10 and iter % 2 == 1) else sigma
+
+                # sigma_gauss = (
+                #                 0.75 * sigma if (iter < 10 and iter % 2 == 1)
+                #                 else 0.5 * sigma if (10 < iter < 15)
+                #                 else sigma
+                #             )
+                transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma_gauss)
+            else:
+                transforIm = transforIm * self.create_circular_mask(transforIm)
+                
+
+            
+            batch_projExp_cpu[count] = self.batchExpToCpu(transforIm, freqBn, coef, cvecs)
+            count+=1
+
+            
+            # if iter > 1 and iter < 7:# and cycles == 0:
+            if iter > 0 and iter < 5:# and cycles == 0:
+                
+                for n in range(num):
+                    
+                    class_images = transforIm[
+                                            (matches[initBatch:endBatch, 1] == n) &
+                                            (matches[initBatch:endBatch, 2] > thr_low[n]) &
+                                            (matches[initBatch:endBatch, 2] < thr_high[n])
+                                        ]
+                    newCL[n].append(class_images)
+                    
+                    non_class_images = transforIm[
+                                            (matches[initBatch:endBatch, 1] == n) &
+                                            (
+                                                (matches[initBatch:endBatch, 2] <= thr_low[n]) |
+                                                (matches[initBatch:endBatch, 2] >= thr_high[n])
+                                            )
+                                        ]
+                    newCL[n + num].append(non_class_images)
+
+                
+            # elif iter >= 7:  
+            elif iter >= 5 and iter < 15:
+      
+                for n in range(num):
+                    # class_images = transforIm[matches[initBatch:endBatch, 1] == n]
+                    # newCL[n].append(class_images)
+                    class_images = transforIm[
+                        (matches[initBatch:endBatch, 1] == n) &
+                        (matches[initBatch:endBatch, 2] > thr_low[n]) &
+                        (matches[initBatch:endBatch, 2] < thr_high[n])
+                                        ]
+                    newCL[n].append(class_images)
+                    
+                    non_class_images = transforIm[
+                        (matches[initBatch:endBatch, 1] == n) &
+                        (
+                            (matches[initBatch:endBatch, 2] <= thr_low[n]) |
+                            (matches[initBatch:endBatch, 2] >= thr_high[n])
+                        )
+                    ]
+                    newCL[num-1].append(non_class_images)
+                    
+            
+            else:
+                for n in range(num):
+                    class_images = transforIm[matches[initBatch:endBatch, 1] == n]
+                    newCL[n].append(class_images)
+                    
+            del(transforIm)
+                    
+        
+        newCL = [torch.cat(class_images_list, dim=0) for class_images_list in newCL] 
+        
+        clk = self.averages_createClasses(mmap, iter, newCL)
+        
+        # clk = self.filter_classes_relion_style(newCL, clk, sampling, gamma=1.0, B_factor=0.0)
+        
+        # res_classes = self.frc_resolution_tensor(newCL, sampling)
+        # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
+        
+
+        # if iter > 7:
+        if iter > 1:
+            # res_classes, frc_curves, freq_bins = self.frc_resolution_tensor(newCL, sampling)
+            # cut = 25 if iter < 5 else 20 if iter < 12 else 15
+            cut = 25 if iter < 5 else 20 
+            res_classes = self.frc_resolution_tensor(newCL, sampling, rcut=cut)
+            # print("--------RESOLUTION-------")
+            print(res_classes)
+            # bfactor = self.estimate_bfactor_batch(clk, sampling, res_classes) 
+            # bfactor = self.estimate_bfactor_batch(clk, sampling)
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
+            # print(bfactor)
+            # clk = self.enhance_averages_butterworth_adaptive(clk, res_classes, sampling)
+            # clk = self.highpass_butterworth_soft_batch(clk, res_classes, sampling)
+            # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes, frc_c=frc_curves, fBins=freq_bins)
+            # clk = self.sharpen_averages_batch(clk, sampling, bfactor, res_classes)
+            # clk = self.sharpen_averages_batch_nq(clk, sampling, bfactor)
+            # clk = self.enhance_averages_butterworth(clk, sampling)
+            # clk = self.enhance_averages_butterworth_normF(clk, sampling)
+            
+            # clk, boost, sharpen_power = self.highpass_cosine_sharpen2(clk, res_classes, sampling, f_energy = fe, boost_max=None, normalize=True)
+            clk = self.highpass_cosine_sharpen2(clk, res_classes, sampling)
+            # print("--------BOOST-------")
+            # print(boost.view(1, len(clk)))
+            # print("--------SHARPEN-------")
+            # print(sharpen_power.view(1, len(clk)))
+            # print("--------HASTA AQUI-------")
+            # clk = self.frc_whitening_batch(clk, frc_curves,sampling)
+
+            # clk = self.sharpen_averages_batch_energy_normalized(clk, res_classes, bfactor, sampling)
+            # clk = self.sigmoid_highboost_filter(clk, sampling)
+            # clk = self.enhance_averages_butterworth_combined_FFT(clk, res_classes, sampling)
+            # clk = self.enhance_averages_butterworth_combined(clk, res_classes, sampling)
+            # clk = self.enhance_averages_butterworth_combined_cos_FFT(clk, res_classes, sampling)
+            # clk = self.enhance_averages_attenuate_lowfrequencies(clk, res_classes, sampling)
+            # clk = self.unsharp_mask_norm(clk)
+    
+
+            # clk = self.unsharp_mask_adaptive_gaussian(clk)
+            # mask_C = self.compute_class_consistency_masks(newCL) #Apply consistency mask           
+            # clk = self.apply_consistency_masks_vector(clk, mask_C) 
+        
+        # clk = self.gaussian_lowpass_filter_2D(clk, 6.0, sampling)
+        # else:
+        #     print("HAGO UNSHARP")
+        #     clk = self.unsharp_mask_norm(clk)
+                    
+        #Sort classes        
+        if iter < 7:
+            clk = clk[torch.argsort(torch.tensor([len(cls_list) for cls_list in newCL], device=clk.device), descending=True)]
+        
+
+        if iter in [10, 13]:
+            clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
+                                intensity_percentile=50, smooth_sigma=1.0)
+        if 1 < iter < 7 and iter % 2 == 0:
+            # clk = clk * self.approximate_otsu_threshold(clk, percentile=10)
+            clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
+                                intensity_percentile=50, smooth_sigma=1.0)
+
+        
+        if iter > 2 and iter < 12:
+        # if iter < 12:
+            for _ in range(2):
+                clk = self.center_by_com(clk)  
+        
+        clk = clk * self.create_circular_mask(clk)                
+        
+        return(clk, tMatrix, batch_projExp_cpu)
+    
     
     @torch.no_grad()
-    def create_classes(self, mmap, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes, final_classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles):
+    def create_classes_new(self, mmap, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes, final_classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles):
         
         # print("----------create-classes-------------") 
         iterSplit = 7       
