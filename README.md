@@ -15,6 +15,15 @@ This is the main repository, which contains the majority of the source code for 
 To have a complete overview about Xmipp please visit the [documentation web](https://i2pc.github.io/docs/). The recommended way for users (not developers) to install and use Xmipp is via the [Scipion](http://scipion.i2pc.es/) framework, where you can use Xmipp with other Cryo-EM-related software. 
 
 
+
+### Installation Telemetry
+
+Xmipp collects **basic information about your installation environment**  (such as library versions, system architecture, and operating system) to  improve compatibility, performance, and stability.
+
+If you prefer **not to send this data**, you can disable collection by setting: `SEND_INSTALLATION_STATISTICS=OFF`
+For more information, please visit [Data collection](https://i2pc.github.io/docs/Others/Enhancing/index.html#data-collection)
+
+
 ### Developer installation with Scipion
 For developers, it becomes handy to install Xmipp in an external directory for easy integration with IDEs. By default Xmipp installer takes care of linking to Scipion.
 
