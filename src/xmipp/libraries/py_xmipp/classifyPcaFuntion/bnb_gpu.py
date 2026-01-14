@@ -572,7 +572,6 @@ class BnBgpu:
         if iter < 3: #order by size
             
             lengths = torch.tensor([len(cls) for cls in newCL], device=clk.device)
-
             valid_mask = lengths > 0
             # res_classes = res_classes[valid_mask]
             sizes = lengths[valid_mask]
@@ -583,7 +582,6 @@ class BnBgpu:
         elif iter < 5: #order by resolution
             
             lengths = torch.tensor([len(cls) for cls in newCL], device=clk.device)
-
             valid_mask = lengths > 0
             res_classes = res_classes[valid_mask]
             # sizes = lengths[valid_mask]
@@ -593,6 +591,7 @@ class BnBgpu:
             
         elif iter < iterSplit: #order by resolution (descending)
             
+            lengths = torch.tensor([len(cls) for cls in newCL], device=clk.device)
             valid_mask = lengths > 0
             res_classes = res_classes[valid_mask]
             # sizes = lengths[valid_mask]
@@ -604,7 +603,6 @@ class BnBgpu:
         elif iter < (iterSplit + 1): #order by size
             
             lengths = torch.tensor([len(cls) for cls in newCL], device=clk.device)
-
             valid_mask = lengths > 0
             # res_classes = res_classes[valid_mask]
             sizes = lengths[valid_mask]
