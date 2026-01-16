@@ -436,7 +436,7 @@ class BnBgpu:
            
     
     @torch.no_grad()
-    def create_classes(self, mmap, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles):
+    def create_classes_old(self, mmap, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles):
         
         # print("----------create-classes-------------")      
             
@@ -634,9 +634,26 @@ class BnBgpu:
         
         return(clk, tMatrix, batch_projExp_cpu)
     
+    def split_class_by_structure(self, particles, n_clusters=2):
+
+        # if particles.shape[0] < n_clusters * 2:
+        if particles.shape[0] < 100:
+            return [particles] # No hay suficientes partículas para dividir
+        
+        flat_data = particles.view(particles.shape[0], -1)
+        
+        mu = flat_data.mean(dim=0)
+        centered_data = flat_data - mu
+        
+        U, S, V = torch.pca_lowrank(centered_data, q=1)
+        projections = torch.matmul(centered_data, V[:, 0])
+        
+        mask = projections > projections.median()
+        
+        return [particles[mask], particles[~mask]]
     
     @torch.no_grad()
-    def create_classes_new(self, mmap, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes, final_classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles):
+    def create_classes(self, mmap, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes, final_classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles):
         
         # print("----------create-classes-------------") 
         iterSplit = 7       
@@ -647,7 +664,7 @@ class BnBgpu:
         if iter == 1: 
             split = (final_classes - classes) // 2
             newCL = [[] for i in range(classes+split)]
-        elif 2 <= iter < iterSplit and final_classes > classes:
+        elif iter >= 2 and iter < iterSplit and final_classes > classes:
             split = final_classes - classes
             newCL = [[] for i in range(final_classes)]
         else:
@@ -686,30 +703,222 @@ class BnBgpu:
             batch_projExp_cpu[count] = self.batchExpToCpu(transforIm, freqBn, coef, cvecs)
             count+=1
 
-            
-            # if iter > 0 and iter < 5:# and cycles == 0:
-            # if iter == 3 or iter == 4:
-            if 1 <= iter < iterSplit and (final_classes - classes) > 0:
+            #Create classes for batches
+            batch_class_indices = matches[initBatch:endBatch, 1].to(self.cuda, non_blocking=True).long()
                 
-                # for n in range(split):
+            labels = batch_class_indices
+            order = torch.argsort(labels)
+            
+            imgs = transforIm[order]
+            lbls = labels[order]
+            
+            counts = torch.bincount(lbls, minlength=classes)
+            offsets = torch.cumsum(counts, 0)
+            
+            start = 0
+            for n, c in enumerate(counts):
+                if c > 0:
+                    newCL[n].append(imgs[start:start+c])
+                start += c
+                    
+            del(transforIm)
+            
+        _, H, W = mmap.data.shape
+        empty_tensor = torch.empty((0, H, W), device=self.cuda, dtype=torch.float32)
+        
+        newCL = [
+            torch.cat(class_images_list, dim=0) if len(class_images_list) > 0 else empty_tensor
+            for class_images_list in newCL
+        ]
+
+        # 2. Ahora aplicamos el Split Estructural sobre la clase COMPLETA
+        if iter >= 1 and iter < iterSplit and (final_classes - classes) > 0:
+            for n in range(classes):
+                particles_n = newCL[n]
+                
+                # Verificamos si hay suficientes partículas para un PCA significativo
+                if particles_n.shape[0] < 10: 
+                    continue
+                
+                sub_clusters = self.split_class_by_structure(particles_n)
+                
+                if len(sub_clusters) > 1:
+                    if n < split:
+                        # Tenemos espacio para clase nueva
+                        newCL[n] = sub_clusters[0]
+                        newCL[n + classes] = sub_clusters[1]
+                    else:
+                        # No hay espacio, las mantenemos juntas (o las concatenamos)
+                        # Aunque aquí el PCA ya hizo el trabajo, así que las unimos
+                        newCL[n] = torch.cat(sub_clusters, dim=0)
+                else:
+                    newCL[n] = sub_clusters[0]
+            
+            
+        # if iter >= 1 and iter < iterSplit and (final_classes - classes) > 0:
+        #
+        #     for n in range(classes):
+        #
+        #         particles_n = newCL[n]
+        #
+        #         if particles_n.shape[0] == 0:
+        #             print("No tengo particulas")
+        #             continue
+        #
+        #         sub_clusters = self.split_class_by_structure(particles_n)
+        #
+        #         newCL[n] = sub_clusters[0]
+        #
+        #         if len(sub_clusters) > 1:
+        #             if n < split:
+        #                 newCL[n + classes]= sub_clusters[1]
+        #             else: 
+        #                 newCL[n]= sub_clusters[1]
+        #
+        #
+        # _, H, W = mmap.data.shape
+        # empty_tensor = torch.empty((0, H, W), device=self.cuda, dtype=torch.float32)
+        #
+        # # Concatenar, usando empty_tensor si la clase está vacía
+        # newCL = [
+        #     torch.cat(class_images_list, dim=0) if len(class_images_list) > 0 else empty_tensor
+        #     for class_images_list in newCL
+        # ]
+        
+        
+        clk = self.averages_createClasses(mmap, iter, newCL)       
+
+        if iter > 1:
+
+            cut = (25 if iter < 5 else 20) if sampling < 3 else (35 if iter < 5 else 30)
+            # cut=100
+            res_classes = self.frc_resolution_tensor(newCL, sampling, rcut=cut)
+            print(res_classes)
+
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
+            
+            # boost = 0.3 if iter < 6 else None
+            boost = None
+            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling, factorR = boost)
+            
+                
+        if iter < (iterSplit + 1): #order by size
+            
+            lengths = torch.tensor([len(cls) for cls in newCL], device=clk.device)
+            valid_mask = lengths > 0
+            # res_classes = res_classes[valid_mask]
+            sizes = lengths[valid_mask]
+            clk = clk[valid_mask]
+            # clk = clk[torch.argsort(res_classes)]
+            clk = clk[torch.argsort(sizes, descending=True)]
+            
+            
+
+        if iter in [10, 13]:
+            clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
+                                intensity_percentile=50, smooth_sigma=1.0)
+        if 1 < iter < 7 and iter % 2 == 0:
+            clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
+                                intensity_percentile=50, smooth_sigma=1.0)
+
+        
+        if iter > 2 and iter < 12:
+            for _ in range(2):
+                clk = self.center_by_com(clk)  
+        
+        clk = clk * self.create_circular_mask(clk)                
+        
+        return(clk, tMatrix, batch_projExp_cpu)
+    
+    @torch.no_grad()
+    def create_classes_new(self, mmap, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes, final_classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles):
+        
+        # print("----------create-classes-------------") 
+        iterSplit = 7       
+        
+        if iter > 0:# and cycles == 0:
+            thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
+            
+        if iter == 1: 
+            split = (final_classes - classes) // 2
+            newCL = [[] for i in range(classes+split)]
+        elif iter >= 2 and iter < iterSplit and final_classes > classes:
+            split = final_classes - classes
+            newCL = [[] for i in range(final_classes)]
+        else:
+            newCL = [[] for i in range(classes)]
+
+
+        step = int(np.ceil(nExp/expBatchSize))
+        batch_projExp_cpu = [0 for i in range(step)]
+        
+        #rotate and translations
+        rotBatch = -matches[:,3].view(nExp,1)
+        translations = list(map(lambda i: vectorshift[i], matches[:, 4].int()))
+        translations = torch.tensor(translations, device = self.cuda).view(nExp,2)
+        
+        centerIm = mmap.data.shape[1]/2 
+        centerxy = torch.tensor([centerIm,centerIm], device = self.cuda)
+        
+        count = 0
+        for initBatch in range(0, nExp, expBatchSize):
+            
+            endBatch = min(initBatch+expBatchSize, nExp)
+                        
+            transforIm, tMatrix[initBatch:endBatch] = self.center_particles_inverse_save_matrix(mmap.data[initBatch:endBatch], tMatrix[initBatch:endBatch], 
+                                                                             rotBatch[initBatch:endBatch], translations[initBatch:endBatch], centerxy)
+            
+   
+            if mask:
+                sigma_gauss = (0.75*sigma) if (iter < 10 and iter % 2 == 1) else (sigma)# if iter < 10 else sigma
+
+                transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma_gauss)
+            else:
+                transforIm = transforIm * self.create_circular_mask(transforIm)
+                
+
+            
+            batch_projExp_cpu[count] = self.batchExpToCpu(transforIm, freqBn, coef, cvecs)
+            count+=1
+
+
+            if iter >= 1 and iter < iterSplit and (final_classes - classes) > 0:
+                
                 for n in range(classes):
                     
-                    class_images = transforIm[
-                                            (matches[initBatch:endBatch, 1] == n) &
-                                            (matches[initBatch:endBatch, 2] > thr_low[n]) &
-                                            (matches[initBatch:endBatch, 2] < thr_high[n])
-                                        ]
-                    newCL[n].append(class_images)
+                    particles_n = transforIm[matches[initBatch:endBatch, 1] == n]
                     
-                    if n < split:
-                        non_class_images = transforIm[
-                                                (matches[initBatch:endBatch, 1] == n) &
-                                                (
-                                                    (matches[initBatch:endBatch, 2] <= thr_low[n]) |
-                                                    (matches[initBatch:endBatch, 2] >= thr_high[n])
-                                                )
-                                            ]
-                        newCL[n + classes].append(non_class_images)
+                    if particles_n.shape[0] == 0:
+                        print("No tengo particulas")
+                        continue
+                    
+                    sub_clusters = self.split_class_by_structure(particles_n)
+                    
+                    newCL[n].append(sub_clusters[0])
+                    
+                    if len(sub_clusters) > 1:
+                        if n < split:
+                            newCL[n + classes].append(sub_clusters[1])
+                        else: 
+                            newCL[n].append(sub_clusters[1])
+                    
+                    
+                    # class_images = transforIm[
+                    #                         (matches[initBatch:endBatch, 1] == n) &
+                    #                         (matches[initBatch:endBatch, 2] > thr_low[n]) &
+                    #                         (matches[initBatch:endBatch, 2] < thr_high[n])
+                    #                     ]
+                    # newCL[n].append(class_images)
+                    #
+                    # if n < split:
+                    #     non_class_images = transforIm[
+                    #                             (matches[initBatch:endBatch, 1] == n) &
+                    #                             (
+                    #                                 (matches[initBatch:endBatch, 2] <= thr_low[n]) |
+                    #                                 (matches[initBatch:endBatch, 2] >= thr_high[n])
+                    #                             )
+                    #                         ]
+                    #     newCL[n + classes].append(non_class_images)
 
                 
             elif iter >= 3 and iter < 15:
@@ -768,38 +977,38 @@ class BnBgpu:
             clk = self.highpass_cosine_sharpen(clk, res_classes, sampling, factorR = boost)
                     
         #Sort classes        
-        if iter < 3: #order by size
-            
-            lengths = torch.tensor([len(cls) for cls in newCL], device=clk.device)
-            valid_mask = lengths > 0
-            # res_classes = res_classes[valid_mask]
-            sizes = lengths[valid_mask]
-            clk = clk[valid_mask]
-            # clk = clk[torch.argsort(res_classes)]
-            clk = clk[torch.argsort(sizes, descending=True)]
-            
-        elif iter < 5: #order by resolution
-            
-            lengths = torch.tensor([len(cls) for cls in newCL], device=clk.device)
-            valid_mask = lengths > 0
-            res_classes = res_classes[valid_mask]
-            # sizes = lengths[valid_mask]
-            clk = clk[valid_mask]
-            clk = clk[torch.argsort(res_classes)]
-            # clk = clk[torch.argsort(sizes, descending=True)]
-            
-        elif iter < iterSplit: #order by resolution (descending)
-            
-            lengths = torch.tensor([len(cls) for cls in newCL], device=clk.device)
-            valid_mask = lengths > 0
-            res_classes = res_classes[valid_mask]
-            # sizes = lengths[valid_mask]
-            clk = clk[valid_mask]
-            clk = clk[torch.argsort(res_classes, descending=True)]
-            # clk = clk[torch.argsort(sizes, descending=True)]
+        # if iter < 3: #order by size
+        #
+        #     lengths = torch.tensor([len(cls) for cls in newCL], device=clk.device)
+        #     valid_mask = lengths > 0
+        #     # res_classes = res_classes[valid_mask]
+        #     sizes = lengths[valid_mask]
+        #     clk = clk[valid_mask]
+        #     # clk = clk[torch.argsort(res_classes)]
+        #     clk = clk[torch.argsort(sizes, descending=True)]
+        #
+        # elif iter < 5: #order by resolution
+        #
+        #     lengths = torch.tensor([len(cls) for cls in newCL], device=clk.device)
+        #     valid_mask = lengths > 0
+        #     res_classes = res_classes[valid_mask]
+        #     # sizes = lengths[valid_mask]
+        #     clk = clk[valid_mask]
+        #     clk = clk[torch.argsort(res_classes)]
+        #     # clk = clk[torch.argsort(sizes, descending=True)]
+        #
+        # elif iter < iterSplit: #order by resolution (descending)
+        #
+        #     lengths = torch.tensor([len(cls) for cls in newCL], device=clk.device)
+        #     valid_mask = lengths > 0
+        #     res_classes = res_classes[valid_mask]
+        #     # sizes = lengths[valid_mask]
+        #     clk = clk[valid_mask]
+        #     clk = clk[torch.argsort(res_classes, descending=True)]
+        #     # clk = clk[torch.argsort(sizes, descending=True)]
             
                 
-        elif iter < (iterSplit + 1): #order by size
+        if iter < (iterSplit + 1): #order by size
             
             lengths = torch.tensor([len(cls) for cls in newCL], device=clk.device)
             valid_mask = lengths > 0

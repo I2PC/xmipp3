@@ -159,7 +159,7 @@ if __name__=="__main__":
         # cl = bnb.kmeans_pytorch_for_averages(Texp_zero, pca_zero, cvecs, num_clusters = (final_classes * 65 // 100) )
         # del Texp_zero, pca_zero
         
-        num_clusters_total = final_classes# * 65 // 100  
+        num_clusters_total = final_classes * 60 // 100  
         max_classes_per_round = 50
         
         clusters_per_round = []
@@ -321,13 +321,13 @@ if __name__=="__main__":
                     classes = len(cl)
                     
                     if mode == "create_classes":
-                        # cl, tMatrix, batch_projExp_cpu = bnb.create_classes(
-                        #     mmap, tMatrix, iter, subset, expBatchSize, matches, vectorshift, 
-                        #     classes, final_classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles)
-                        # cl = bnb.compact_classes(cl)
                         cl, tMatrix, batch_projExp_cpu = bnb.create_classes(
                             mmap, tMatrix, iter, subset, expBatchSize, matches, vectorshift, 
-                            classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles)
+                            classes, final_classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles)
+                        # cl = bnb.compact_classes(cl)
+                        # cl, tMatrix, batch_projExp_cpu = bnb.create_classes(
+                        #     mmap, tMatrix, iter, subset, expBatchSize, matches, vectorshift, 
+                        #     classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles)
                     else:
                         torch.cuda.empty_cache()
                         cl, tMatrix, batch_projExp_cpu = bnb.align_particles_to_classes(expImages, 
