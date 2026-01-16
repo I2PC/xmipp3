@@ -657,9 +657,6 @@ class BnBgpu:
         
         # print("----------create-classes-------------") 
         iterSplit = 7       
-        
-        if iter > 0:# and cycles == 0:
-            thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
             
         if iter == 1: 
             split = (final_classes - classes) // 2
@@ -755,36 +752,6 @@ class BnBgpu:
                     newCL[n] = sub_clusters[0]
             
             
-        # if iter >= 1 and iter < iterSplit and (final_classes - classes) > 0:
-        #
-        #     for n in range(classes):
-        #
-        #         particles_n = newCL[n]
-        #
-        #         if particles_n.shape[0] == 0:
-        #             print("No tengo particulas")
-        #             continue
-        #
-        #         sub_clusters = self.split_class_by_structure(particles_n)
-        #
-        #         newCL[n] = sub_clusters[0]
-        #
-        #         if len(sub_clusters) > 1:
-        #             if n < split:
-        #                 newCL[n + classes]= sub_clusters[1]
-        #             else: 
-        #                 newCL[n]= sub_clusters[1]
-        #
-        #
-        # _, H, W = mmap.data.shape
-        # empty_tensor = torch.empty((0, H, W), device=self.cuda, dtype=torch.float32)
-        #
-        # # Concatenar, usando empty_tensor si la clase está vacía
-        # newCL = [
-        #     torch.cat(class_images_list, dim=0) if len(class_images_list) > 0 else empty_tensor
-        #     for class_images_list in newCL
-        # ]
-        
         
         clk = self.averages_createClasses(mmap, iter, newCL)       
 
