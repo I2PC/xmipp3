@@ -2308,7 +2308,7 @@ class BnBgpu:
         res_out = torch.nan_to_num(res_out, nan=fallback_res,
                                    posinf=fallback_res, neginf=fallback_res)
         
-        res_out = torch.where(res_out > rcut, torch.tensor(100.0, device=res_out.device), res_out)
+        res_out = torch.where(res_out > rcut, torch.tensor(50.0, device=res_out.device), res_out)
         
         return res_out#, frc_curves, freq_bins
     
