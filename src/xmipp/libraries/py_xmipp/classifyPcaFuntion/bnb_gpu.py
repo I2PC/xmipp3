@@ -658,10 +658,10 @@ class BnBgpu:
         # print("----------create-classes-------------") 
         iterSplit = 7       
             
-        if iter == 1: 
-            split = (final_classes - classes) // 2
+        if iter == 2: 
+            split = (final_classes - classes)# // 2
             newCL = [[] for i in range(classes+split)]
-        elif iter >= 2 and iter < iterSplit and final_classes > classes:
+        elif iter >= 3 and iter < iterSplit and final_classes > classes:
             split = final_classes - classes
             newCL = [[] for i in range(final_classes)]
         else:
@@ -729,7 +729,7 @@ class BnBgpu:
         ]
 
         # 2. Ahora aplicamos el Split Estructural sobre la clase COMPLETA
-        if iter >= 1 and iter < iterSplit and (final_classes - classes) > 0:
+        if iter >= 2 and iter < iterSplit and (final_classes - classes) > 0:
             for n in range(classes):
                 particles_n = newCL[n]
                 
