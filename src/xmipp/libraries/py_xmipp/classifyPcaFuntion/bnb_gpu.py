@@ -648,7 +648,7 @@ class BnBgpu:
         centered_data = flat_data - mu
     
         # PCA rápida (solo PC1)
-        U, S, V = torch.pca_lowrank(centered_data, q=1, iter = 2)
+        U, S, V = torch.pca_lowrank(centered_data, q=1, niter = 2)
     
         # Proyección sobre PC1
         projections = torch.matmul(centered_data, V[:, 0])
