@@ -638,18 +638,31 @@ class BnBgpu:
 
         # if particles.shape[0] < n_clusters * 2:
         if particles.shape[0] < 100:
-            return [particles] # No hay suficientes partículas para dividir
-        
+            return [particles]
+    
+        # Aplanar partículas
         flat_data = particles.view(particles.shape[0], -1)
-        
+    
+        # Centrar datos
         mu = flat_data.mean(dim=0)
         centered_data = flat_data - mu
-        
-        U, S, V = torch.pca_lowrank(centered_data, q=1)
+    
+        # PCA rápida (solo PC1)
+        U, S, V = torch.pca_lowrank(centered_data, q=1, iter = 2)
+    
+        # Proyección sobre PC1
         projections = torch.matmul(centered_data, V[:, 0])
-        
-        mask = projections > projections.median()
-        
+    
+        center = projections.median()
+        mad = torch.median(torch.abs(projections - center)) + 1e-6
+    
+        mask = projections > (center + 0.5 * mad)
+        # -------------------
+    
+        # Evitar clusters vacíos
+        if mask.sum() == 0 or (~mask).sum() == 0:
+            mask = projections > center
+    
         return [particles[mask], particles[~mask]]
     
     @torch.no_grad()
