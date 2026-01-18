@@ -659,7 +659,7 @@ class BnBgpu:
         iterSplit = 7       
             
         if iter == 2: 
-            split = (final_classes - classes)# // 2
+            split = (final_classes - classes) * 60 // 100
             newCL = [[] for i in range(classes+split)]
         elif iter >= 3 and iter < iterSplit and final_classes > classes:
             split = final_classes - classes
