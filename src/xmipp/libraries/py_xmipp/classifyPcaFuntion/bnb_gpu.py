@@ -771,8 +771,10 @@ class BnBgpu:
         if iter > 1:
 
             cut = (25 if iter < 5 else 20) if sampling < 3 else (35 if iter < 5 else 30)
+            cut_res = 100 if iter < (iterSplit-1) else 50
             # cut=100
-            res_classes = self.frc_resolution_tensor(newCL, sampling, rcut=cut)
+            
+            res_classes = self.frc_resolution_tensor(newCL, sampling, fallback_res=cut_res, rcut=cut)
             print(res_classes)
 
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
@@ -2321,7 +2323,7 @@ class BnBgpu:
         res_out = torch.nan_to_num(res_out, nan=fallback_res,
                                    posinf=fallback_res, neginf=fallback_res)
         
-        res_out = torch.where(res_out > rcut, torch.tensor(50.0, device=res_out.device), res_out)
+        res_out = torch.where(res_out > rcut, torch.tensor(fallback_res, device=res_out.device), res_out)
         
         return res_out#, frc_curves, freq_bins
     
