@@ -526,93 +526,36 @@ void ProgStatisticalMap::preprocessMap(FileName fnIn)
         }
     }
 
-    // ft.inverseFourierTransform();
+    ft.inverseFourierTransform();
 
     std::cout << "    Low-pass filtering applied up to frequency index: " << fscoh.indexThr << std::endl;
 
     // Create mask with only positive values (std>1 in protein radius)
+    double foo;
+    double std;
+    V().computeAvgStdev_within_binary_mask(proteinRadiusMask, foo, std);
+
     positiveMask.initZeros(Zdim, Ydim, Xdim);
 
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
-        if (DIRECT_MULTIDIM_ELEM(V(), n) > 0 && DIRECT_MULTIDIM_ELEM(proteinRadiusMask, n) > 0)
+        if (DIRECT_MULTIDIM_ELEM(V(), n) > std && DIRECT_MULTIDIM_ELEM(proteinRadiusMask, n) > 0)
         {
             DIRECT_MULTIDIM_ELEM(positiveMask, n) = 1;
         }
     }
-
-    #ifdef DEBUG_OUTPUT_FILES
-    Image<int> saveImage;
-    std::string debugFileFn = fn_oroot + "positiveMask.mrc";
-    saveImage() = positiveMask;
-    saveImage.write(debugFileFn);
-    #endif   
-    
+   
     std::cout << "    Positive density mask created." << std::endl;
 
-    double factor;
-
-    // Normalize map on positive densities dividing by median
-    // V().computeMedian_within_binary_mask(positiveMask, factor);
-    // std::cout << "    Normalizing map by median value of positive densities: " << factor << std::endl;
-
     // Normalize map on positive densities dividing by std
-    double foo;
-    V().computeAvgStdev_within_binary_mask(positiveMask, foo, factor);
-    std::cout << "    Normalizing map by stdev value of positive densities: " << factor << std::endl;
-
-    // Normalize map and set negative densities to 0
-    // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
-    // {
-    //     if (DIRECT_MULTIDIM_ELEM(positiveMask, n) > 0)
-    //     {
-    //         DIRECT_MULTIDIM_ELEM(V(), n) = DIRECT_MULTIDIM_ELEM(V(), n) / factor;
-    //     }
-    //     else
-    //     {
-    //         DIRECT_MULTIDIM_ELEM(V(), n) = 0;
-    //     }
-    // }
+    V().computeAvgStdev_within_binary_mask(positiveMask, foo, std);
+    std::cout << "    Normalizing map by stdev value of positive densities: " << std << std::endl;
 
     // Normalize map
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
-        DIRECT_MULTIDIM_ELEM(V(), n) = DIRECT_MULTIDIM_ELEM(V(), n) / factor;
+        DIRECT_MULTIDIM_ELEM(V(), n) = DIRECT_MULTIDIM_ELEM(V(), n) / std;
     }
-
-    // Normalize map: mean=0, std=1
-    // double avg;
-    // double std;
-    
-    // if (protein_radius < 0)
-    // {
-    //     V().computeAvgStdev(avg, std);
-
-    //     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
-    //     {
-    //         DIRECT_MULTIDIM_ELEM(V(), n) = (DIRECT_MULTIDIM_ELEM(V(), n) - avg) / std;
-    //     }
-    // }
-    // else
-    // {
-    //     V().computeMedian_within_binary_mask(proteinRadiusMask, avg); // Reuse avg variable for median
-
-    //     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
-    //     {
-    //         if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask, n) > 0)
-    //         {
-    //             DIRECT_MULTIDIM_ELEM(V(), n) = DIRECT_MULTIDIM_ELEM(V(), n) / std;
-    //         }
-    //         else
-    //         {
-    //             DIRECT_MULTIDIM_ELEM(V(), n) = 0;
-    //         }
-    //     }
-    // }
-    // #ifdef DEBUG_PREPROCESS
-    // std::cout << "    Preprocessed map stats - Mean: " << avg << ", Std: " << std << std::endl;
-    // #endif
-
 
     #ifdef DEBUG_OUTPUT_FILES
 
@@ -715,6 +658,7 @@ void ProgStatisticalMap::computeStatisticalMaps()
 {
     std::cout << "Computing statisical map..." << std::endl;
 
+    // Compute mean and standard deviation maps
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(avgVolume())
     {
         double sum  = DIRECT_MULTIDIM_ELEM(avgVolume(),n);
@@ -723,8 +667,29 @@ void ProgStatisticalMap::computeStatisticalMaps()
 
         DIRECT_MULTIDIM_ELEM(avgVolume(),n) = mean;
         DIRECT_MULTIDIM_ELEM(stdVolume(),n) = sqrt(sum2/Ndim - mean*mean);
-        // DIRECT_MULTIDIM_ELEM(stdVolume(),n) = sum2/Ndim - mean*mean;
     }
+
+    // Update positive mask from average map for posterior analysis (std>1 in protein radius)
+    double foo;
+    double std;
+    avgVolume().computeAvgStdev_within_binary_mask(proteinRadiusMask, foo, std);
+
+    positiveMask.initZeros(Zdim, Ydim, Xdim);
+
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(avgVolume())
+    {
+        if (DIRECT_MULTIDIM_ELEM(avgVolume(), n) > std && DIRECT_MULTIDIM_ELEM(proteinRadiusMask, n) > 0)
+        {
+            DIRECT_MULTIDIM_ELEM(positiveMask, n) = 1;
+        }
+    }
+
+    #ifdef DEBUG_OUTPUT_FILES
+    Image<int> saveImage;
+    std::string debugFileFn = fn_oroot + "positiveMask.mrc";
+    saveImage() = positiveMask;
+    saveImage.write(debugFileFn);
+    #endif   
 }
 
 void ProgStatisticalMap::calculateAvgDiffMap()
