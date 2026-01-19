@@ -917,32 +917,36 @@ void ProgStatisticalMap::calculateZscoreMADMap()
 
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
-        double mad_local = DIRECT_MULTIDIM_ELEM(MADMap(), n);
-        mad_local = mad_local * 1.4826; // Scale MAD to estimate sigma under normality
-        double median_local  = DIRECT_MULTIDIM_ELEM(medianMap(), n);
-        double val = DIRECT_MULTIDIM_ELEM(V(), n);
+        if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask,n) > 0)
+        {
+            double mad_local = DIRECT_MULTIDIM_ELEM(MADMap(), n);
+            mad_local = mad_local * 1.4826; // Scale MAD to estimate sigma under normality
+            double median_local  = DIRECT_MULTIDIM_ELEM(medianMap(), n);
+            double val = DIRECT_MULTIDIM_ELEM(V(), n);
 
-        double zscoreMAD = 0.0;
-        double zscore = 0.0;
-        // if (val > 0.0)
-        // {
+            double zscoreMAD = 0.0;
+            double zscore = 0.0;
+            
             zscoreMAD = (val - median_local) / sqrt(mapMAD*mapMAD + mad_local * mad_local);
             // zscoreMAD = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / sqrt(mapMAD*mapMAD + mad_local * mad_local);
             zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / sqrt(mapMAD*mapMAD + DIRECT_MULTIDIM_ELEM(stdVolume(),n)*DIRECT_MULTIDIM_ELEM(stdVolume(),n));
             // zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / sqrt(mad_local*mad_local + DIRECT_MULTIDIM_ELEM(stdVolume(),n)*DIRECT_MULTIDIM_ELEM(stdVolume(),n));
             // zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / sqrt(DIRECT_MULTIDIM_ELEM(stdVolume(),n)*DIRECT_MULTIDIM_ELEM(stdVolume(),n));
-        // }
 
-        DIRECT_MULTIDIM_ELEM(V_ZscoresMAD(), n) = zscoreMAD;
-        DIRECT_MULTIDIM_ELEM(V_Zscores(), n) = zscore;
+            DIRECT_MULTIDIM_ELEM(V_ZscoresMAD(), n) = zscoreMAD;
+            DIRECT_MULTIDIM_ELEM(V_Zscores(), n) = zscore;
+        }
     }
 
     // Calculate different mask
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V_Zscores())
     {
-        if (DIRECT_MULTIDIM_ELEM(V_Zscores(), n) > 3.0)
+        if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask,n) > 0)
         {
-            DIRECT_MULTIDIM_ELEM(differentMask,n) = 1;
+            if (DIRECT_MULTIDIM_ELEM(V_Zscores(), n) > 3.0)
+            {
+                DIRECT_MULTIDIM_ELEM(differentMask,n) = 1;
+            }
         }
     }
 
