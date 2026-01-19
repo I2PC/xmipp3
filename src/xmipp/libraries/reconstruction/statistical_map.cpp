@@ -379,6 +379,8 @@ void ProgStatisticalMap::run()
     std::cout << "\n\n---Analyzing input map pool for histogram equalization---" << std::endl;
     #endif
 
+    volCounter = 0;
+
     for (const auto& row : mapPoolMD)
 	{
         row.getValue(MDL_IMAGE, fn_V);
@@ -387,10 +389,19 @@ void ProgStatisticalMap::run()
         std::cout << "Anayzing volume " << fn_V << " against statistical map for histogram equalization..." << std::endl;
         #endif
 
-        V.clear();
-        V.read(fn_V);
+        // Load preprocess map from reference map pool
+        V().initZeros(Zdim, Ydim, Xdim);
 
-        preprocessMap(fn_V);
+        for(size_t k = 0; k < Zdim; k++)
+	    {
+            for(size_t j = 0; j <Xdim; j++)
+            {
+                for(size_t i = 0; i < Ydim; i++)
+                {
+                     DIRECT_ZYX_ELEM(V(), k, i, j) = DIRECT_NZYX_ELEM(referenceMapPool(), volCounter, k, i, j);
+                }
+            }
+        }
 
         V_Zscores().initZeros(Zdim, Ydim, Xdim);
         // V_Percentile().initZeros(Zdim, Ydim, Xdim);
@@ -425,6 +436,8 @@ void ProgStatisticalMap::run()
         // #endif
 
         // histogramEqualizationParameters.push_back(max);        
+
+        volCounter++;
     }
 
     // Sort accumulated z-scores for percentile calculation
