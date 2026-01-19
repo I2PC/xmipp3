@@ -940,12 +940,9 @@ void ProgStatisticalMap::calculateZscoreMADMap()
     // Calculate different mask
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V_Zscores())
     {
-        if (DIRECT_MULTIDIM_ELEM(positiveMask,n) > 0)
-            {
-            if (DIRECT_MULTIDIM_ELEM(V_Zscores(), n) > 3.0)
-            {
-                DIRECT_MULTIDIM_ELEM(differentMask,n) = 1;
-            }
+        if (DIRECT_MULTIDIM_ELEM(V_Zscores(), n) > 3.0)
+        {
+            DIRECT_MULTIDIM_ELEM(differentMask,n) = 1;
         }
     }
 
