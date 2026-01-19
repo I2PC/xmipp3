@@ -394,8 +394,8 @@ void ProgStatisticalMap::run()
 
         V_Zscores().initZeros(Zdim, Ydim, Xdim);
         // V_Percentile().initZeros(Zdim, Ydim, Xdim);
-        // differentMask.initZeros(Zdim, Ydim, Xdim);
-        // coincidentMask.initZeros(Zdim, Ydim, Xdim);
+        differentMask.initZeros(Zdim, Ydim, Xdim);
+        coincidentMask.initZeros(Zdim, Ydim, Xdim);
         V_ZscoresMAD().initZeros(Zdim, Ydim, Xdim);
         calculateZscoreMADMap();
         writeZscoresMADMap(fn_V);
@@ -462,8 +462,8 @@ void ProgStatisticalMap::run()
 
         V_Zscores().initZeros(Zdim, Ydim, Xdim);
         // V_Percentile().initZeros(Zdim, Ydim, Xdim);
-        // coincidentMask.initZeros(Zdim, Ydim, Xdim);
-        // differentMask.initZeros(Zdim, Ydim, Xdim);
+        coincidentMask.initZeros(Zdim, Ydim, Xdim);
+        differentMask.initZeros(Zdim, Ydim, Xdim);
         V_ZscoresMAD().initZeros(Zdim, Ydim, Xdim);
         calculateZscoreMADMap();
         writeZscoresMADMap(fn_V);
@@ -474,9 +474,9 @@ void ProgStatisticalMap::run()
         // calculatePercetileMap();
         // writePercentileMap(fn_V);
 
-        // weightMap();
-        // writeWeightedMap(fn_V);
-        // writeMask(fn_V);
+        weightMap();
+        writeWeightedMap(fn_V);
+        writeMask(fn_V);
     }
 
     #ifdef DEBUG_WEIGHT_MAP
@@ -526,11 +526,11 @@ void ProgStatisticalMap::preprocessMap(FileName fnIn)
         }
     }
 
-    ft.inverseFourierTransform();
+    // ft.inverseFourierTransform();
 
     std::cout << "    Low-pass filtering applied up to frequency index: " << fscoh.indexThr << std::endl;
 
-    // Create mask with only positive values
+    // Create mask with only positive values (std>1 in protein radius)
     positiveMask.initZeros(Zdim, Ydim, Xdim);
 
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
@@ -974,6 +974,94 @@ void ProgStatisticalMap::calculateZscoreMADMap()
         DIRECT_MULTIDIM_ELEM(V_ZscoresMAD(), n) = zscoreMAD;
         DIRECT_MULTIDIM_ELEM(V_Zscores(), n) = zscore;
     }
+
+    // Calculate different mask
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V_Zscores())
+    {
+        if (DIRECT_MULTIDIM_ELEM(positiveMask,n) > 0)
+            {
+            if (DIRECT_MULTIDIM_ELEM(V_Zscores(), n) > 3.0)
+            {
+                DIRECT_MULTIDIM_ELEM(differentMask,n) = 1;
+            }
+        }
+    }
+
+    // Calculate coincident mask via "cosine average"
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+    {
+        if (DIRECT_MULTIDIM_ELEM(positiveMask,n) > 0)
+        {
+            double num = (DIRECT_MULTIDIM_ELEM(V(),n) * DIRECT_MULTIDIM_ELEM(avgVolume(), n));
+            double dem = sqrt((DIRECT_MULTIDIM_ELEM(V(),n) * DIRECT_MULTIDIM_ELEM(V(), n)) + (DIRECT_MULTIDIM_ELEM(avgVolume(),n) * DIRECT_MULTIDIM_ELEM(avgVolume(), n)));
+            double div = num / dem;
+
+            // Using 2.1213 as threshold corresponds a consistent intensity of 3 standard deviations between both maps
+            if (div > 2.1213)
+            {
+                DIRECT_MULTIDIM_ELEM(coincidentMask,n) = 1;
+            }             
+        }
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////
+
+
+// // --- Empirical null (median + MAD) on full masked z-map ---
+// std::vector<double> tmp;
+
+// FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V_Zscores())
+// {
+//     if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask, n) > 0)
+//         tmp.push_back(DIRECT_MULTIDIM_ELEM(V_Zscores, n));
+// }
+
+// double z_threshold = std::numeric_limits<double>::quiet_NaN();
+// const size_t N = tmp.size();
+// if (N == 0) {
+//     // handle empty mask
+// } else {
+//     // Median (mu0)
+//     std::vector<double> w = tmp;
+//     std::nth_element(w.begin(), w.begin() + N/2, w.end());
+//     double mu0 = w[N/2];
+//     if (N % 2 == 0) {
+//         std::nth_element(w.begin(), w.begin() + N/2 - 1, w.end());
+//         mu0 = 0.5 * (mu0 + w[N/2 - 1]);
+//     }
+
+//     // MAD -> sigma0
+//     std::vector<double> absdev(N);
+//     for (size_t i = 0; i < N; ++i)
+//         absdev[i] = std::abs(tmp[i] - mu0);
+
+//     std::nth_element(absdev.begin(), absdev.begin() + N/2, absdev.end());
+//     double mad = absdev[N/2];
+//     if (N % 2 == 0) {
+//         std::nth_element(absdev.begin(), absdev.begin() + N/2 - 1, absdev.end());
+//         mad = 0.5 * (mad + absdev[N/2 - 1]);
+//     }
+
+//     double sigma0 = 1.4826 * mad;
+//     if (sigma0 < 1e-12) sigma0 = 1e-12;
+
+//     // Choose sigma_ref
+//     // Option 1 (recommended): from calibration rigid maps (pass it in)
+//     // double sigma_ref = sigma_ref_from_rigid;
+//     // Option 2 (no calibration available): do not be more permissive than classic z
+//     double sigma_ref = 1.0;
+
+//     double sigma0_star = std::max(sigma0, sigma_ref);
+
+//     // Final threshold in ORIGINAL z* space (one-tailed positive)
+//     z_threshold = mu0 + 3.0 * sigma0_star;
+
+//     std::cout << "    z-threshold (empirical-null, one-tailed, 3σ): " << z_threshold
+//               << "  [mu0=" << mu0 << ", sigma0=" << sigma0
+//               << ", sigma_ref=" << sigma_ref << "]\n";
+// }
+
+ ///////////////////////////////////////////////////////////////////////////////
 
     std::cout << "    Zscore MAD map calculated successfully!" << std::endl;
 }
