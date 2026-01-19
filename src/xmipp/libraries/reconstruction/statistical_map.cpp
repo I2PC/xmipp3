@@ -1332,10 +1332,11 @@ void ProgStatisticalMap::generateSideInfo()
 
 void ProgStatisticalMap::createRadiusMask()
 {
+    proteinRadiusMask.initZeros(Zdim, Ydim, Xdim);
+
     if (protein_radius > 0) // If mas radius is provided
     {
         double radiusInPx = protein_radius / sampling_rate;
-        proteinRadiusMask.initZeros(Zdim, Ydim, Xdim);
 
         // Directional radius along each direction
         double half_Xdim = (Xdim * 1.0) / 2;
@@ -1375,7 +1376,7 @@ void ProgStatisticalMap::createRadiusMask()
     }
     else // If no mask radius is provided, use full map
     {
-        proteinRadiusMask.initOnes(Zdim, Ydim, Xdim);
+        proteinRadiusMask.initConstant(1);
     }
 
     #ifdef DEBUG_OUTPUT_FILES
