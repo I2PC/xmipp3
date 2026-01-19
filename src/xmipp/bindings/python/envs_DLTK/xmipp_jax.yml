@@ -1,0 +1,11 @@
+name: xmipp_jax
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - mrcfile=1.4.3
+  - starfile=0.4.11 #The last that that is provided as *.bz2 extension
+  - libstdcxx-ng # To be compatible with scipion env
+  - pip
+  - pip:
+      - jax==0.8
