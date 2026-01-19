@@ -1327,49 +1327,55 @@ void ProgStatisticalMap::generateSideInfo()
     fn_out_median_map = fn_oroot + "statsMap_median.mrc";
     fn_out_mad_map = fn_oroot + "statsMap_mad.mrc";
 
-    if (protein_radius > 0) // Only if mas radius is provided
-        createRadiusMask();
+    createRadiusMask();
 }
 
 void ProgStatisticalMap::createRadiusMask()
 {
-    double radiusInPx = protein_radius / sampling_rate;
-    proteinRadiusMask.initZeros(Zdim, Ydim, Xdim);
-
-    // Directional radius along each direction
-    double half_Xdim = (Xdim * 1.0) / 2;
-    double half_Ydim = (Ydim * 1.0) / 2;
-    double half_Zdim = (Zdim * 1.0) / 2;
-    double uz;
-    double uy;
-    double ux;
-    double uz2;
-    double uz2y2;
-    long n=0;
-
-    for(size_t k=0; k<Zdim; ++k)
+    if (protein_radius > 0) // If mas radius is provided
     {
-        uz = k - half_Zdim;
-        uz2 = uz*uz;
-        
-        for(size_t i=0; i<Ydim; ++i)
+        double radiusInPx = protein_radius / sampling_rate;
+        proteinRadiusMask.initZeros(Zdim, Ydim, Xdim);
+
+        // Directional radius along each direction
+        double half_Xdim = (Xdim * 1.0) / 2;
+        double half_Ydim = (Ydim * 1.0) / 2;
+        double half_Zdim = (Zdim * 1.0) / 2;
+        double uz;
+        double uy;
+        double ux;
+        double uz2;
+        double uz2y2;
+        long n=0;
+
+        for(size_t k=0; k<Zdim; ++k)
         {
-            uy = i - half_Ydim;
-            uz2y2 = uz2 + uy*uy;
-
-            for(size_t j=0; j<Xdim; ++j)
+            uz = k - half_Zdim;
+            uz2 = uz*uz;
+            
+            for(size_t i=0; i<Ydim; ++i)
             {
-                ux = j - half_Xdim;
-                ux = sqrt(uz2y2 + ux*ux);
+                uy = i - half_Ydim;
+                uz2y2 = uz2 + uy*uy;
 
-                if (ux < radiusInPx)
+                for(size_t j=0; j<Xdim; ++j)
                 {
-                    DIRECT_MULTIDIM_ELEM(proteinRadiusMask,n) = 1;
-                }
+                    ux = j - half_Xdim;
+                    ux = sqrt(uz2y2 + ux*ux);
 
-                ++n;
+                    if (ux < radiusInPx)
+                    {
+                        DIRECT_MULTIDIM_ELEM(proteinRadiusMask,n) = 1;
+                    }
+
+                    ++n;
+                }
             }
         }
+    }
+    else // If no mask radius is provided, use full map
+    {
+        proteinRadiusMask.initOnes(Zdim, Ydim, Xdim);
     }
 
     #ifdef DEBUG_OUTPUT_FILES
