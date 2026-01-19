@@ -670,15 +670,12 @@ void ProgStatisticalMap::computeStatisticalMaps()
     }
 
     // Update positive mask from average map for posterior analysis (std>1 in protein radius)
-    double foo;
-    double std;
-    avgVolume().computeAvgStdev_within_binary_mask(proteinRadiusMask, foo, std);
-
     positiveMask.initZeros(Zdim, Ydim, Xdim);
 
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(avgVolume())
     {
-        if (DIRECT_MULTIDIM_ELEM(avgVolume(), n) > std && DIRECT_MULTIDIM_ELEM(proteinRadiusMask, n) > 0)
+        // As maps are normalized to std=1 the comparison is direct
+        if (DIRECT_MULTIDIM_ELEM(avgVolume(), n) > 1 && DIRECT_MULTIDIM_ELEM(proteinRadiusMask, n) > 0)
         {
             DIRECT_MULTIDIM_ELEM(positiveMask, n) = 1;
         }
