@@ -1154,88 +1154,43 @@ void ProgStatisticalMap::weightMap()
 { 
     std::cout << "    Calculating weighted map..." << std::endl;
 
-    // Filter uncoherent frequencies
-    // FourierTransformer ft;
-    // MultidimArray<std::complex<double>> V_ft;
-	// ft.FourierTransform(V(), V_ft, false);
+    // Determiane tao (defined as the median distance‑to‑boundary within the tighter ROI)
+    std::vector<double> voxelValues;
 
-    // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V_ft)
-    // {
-    //     if (DIRECT_MULTIDIM_ELEM(fscoh.freqMap, n) > fscoh.indexThr)
-    //     {
-    //         DIRECT_MULTIDIM_ELEM(V_ft,  n) = 0;
-    //     }
-    // }
-
-    // ft.inverseFourierTransform();
-
-
-    // Weight by z-scores
-    // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
-    // {
-    //     DIRECT_MULTIDIM_ELEM(V(),n) *=  DIRECT_MULTIDIM_ELEM(V_Zscores(),n);
-    // }
-
-
-    // Use percentile to set a threshold 
-    // MultidimArray<double> sorted_Zscores; 
-    // V_Zscores().sort(sorted_Zscores);
-
-    // double percentile_over3sd;
-    // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(sorted_Zscores)
-    // {
-    //     if (DIRECT_MULTIDIM_ELEM(sorted_Zscores,n) > 3)
-    //     {
-    //         percentile_over3sd = n / NZYXSIZE(sorted_Zscores);
-    //         break;
-    //     }
-    // }
-
-    // double overall_percentile = percentile_over3sd + equalizationParam;
-
-    // size_t idx = static_cast<size_t>(std::floor(overall_percentile));
-    // double threshold = DIRECT_MULTIDIM_ELEM(sorted_Zscores, idx);
-
-
-    // Use percentile to set a threshold (bis)
-    // MultidimArray<double> sorted_Zscores; 
-    // V_Zscores().sort(sorted_Zscores);
-
-    // double threshold = DIRECT_MULTIDIM_ELEM(sorted_Zscores, static_cast<size_t>(std::floor(NZYXSIZE(sorted_Zscores) - equalizationParam)));
-    // std::cout << "THRESHOLD Z SCORE HALO MAP AT: " << threshold << std::endl;
+    float coincidentMedianDistance;
+    float differentMedianDistance;
+    float tao;
     
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(coincidentMask)
+    {
+        if (DIRECT_MULTIDIM_ELEM(coincidentMask, n) > 0)
+        {
+            voxelValues.push_back(DIRECT_MULTIDIM_ELEM(coincidentMask, n));
+        }
+    }
 
-    // Use FDR for outlier pixels
-        // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
-    // {
-    //     DIRECT_MULTIDIM_ELEM(V(),n) =  1 - normal_cdf(DIRECT_MULTIDIM_ELEM(V_Zscores(),n));
-    // }
+    coincidentMedianDistance = median(voxelValues);
+    voxelValues.clear();
 
-    // Reweight z-score map based on the transofmration that put all z-score under z<1 
-    // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
-    // {
-    //     DIRECT_MULTIDIM_ELEM(V(),n) =  DIRECT_MULTIDIM_ELEM(V_Zscores(),n) / equalizationParam;   
-    // }
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(differentMask)
+    {
+        if (DIRECT_MULTIDIM_ELEM(differentMask, n) > 0)
+        {
+            voxelValues.push_back(DIRECT_MULTIDIM_ELEM(differentMask, n));
+        }
+    }
 
-    // // Mask common region between new map and pool using "cosine average"
-    // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
-    // {
-    //     if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask,n) > 0)
-    //     {
-    //         double num = (DIRECT_MULTIDIM_ELEM(V(),n) * DIRECT_MULTIDIM_ELEM(avgVolume(), n));
-    //         double dem = sqrt((DIRECT_MULTIDIM_ELEM(V(),n) * DIRECT_MULTIDIM_ELEM(V(), n)) + (DIRECT_MULTIDIM_ELEM(avgVolume(),n) * DIRECT_MULTIDIM_ELEM(avgVolume(), n)));
-    //         double div = num / dem;
+    differentMedianDistance = median(voxelValues);
 
-    //         // Only for debug lets see how is the map from which the mask is extracted
-    //         // DIRECT_MULTIDIM_ELEM(V(),n) = div;
+    tao = std::min(coincidentMedianDistance, differentMedianDistance);
 
-    //         if (div > significance_thr)
-    //         {
-    //             DIRECT_MULTIDIM_ELEM(coincidentMask,n) = 1;
-    //         }            
-    //     }
-    // }
-    
+    // Compute distance masks
+    MultidimArray<double> distanceCoincidentMask;
+    MultidimArray<double> distanceDifferentMask;
+
+    generateDistanceMask(coincidentMask, distanceCoincidentMask, tao);
+    generateDistanceMask(differentMask, distanceDifferentMask, tao);
+
     // Compare intesities between coincident and different regions
     double coincident_avg;
     double different_avg;
@@ -1249,15 +1204,6 @@ void ProgStatisticalMap::weightMap()
     std::cout << "coincident_avg ---------------------> " << coincident_avg << std::endl;
     std::cout << "different_avg ---------------------> " << different_avg << std::endl;
     std::cout << "partialOccupancyFactor ---------------------> " << partialOccupancyFactor << std::endl;
-
-    // Dumpen density in different mask
-    // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
-    // {
-    //     if (DIRECT_MULTIDIM_ELEM(differentMask,n) > 0)
-    //     {
-    //         DIRECT_MULTIDIM_ELEM(V(),n) *=  partialOccupancyFactor;
-    //     }        
-    // }
 
     // Subtract weighted average map 
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
@@ -1382,7 +1328,7 @@ double ProgStatisticalMap::median(std::vector<double> v)
     }
 }
 
-void ProgStatisticalMap::generateDistanceMask(MultidimArray<int>& mask, MultidimArray<double>& maskDistance, double distanceThr)
+void ProgStatisticalMap::generateDistanceMask(MultidimArray<int>& mask, MultidimArray<double>& maskDistance, double tao)
 {
     maskDistance.initZeros(Zdim, Ydim, Xdim);
 
@@ -1423,7 +1369,7 @@ void ProgStatisticalMap::generateDistanceMask(MultidimArray<int>& mask, Multidim
                     }
                 }
 
-                DIRECT_MULTIDIM_ELEM(distanceMap, n) = std::sqrt(minDist2);
+                DIRECT_MULTIDIM_ELEM(distanceMap, n) = std::sqrt(minDist2) / tao;
             }
         }
     }
