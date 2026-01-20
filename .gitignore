@@ -67,3 +67,7 @@ gmon.out
 
 # Output files from compilation
 compilation.log
+
+### Added by Fede
+# Ignore old version files that are not compiled
+*_old
