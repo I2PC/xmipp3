@@ -1364,7 +1364,8 @@ void ProgStatisticalMap::createRadiusMask()
 } 
 
 
-double ProgStatisticalMap::median(std::vector<double> v) {
+double ProgStatisticalMap::median(std::vector<double> v) 
+{
     if (v.empty()) {
         throw std::invalid_argument("Cannot compute median of an empty vector");
     }
@@ -1378,6 +1379,53 @@ double ProgStatisticalMap::median(std::vector<double> v) {
     } else {
         // Even number of elements
         return (static_cast<double>(v[n / 2 - 1]) + static_cast<double>(v[n / 2])) / 2.0;
+    }
+}
+
+void ProgStatisticalMap::generateDistanceMask(MultidimArray<int>& mask, MultidimArray<double>& maskDistance, double distanceThr)
+{
+    maskDistance.initZeros(Zdim, Ydim, Xdim);
+
+    for(size_t k = 0; k < Zdim; k++)
+    {
+        for(size_t j = 0; j <Xdim; j++)
+        {
+            for(size_t i = 0; i < Ydim; i++)
+            {
+                // Unmasked region
+                if (DIRECT_ZYX_ELEM(mask, k, i, j) == 0)
+                {
+                    DIRECT_MULTIDIM_ELEM(distanceMap, n) = 0.0;
+                    continue;
+                }
+
+                // Masked region                
+                float minDist2 = 1e30f;
+
+                for(size_t kk = 0; kk < Zdim; kk++)
+                {
+                    for(size_t jj = 0; jj < Xdim; jj++)
+                    {
+                        for(size_t ii = 0; ii < Ydim; ii++)
+                        {
+                            if (DIRECT_ZYX_ELEM(mask, kk, ii, jj) == 0)
+                            {
+                                float dx = float(i - ii);
+                                float dy = float(j - jj);
+                                float dz = float(k - kk);
+
+                                float d2 = dx*dx + dy*dy + dz*dz;
+
+                                if (d2 < minDist2)
+                                    minDist2 = d2;
+                            }
+                        }
+                    }
+                }
+
+                DIRECT_MULTIDIM_ELEM(distanceMap, n) = std::sqrt(minDist2);
+            }
+        }
     }
 }
 
