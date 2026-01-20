@@ -935,21 +935,43 @@ void ProgVolumeToPseudoatoms::writeResults()
         if (allowIntensity)
             intensity=0.01+ROUND(100*a*(atoms[n].intensity-minIntensity))/100.0;
         if (col==1)
-            fprintf(fhOut,
-                    "ATOM  %5d DENS DENS%5d    %8.3f%8.3f%8.3f%6.2f     1      DENS\n",
-                    n+1,n+1,
-                    (float)(atoms[n].location(2)*sampling),
-                    (float)(atoms[n].location(1)*sampling),
-                    (float)(atoms[n].location(0)*sampling),
-                    (float)intensity);
+            if (n+1 < 10000)
+                fprintf(fhOut,
+                //       ATOM      1DENS  DEN     1     -29.425   5.511  53.019  0.05     1      DENS
+                        "ATOM  %5dDENS  DEN  %4d    %8.3f%8.3f%8.3f%6.2f     1      DENS\n",
+                        n+1,n+1,
+                        (float)(atoms[n].location(2)*sampling),
+                        (float)(atoms[n].location(1)*sampling),
+                        (float)(atoms[n].location(0)*sampling),
+                        (float)intensity);
+            else
+                fprintf(fhOut,
+                //       ATOM  14491DENS  DEN  14491     12.840  44.940  25.680  0.07     1      DENS
+                        "ATOM  %5dDENS  DEN  %5d   %8.3f%8.3f%8.3f%6.2f     1      DENS\n",
+                        n+1,n+1,
+                        (float)(atoms[n].location(2)*sampling),
+                        (float)(atoms[n].location(1)*sampling),
+                        (float)(atoms[n].location(0)*sampling),
+                        (float)intensity);
         else
-            fprintf(fhOut,
-                    "ATOM  %5d DENS DENS%5d    %8.3f%8.3f%8.3f     1%6.2f      DENS\n",
-                    n+1,n+1,
-                    (float)(atoms[n].location(2)*sampling),
-                    (float)(atoms[n].location(1)*sampling),
-                    (float)(atoms[n].location(0)*sampling),
-                    (float)intensity);
+            if (n+1 < 10000)
+                fprintf(fhOut,
+                //       ATOM      1DENS  DEN     1     -29.425   5.511  53.019     1  0.05      DENS
+                        "ATOM  %5dDENS  DEN  %4d    %8.3f%8.3f%8.3f     1%6.2f      DENS\n",
+                        n+1,n+1,
+                        (float)(atoms[n].location(2)*sampling),
+                        (float)(atoms[n].location(1)*sampling),
+                        (float)(atoms[n].location(0)*sampling),
+                        (float)intensity);
+            else
+                fprintf(fhOut,
+                //       ATOM  14491DENS  DEN  14491     12.840  44.940  25.680     1  0.07      DENS
+                        "ATOM  %5dDENS  DEN  %5d   %8.3f%8.3f%8.3f     1%6.2f      DENS\n",
+                        n+1,n+1,
+                        (float)(atoms[n].location(2)*sampling),
+                        (float)(atoms[n].location(1)*sampling),
+                        (float)(atoms[n].location(0)*sampling),
+                        (float)intensity);
     }
     fclose(fhOut);
 
