@@ -144,7 +144,7 @@ public:
     void generateSideInfo();
     double normal_cdf(double z);
     void createRadiusMask();
-    void generateDistanceMask(MultidimArray<int>& mask, MultidimArray<double>& maskDistance, double distanceThr);
+    void generateDistanceMask(MultidimArray<int>& mask, MultidimArray<double>& maskDistance, double tao);
 
     double t_cdf(double t, int nu);
     double t_p_value(double t_stat, int nu);

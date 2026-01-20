@@ -1341,7 +1341,7 @@ void ProgStatisticalMap::generateDistanceMask(MultidimArray<int>& mask, Multidim
                 // Unmasked region
                 if (DIRECT_ZYX_ELEM(mask, k, i, j) == 0)
                 {
-                    DIRECT_MULTIDIM_ELEM(distanceMap, n) = 0.0;
+                    DIRECT_ZYX_ELEM(distanceMap, k, i, j)= 0.0;
                     continue;
                 }
 
