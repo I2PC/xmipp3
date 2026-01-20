@@ -923,7 +923,7 @@ void ProgStatisticalMap::calculateZscoreMADMap()
     double mapMAD;
     double foo;
     // computeSigmaNormMAD(mapMAD);
-    MADMap().computeAvgStdev_within_binary_mask(proteinRadiusMask, mapMAD, foo);
+    MADMap().computeAvgStdev_within_binary_mask(positiveMask, mapMAD, foo);
     mapMAD = mapMAD * 1.4826; // Scale MAD to estimate sigma under normality
 
     std::cout << "    Global MAD value: " << mapMAD << std::endl;
