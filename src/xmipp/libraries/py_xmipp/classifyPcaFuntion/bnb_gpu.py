@@ -673,13 +673,14 @@ class BnBgpu:
             
         if iter == 2: 
             split = (final_classes - classes) * 60 // 100
-            newCL = [[] for i in range(classes+split)]
-        elif iter >= 3 and iter < iterSplit and final_classes > classes:
+        elif 3 <= iter < iterSplit and final_classes > classes:
             split = final_classes - classes
-            newCL = [[] for i in range(final_classes)]
         else:
-            newCL = [[] for i in range(classes)]
-
+            split = 0
+            
+        total_slots = classes + split
+        newCL = [[] for i in range(total_slots)]
+        newProj = [[] for i in range(total_slots)]
 
         step = int(np.ceil(nExp/expBatchSize))
         batch_projExp_cpu = [0 for i in range(step)]
@@ -709,60 +710,75 @@ class BnBgpu:
                 transforIm = transforIm * self.create_circular_mask(transforIm)
                 
 
-            
-            batch_projExp_cpu[count] = self.batchExpToCpu(transforIm, freqBn, coef, cvecs)
+            proj_batch = self.batchExpToCpu(transforIm, freqBn, coef, cvecs)
+            batch_projExp_cpu[count] = proj_batch
             count+=1
 
             #Create classes for batches
             batch_class_indices = matches[initBatch:endBatch, 1].to(self.cuda, non_blocking=True).long()
+            projs_gpu = proj_batch.to(self.cuda, non_blocking=True)[0]
                 
             labels = batch_class_indices
             order = torch.argsort(labels)
             
-            imgs = transforIm[order]
-            lbls = labels[order]
+            imgs_sorted = transforIm[order]
+            projs_sorted = projs_gpu[order] 
+            lbls_sorted = batch_class_indices[order]
             
-            counts = torch.bincount(lbls, minlength=classes)
-            offsets = torch.cumsum(counts, 0)
+            counts = torch.bincount(lbls_sorted, minlength=classes)
             
             start = 0
             for n, c in enumerate(counts):
                 if c > 0:
-                    newCL[n].append(imgs[start:start+c])
+                    newCL[n].append(imgs_sorted[start:start+c])
+                    newProj[n].append(projs_sorted[start:start+c])
                 start += c
-                    
-            del(transforIm)
             
+            del(transforIm)
+
+        # 4. Concatenación Global
         _, H, W = mmap.data.shape
-        empty_tensor = torch.empty((0, H, W), device=self.cuda, dtype=torch.float32)
-        
-        newCL = [
-            torch.cat(class_images_list, dim=0) if len(class_images_list) > 0 else empty_tensor
-            for class_images_list in newCL
-        ]
+        newCL = [torch.cat(l, dim=0) if len(l) > 0 else torch.empty((0,H,W), device=self.cuda) for l in newCL]
+        newProj = [torch.cat(l, dim=0) if len(l) > 0 else None for l in newProj]
 
         # 2. Ahora aplicamos el Split Estructural sobre la clase COMPLETA
-        if iter >= 2 and iter < iterSplit and (final_classes - classes) > 0:
+        if 2 <= iter < iterSplit and split > 0:
             for n in range(classes):
-                particles_n = newCL[n]
-                
-                # Verificamos si hay suficientes partículas para un PCA significativo
-                if particles_n.shape[0] < 10: 
-                    continue
-                
-                sub_clusters = self.split_class_by_structure(particles_n)
-                
-                if len(sub_clusters) > 1:
+                if newCL[n].shape[0] > 20: # Mínimo de partículas para que el split tenga sentido
+                    
+                    # Ejecutamos tu K-means sobre las proyecciones PCA
+                    # Nota: Asegúrate de que tu kmeans devuelva (averages, labels)
+                    _, labels = self.kmeans_pytorch_for_averages(newCL[n], newProj[n], cvecs, num_clusters=2, num_iters=15)
+                    
+                    part_A = newCL[n][labels == 0]
+                    part_B = newCL[n][labels == 1]
+                    
                     if n < split:
-                        # Tenemos espacio para clase nueva
-                        newCL[n] = sub_clusters[0]
-                        newCL[n + classes] = sub_clusters[1]
+                        newCL[n] = part_A
+                        newCL[n + classes] = part_B
                     else:
-                        # No hay espacio, las mantenemos juntas (o las concatenamos)
-                        # Aunque aquí el PCA ya hizo el trabajo, así que las unimos
-                        newCL[n] = torch.cat(sub_clusters, dim=0)
-                else:
-                    newCL[n] = sub_clusters[0]
+                        # Si no hay hueco para clase nueva, las reintegramos (opcional)
+                        newCL[n] = torch.cat([part_A, part_B], dim=0)
+        
+        
+        
+        # if iter >= 2 and iter < iterSplit and (final_classes - classes) > 0:
+        #     for n in range(classes):
+        #         particles_n = newCL[n]
+        #
+        #         if particles_n.shape[0] < 10: 
+        #             continue
+        #
+        #         sub_clusters = self.split_class_by_structure(particles_n)
+        #
+        #         if len(sub_clusters) > 1:
+        #             if n < split:
+        #                 newCL[n] = sub_clusters[0]
+        #                 newCL[n + classes] = sub_clusters[1]
+        #             else:
+        #                 newCL[n] = torch.cat(sub_clusters, dim=0)
+        #         else:
+        #             newCL[n] = sub_clusters[0]
             
             
         
@@ -3998,7 +4014,7 @@ class BnBgpu:
     
     def kmeans_pytorch_for_averages(self, Im_tensor, X, eigvect, num_clusters, num_iters=25, verbose=False):
 
-        X = torch.stack(X)
+        # X = torch.stack(X)
         X = X.view(Im_tensor.shape[0], eigvect[0].shape[1]).float()
         N, D = X.shape
     
@@ -4068,9 +4084,10 @@ class BnBgpu:
     
             averages.append(avg)
     
-        del X, labels, centroids, distances
+        # del X, labels, centroids, distances
+        del X, centroids, distances
     
-        return torch.stack(averages)
+        return torch.stack(averages),labels
     
     
     def radial_descriptor(self, imgs, nbins=32):

@@ -196,8 +196,8 @@ if __name__=="__main__":
         
             pca_zero = bnb.create_batchExp(Texp_zero, freqBn, coef, cvecs)
         
-            cl_round = bnb.kmeans_pytorch_for_averages(
-                Texp_zero, pca_zero, cvecs, num_clusters=k_round
+            cl_round, _ = bnb.kmeans_pytorch_for_averages(
+                Texp_zero, pca_zero[0], cvecs, num_clusters=k_round
             )
             file_cero = output+"0_%s.mrcs"%(r)
             save_images(cl_round.cpu().detach().numpy(), sampling, file_cero)
