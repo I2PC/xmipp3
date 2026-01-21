@@ -894,20 +894,65 @@ void ProgStatisticalMap::calculateZscoreMADMap()
 }
 
 
+// -----------------------------------------------------------------------------
+// Method: weightMap
+// Purpose:
+//   Compute the partial occupancy factor (POF) between two ROIs ("coincident"
+//   and "different") using one of two selectable strategies.
+//
+//   1) CorePercentile (q-core):
+//      - Within each ROI, take only the "core" defined by the top-q% interior
+//        voxels according to the Euclidean distance-to-boundary (EDT).
+//      - Compute the average value over that core in each ROI and set
+//        POF = avg_different / avg_coincident.
+//      - This compensates "tightness" by comparing symmetric *fractions* of
+//        interior in each ROI, rather than absolute distances (which are often
+//        quantized as {1, sqrt(2), sqrt(3), ...}).
+//
+//   2) RankMatching (histogram matching by distance rank):
+//      - For each voxel, compute its distance rank r in [0,1] within its ROI
+//        (using mid-rank to handle ties in discrete EDT values).
+//      - Consider only r >= R_MIN (top (1-R_MIN) interior). Partition [R_MIN,1]
+//        into NBINS bins.
+//      - For each bin, match the effective sample size of both ROIs to the
+//        intersection (t[b] = min(nC[b], nD[b])) and assign per-bin weights
+//        so both ROIs contribute equally in the same rank profile.
+//      - Compute weighted averages and POF = avg_different / avg_coincident.
+//      - More stable and “headful” than a hard q=99 threshold.
+//
+// Notes:
+//   - Distance maps are assumed to be raw EDT in voxel units (hence many values
+//     are 1, sqrt(2), sqrt(3), ...). Both strategies avoid relying on absolute
+//     distance thresholds that can collapse due to quantization.
+//   - The final subtraction on V() uses the computed POF exactly as before.
+//
+// -----------------------------------------------------------------------------
 
 void ProgStatisticalMap::weightMap()
-{ 
-    std::cout << "    Calculating weighted map..." << std::endl;
+{
+    std::cout << "    Calculating weighted map (switchable POF)..." << std::endl;
 
-    // Parámetros
-    const double EPS   = 1e-6;  // excluir fuera/borde
-    const double K_EXP = 2.0;   // agresividad del peso: prueba 2 o 4 si quieres más efecto
+    // Select mode (toggle this flag)
+    enum class POFMode { CorePercentile, RankMatching };
+    const POFMode MODE = POFMode::RankMatching; // <-- switch to RankMatching if desired
 
-    // 1) Distancias RAW (truco: tao=1.0 => d_norm = d_raw)
-    generateDistanceMask(coincidentMask, distanceCoincidentMask, 1.0); // d_raw
-    generateDistanceMask(differentMask,  distanceDifferentMask,  1.0); // d_raw
+    // Common parameters
+    const double EPS = 1e-6;
 
-    // 2) Construye vectores con distancias RAW > EPS dentro de cada ROI (filtrado fuera del percentile)
+    // Parameters for CorePercentile mode
+    const double CORE_Q = 95.0;   // Use top (100-CORE_Q)% interior as "core" (e.g., 95 ⇒ top 5%)
+                                  // You can try 90–99 depending on stability vs. effect
+
+    // Parameters for RankMatching mode
+    const double R_MIN = 0.90;    // Consider only the top (1 - R_MIN) interior rank range
+    const int    NBINS = 10;      // Number of bins in [R_MIN, 1]
+    const size_t MIN_BIN_BOTH = 1;// Both ROIs must have at least this many voxels in a bin
+
+    // 1) Build raw distance maps (no normalization)
+    generateDistanceMask(coincidentMask, distanceCoincidentMask, 1.0);
+    generateDistanceMask(differentMask,  distanceDifferentMask,  1.0);
+
+    // 2) Collect distances > EPS within each ROI
     std::vector<double> distCoinPos; distCoinPos.reserve(4096);
     std::vector<double> distDiffPos; distDiffPos.reserve(4096);
 
@@ -926,78 +971,197 @@ void ProgStatisticalMap::weightMap()
         }
     }
 
-    // 3) tau = min(P95_tight, P95_loose) sobre distancias RAW > 0
-    double tauA = distCoinPos.empty() ? 0.0 : percentile(distCoinPos, 95.0);
-    double tauB = distDiffPos.empty() ? 0.0 : percentile(distDiffPos, 95.0);
-    double tao  = std::min(tauA, tauB);
+    auto safeMin = [](const std::vector<double>& v) {
+        return v.empty() ? std::numeric_limits<double>::quiet_NaN()
+                         : *std::min_element(v.begin(), v.end());
+    };
+    auto safeMax = [](const std::vector<double>& v) {
+        return v.empty() ? std::numeric_limits<double>::quiet_NaN()
+                         : *std::max_element(v.begin(), v.end());
+    };
 
-    // Salvaguardas: si queda <= 1, forzamos algo > 1 para evitar saturación total
-    if (tao <= 1.0 + 1e-12) {
-        // Opción conservadora: forzar sqrt(2)
-        tao = 1.41421356237; // sqrt(2)
-        std::cerr << "  [WARN] tau (P95 tight-anchored) <= 1; forcing tau = sqrt(2)\n";
-    }
-    std::cout << "  Calculated tau (tight-anchored P95): " << tao << std::endl;
+    // Diagnostics: report basic stats
+    std::cout << "  ROI coincident: count=" << distCoinPos.size()
+              << " min=" << safeMin(distCoinPos)
+              << " max=" << safeMax(distCoinPos) << std::endl;
+    std::cout << "  ROI different : count=" << distDiffPos.size()
+              << " min=" << safeMin(distDiffPos)
+              << " max=" << safeMax(distDiffPos) << std::endl;
 
-    // 4) Medias ponderadas con w = min(1, (d_raw/tau)^k), excluyendo d_raw <= EPS
-    double coincident_num = 0.0, coincident_den = 0.0;
-    double different_num  = 0.0, different_den  = 0.0;
+    // Outputs to compute
+    double coincident_avg = std::numeric_limits<double>::quiet_NaN();
+    double different_avg  = std::numeric_limits<double>::quiet_NaN();
 
-    // Diagnóstico: porcentaje de pesos saturados (w==1)
-    size_t C_total=0, C_full=0, D_total=0, D_full=0;
-
-    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+    if (MODE == POFMode::CorePercentile)
     {
-        // ROI coincidente
-        if (DIRECT_MULTIDIM_ELEM(coincidentMask, n) > 0)
-        {
-            double d_raw = DIRECT_MULTIDIM_ELEM(distanceCoincidentMask, n);
-            if (d_raw > EPS)
-            {
-                double d_norm = d_raw / tao;
-                double w = std::min(1.0, std::pow(d_norm, K_EXP));
-                coincident_num += w * DIRECT_MULTIDIM_ELEM(V(), n);
-                coincident_den += w;
+        // MODE 1: CorePercentile(q)
+        // Select per-ROI interior cores by percentile and average there.
+        double dC_core = distCoinPos.empty() ? 0.0 : percentile(distCoinPos, CORE_Q);
+        double dD_core = distDiffPos.empty() ? 0.0 : percentile(distDiffPos, CORE_Q);
 
-                ++C_total; if (w >= 1.0 - 1e-12) ++C_full;
+        std::cout << "  [CorePercentile] Q=" << CORE_Q
+                  << "  dC_core=" << dC_core
+                  << "  dD_core=" << dD_core << std::endl;
+
+        double coincident_num = 0.0, coincident_den = 0.0;
+        double different_num  = 0.0, different_den  = 0.0;
+
+        size_t coreC_used = 0, coreD_used = 0;
+
+        FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+        {
+            if (DIRECT_MULTIDIM_ELEM(coincidentMask, n) > 0) {
+                double d = DIRECT_MULTIDIM_ELEM(distanceCoincidentMask, n);
+                if (d > EPS && d >= dC_core) {
+                    coincident_num += DIRECT_MULTIDIM_ELEM(V(), n);
+                    coincident_den += 1.0;
+                    ++coreC_used;
+                }
+            }
+            if (DIRECT_MULTIDIM_ELEM(differentMask, n) > 0) {
+                double d = DIRECT_MULTIDIM_ELEM(distanceDifferentMask, n);
+                if (d > EPS && d >= dD_core) {
+                    different_num += DIRECT_MULTIDIM_ELEM(V(), n);
+                    different_den += 1.0;
+                    ++coreD_used;
+                }
             }
         }
 
-        // ROI diferente
-        if (DIRECT_MULTIDIM_ELEM(differentMask, n) > 0)
-        {
-            double d_raw = DIRECT_MULTIDIM_ELEM(distanceDifferentMask, n);
-            if (d_raw > EPS)
-            {
-                double d_norm = d_raw / tao;
-                double w = std::min(1.0, std::pow(d_norm, K_EXP));
-                different_num += w * DIRECT_MULTIDIM_ELEM(V(), n);
-                different_den += w;
+        coincident_avg = (coincident_den > 0.0) ? (coincident_num / coincident_den) : std::numeric_limits<double>::quiet_NaN();
+        different_avg  = (different_den  > 0.0) ? (different_num  / different_den)  : std::numeric_limits<double>::quiet_NaN();
 
-                ++D_total; if (w >= 1.0 - 1e-12) ++D_full;
+        std::cout << "  [CorePercentile] core_coincident_used=" << coreC_used
+                  << " / " << distCoinPos.size() << std::endl;
+        std::cout << "  [CorePercentile] core_different_used =" << coreD_used
+                  << " / " << distDiffPos.size() << std::endl;
+    }
+    else // MODE == POFMode::RankMatching
+    {
+        // MODE 2: RankMatching
+        // Match the rank (percentile) profile of distances between ROIs so that
+        // both contribute with the same effective rank distribution in [R_MIN,1].
+
+        // Sort distances to enable mid-rank computation
+        std::vector<double> dC = distCoinPos; std::sort(dC.begin(), dC.end());
+        std::vector<double> dD = distDiffPos; std::sort(dD.begin(), dD.end());
+
+        auto midRank01 = [](const std::vector<double>& sorted, double d) -> double {
+            if (sorted.empty()) return 0.0;
+            auto itL = std::lower_bound(sorted.begin(), sorted.end(), d);
+            auto itU = std::upper_bound(sorted.begin(), sorted.end(), d);
+            size_t iL = static_cast<size_t>(std::distance(sorted.begin(), itL));
+            size_t iU = static_cast<size_t>(std::distance(sorted.begin(), itU));
+            size_t iLast = (iU > 0) ? (iU - 1) : 0;
+            double iMid = 0.5 * (static_cast<double>(iL) + static_cast<double>(iLast));
+            size_t denom = (sorted.size() > 1) ? (sorted.size() - 1) : 1;
+            double r = iMid / static_cast<double>(denom);
+            if (r < 0.0) r = 0.0; else if (r > 1.0) r = 1.0;
+            return r; // 0 = boundary, 1 = deepest interior
+        };
+
+        const double BIN_W = (1.0 - R_MIN) / NBINS;
+        auto binIndex = [&](double r) -> int {
+            if (r < R_MIN) return -1;
+            int b = static_cast<int>(std::floor((r - R_MIN) / BIN_W));
+            if (b < 0) b = 0;
+            if (b >= NBINS) b = NBINS - 1;
+            return b;
+        };
+
+        // First pass: count voxels per bin in each ROI
+        std::vector<size_t> nC(NBINS, 0), nD(NBINS, 0);
+
+        FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+        {
+            if (DIRECT_MULTIDIM_ELEM(coincidentMask, n) > 0) {
+                double d = DIRECT_MULTIDIM_ELEM(distanceCoincidentMask, n);
+                if (d > EPS) {
+                    double r = midRank01(dC, d);
+                    int b = binIndex(r);
+                    if (b >= 0) ++nC[b];
+                }
+            }
+            if (DIRECT_MULTIDIM_ELEM(differentMask, n) > 0) {
+                double d = DIRECT_MULTIDIM_ELEM(distanceDifferentMask, n);
+                if (d > EPS) {
+                    double r = midRank01(dD, d);
+                    int b = binIndex(r);
+                    if (b >= 0) ++nD[b];
+                }
             }
         }
+
+        // Per-bin weights based on the intersection t[b] = min(nC[b], nD[b])
+        std::vector<double> wC_bin(NBINS, 0.0), wD_bin(NBINS, 0.0);
+        size_t activeBins = 0, matchedPerROI = 0;
+
+        for (int b = 0; b < NBINS; ++b) {
+            size_t t = std::min(nC[b], nD[b]);
+            if (t >= MIN_BIN_BOTH && nC[b] > 0 && nD[b] > 0) {
+                wC_bin[b] = static_cast<double>(t) / static_cast<double>(nC[b]);
+                wD_bin[b] = static_cast<double>(t) / static_cast<double>(nD[b]);
+                ++activeBins;
+                matchedPerROI += t; // same for both ROIs by design
+            } else {
+                wC_bin[b] = 0.0;
+                wD_bin[b] = 0.0;
+            }
+        }
+
+        if (activeBins == 0) {
+            std::cerr << "  [WARN] RankMatching found no active bins; falling back to unweighted ROI means.\n";
+        }
+
+        // Second pass: weighted means using per-bin weights
+        double coincident_num = 0.0, coincident_den = 0.0;
+        double different_num  = 0.0, different_den  = 0.0;
+
+        FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+        {
+            if (DIRECT_MULTIDIM_ELEM(coincidentMask, n) > 0) {
+                double d = DIRECT_MULTIDIM_ELEM(distanceCoincidentMask, n);
+                if (d > EPS) {
+                    double r = midRank01(dC, d);
+                    int b = binIndex(r);
+                    double w = (activeBins == 0) ? 1.0 : ((b >= 0) ? wC_bin[b] : 0.0);
+                    if (w > 0.0) {
+                        coincident_num += w * DIRECT_MULTIDIM_ELEM(V(), n);
+                        coincident_den += w;
+                    }
+                }
+            }
+            if (DIRECT_MULTIDIM_ELEM(differentMask, n) > 0) {
+                double d = DIRECT_MULTIDIM_ELEM(distanceDifferentMask, n);
+                if (d > EPS) {
+                    double r = midRank01(dD, d);
+                    int b = binIndex(r);
+                    double w = (activeBins == 0) ? 1.0 : ((b >= 0) ? wD_bin[b] : 0.0);
+                    if (w > 0.0) {
+                        different_num += w * DIRECT_MULTIDIM_ELEM(V(), n);
+                        different_den += w;
+                    }
+                }
+            }
+        }
+
+        coincident_avg = (coincident_den > 0.0) ? (coincident_num / coincident_den) : std::numeric_limits<double>::quiet_NaN();
+        different_avg  = (different_den  > 0.0) ? (different_num  / different_den)  : std::numeric_limits<double>::quiet_NaN();
+
+        std::cout << "  [RankMatching] R_MIN=" << R_MIN
+                  << " NBINS=" << NBINS
+                  << " activeBins=" << activeBins
+                  << " matched_per_ROI=" << matchedPerROI << std::endl;
     }
 
-    double coincident_avg = (coincident_den > 0.0) ? (coincident_num / coincident_den)
-                                                   : std::numeric_limits<double>::quiet_NaN();
-    double different_avg  = (different_den  > 0.0) ? (different_num  / different_den)
-                                                   : std::numeric_limits<double>::quiet_NaN();
+    // 3) Final POF and logs
     double partialOccupancyFactor = different_avg / coincident_avg;
 
     std::cout << "  coincident_avg ---------------------> " << coincident_avg << std::endl;
     std::cout << "  different_avg  ---------------------> " << different_avg  << std::endl;
     std::cout << "  partialOccupancyFactor -------------> " << partialOccupancyFactor << std::endl;
 
-    // Diagnóstico de saturación
-    if (C_total > 0 || D_total > 0) {
-        double pctC = (C_total>0) ? (100.0 * C_full / (double)C_total) : 0.0;
-        double pctD = (D_total>0) ? (100.0 * D_full / (double)D_total) : 0.0;
-        std::cout << "  [diag] coincident: %w==1 = " << pctC << "% (" << C_full << "/" << C_total << ")\n";
-        std::cout << "  [diag] different : %w==1 = " << pctD << "% (" << D_full << "/" << D_total << ")\n";
-    }
-
-    // 5) Tu resta final
+    // 4) Final subtraction
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
         DIRECT_MULTIDIM_ELEM(V(),n) =
@@ -1235,9 +1399,6 @@ void ProgStatisticalMap::generateDistanceMask(
 
     for (size_t k = 0; k < Zdim; ++k)
     {
-        std::cout << "    Generating distance mask slice " << (k + 1)
-                  << " of " << Zdim << "\r" << std::flush;
-
         for (size_t j = 0; j < Xdim; ++j)
         {
             for (size_t i = 0; i < Ydim; ++i)
