@@ -39,7 +39,6 @@
 #define DEBUG_WEIGHT_MAP
 #define DEBUG_WRITE_OUTPUT
 #define DEBUG_OUTPUT_FILES
-#define DEBUG_PERCENTILE
 #define DEBUG_PREPROCESS
 #define DEBUG_SIGMA_NORM
 
@@ -81,7 +80,6 @@ class ProgStatisticalMap: public XmippProgram
     FileName fn_V;                          // Filename for each input volume from pool
     Image<double> V;                        // Each input volume from pool
     Image<double> V_Zscores;                // Each z-scores map from pool
-    Image<double> V_Percentile;             // Percentile map calculated from input pool
     Image<double> avgVolume;                // Average volume
     Image<double> stdVolume;                // Standard deviation volume
     Image<double> avgDiffVolume;            // Average difference volume
@@ -91,9 +89,8 @@ class ProgStatisticalMap: public XmippProgram
     MultidimArray<int> positiveMask;        // Mask for positive values in each input map
     MultidimArray<double> distanceCoincidentMask;
     MultidimArray<double> distanceDifferentMask;
-    
+
     // Calculated parameters
-    double percentileThr = 99.99;  // *** Esto vamos a querer que sea un parametro, lo estoy viendo venir
     std::vector<double> histogramEqualizationParameters;
     double equalizationParam;
     double partialOccupancyFactor;
@@ -119,7 +116,6 @@ public:
     void writeStatisticalMap();
     // Write Z-scores map
     void writeZscoresMap(FileName fnIn);
-    void writePercentileMap(FileName fnIn);
     // Write weighted map
     void writeWeightedMap(FileName fnIn);
     // Write maks
@@ -136,15 +132,12 @@ public:
     void calculateAvgDiffMap();
     void computeSigmaNormMAD(double& sigmaNorm);
     void computeSigmaNormIQR(double& sigmaNorm);
-    void calculateZscoreMap();
     void calculateZscoreMap_GlobalSigma();
-    void calculatePercetileMap();
     void weightMap();
 
     // ---------------------- UTILS METHODS ------------------------------
     // Generate side info
     void generateSideInfo();
-    double normal_cdf(double z);
     void createRadiusMask();
     void generateDistanceMask(MultidimArray<int>& mask, MultidimArray<double>& maskDistance, double tao);
 

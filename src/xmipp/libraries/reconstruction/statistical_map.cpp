@@ -202,26 +202,6 @@ void ProgStatisticalMap::writeZscoresMADMap(FileName fnIn)
        #endif
 }
 
-void ProgStatisticalMap::writePercentileMap(FileName fnIn) 
-{
-    // Compose filename
-    size_t lastSlashPos = fnIn.find_last_of("/\\");
-    size_t lastDotPos = fnIn.find_last_of('.');
-
-    FileName newFileName = fnIn.substr(lastSlashPos + 1, lastDotPos - lastSlashPos - 1) + "_Percentile.mrc";
-    FileName fnOut = fn_oroot + (fn_oroot.back() == '/' || fn_oroot.back() == '\\' ? "" : "/") + newFileName;
-
-    // Check if file already existes (the same pool map might contain to identical filenames
-    int counter = 1;
-    while (std::ifstream(fnOut)) 
-    {
-        fnOut = fn_oroot + (fn_oroot.back() == '/' || fn_oroot.back() == '\\' ? "" : "/") + fnIn.substr(fnIn.find_last_of("/\\") + 1, fnIn.find_last_of('.') - fnIn.find_last_of("/\\") - 1) + "_Zscores_" + std::to_string(counter++) + fnIn.substr(fnIn.find_last_of('.'));
-    }
-
-    //Write output percentile volume
-    V_Percentile.write(fnOut);
-}
-
 void ProgStatisticalMap::writeWeightedMap(FileName fnIn) 
 {
     // Compose filename
@@ -441,52 +421,17 @@ void ProgStatisticalMap::run()
         }
 
         V_Zscores().initZeros(Zdim, Ydim, Xdim);
-        // V_Percentile().initZeros(Zdim, Ydim, Xdim);
         differentMask.initZeros(Zdim, Ydim, Xdim);
         coincidentMask.initZeros(Zdim, Ydim, Xdim);
         V_ZscoresMAD().initZeros(Zdim, Ydim, Xdim);
         calculateZscoreMADMap();
         writeZscoresMADMap(fn_V);
 
-        // calculateZscoreMap();
-        // calculateZscoreMap_GlobalSigma();
         writeZscoresMap(fn_V);
         // writeMask(fn_V);
 
-        // double p = percentile(V_Zscores(), percentileThr);
-        // histogramEqualizationParameters.push_back(p);
-        
-        // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V_Zscores())
-        // {
-        //     if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask, n) > 0)
-        //     {
-        //         zScoreAccumulator.push_back(DIRECT_MULTIDIM_ELEM(V_Zscores(), n));
-        //     }
-        // }
-
-        // double min;
-        // double max;
-        // V_Zscores().computeDoubleMinMax(min, max);
-
-        // #ifdef DEBUG_PERCENTILE
-        // std::cout << "Max value in Z-score map: " << max << std::endl;
-        // #endif
-
-        // histogramEqualizationParameters.push_back(max);        
-
         volCounter++;
     }
-
-    // Sort accumulated z-scores for percentile calculation
-    // std::sort(zScoreAccumulator.begin(), zScoreAccumulator.end());
-
-    // // Calculate average transformation
-    // double sum = std::accumulate(histogramEqualizationParameters.begin(), histogramEqualizationParameters.end(), 0.0);
-    // equalizationParam =  sum / histogramEqualizationParameters.size();
-
-    // #ifdef DEBUG_PERCENTILE
-    // std::cout << "Equalization parameter: " << equalizationParam << std::endl;
-    // #endif
 
     // ---
     // Compare input maps against statistical map
@@ -511,18 +456,13 @@ void ProgStatisticalMap::run()
         preprocessMap(fn_V);
 
         V_Zscores().initZeros(Zdim, Ydim, Xdim);
-        // V_Percentile().initZeros(Zdim, Ydim, Xdim);
         coincidentMask.initZeros(Zdim, Ydim, Xdim);
         differentMask.initZeros(Zdim, Ydim, Xdim);
         V_ZscoresMAD().initZeros(Zdim, Ydim, Xdim);
+        
         calculateZscoreMADMap();
         writeZscoresMADMap(fn_V);
-
-        // calculateZscoreMap();
-        // calculateZscoreMap_GlobalSigma();
         writeZscoresMap(fn_V);
-        // calculatePercetileMap();
-        // writePercentileMap(fn_V);
 
         weightMap();
         writeWeightedMap(fn_V);
@@ -827,132 +767,6 @@ void ProgStatisticalMap::computeSigmaNormIQR(double& sigmaNorm) {
     #endif
 }
 
-
-void ProgStatisticalMap::calculateZscoreMap()
-{
-    std::cout << "    Calculating Zscore map..." << std::endl;
-
-    int numberPx = Xdim*Ydim*Zdim;
-    MultidimArray<double> pValuesArray;
-    pValuesArray.initZeros(numberPx);
-
-    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
-    {
-        // Classic Z-score
-        // double zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / DIRECT_MULTIDIM_ELEM(stdVolume(),n);
-        double zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / DIRECT_MULTIDIM_ELEM(stdVolume(),n);
-
-        // Average-normalized Z-score
-        // double zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) * DIRECT_MULTIDIM_ELEM(avgVolume(),n) / DIRECT_MULTIDIM_ELEM(stdVolume(),n);
-
-        // Add constant to denominator
-        // double zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / sqrt(DIRECT_MULTIDIM_ELEM(stdVolume(),n) + 0.5);
-
-        // Multiply by the average volume
-        // double zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) * DIRECT_MULTIDIM_ELEM(avgDiffVolume(),n) / sqrt(DIRECT_MULTIDIM_ELEM(stdVolume(),n));
-
-        // Correction factor by the number of maps
-        // double zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / (DIRECT_MULTIDIM_ELEM(stdVolume(),n) * sqrt(1 + 1 / Ndim));
-
-        // Ad-hoc sigma normalization factor
-        // double sigma_norm = std::percentile();
-        // double adjusted_std = sqrt(DIRECT_MULTIDIM_ELEM(stdVolume(),n)*DIRECT_MULTIDIM_ELEM(stdVolume(),n) + sigma_norm * sigma_norm);
-        // double zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / adjusted_std;
-        
-        // Take only positive Z-score (densities that appear in the test map that are not present in the pool)
-        // if (zscore > 0)
-        // {
-        //     DIRECT_MULTIDIM_ELEM(V_Zscores(),n) = zscore;
-
-        //     if (zscore > significance_thr * equalizationParam)
-        //     {
-        //         DIRECT_MULTIDIM_ELEM(differentMask,n) = 1;
-        //     }
-        // }
-
-                
-        DIRECT_MULTIDIM_ELEM(V_Zscores(),n) = zscore;
-
-        if (zscore > significance_thr * equalizationParam)
-        {
-            DIRECT_MULTIDIM_ELEM(differentMask,n) = 1;
-        }
-
-        // // Convert z-score to one-tailed p-value using standard normal CDF
-        // double p = 1 - normal_cdf(zscore);
-        // DIRECT_MULTIDIM_ELEM(pValuesArray,n) = p;
-
-        // // Use p values instead of Z-scores
-        // DIRECT_MULTIDIM_ELEM(V_Zscores(),n) = p;
-    }
-
-    // MultidimArray<double> pValuesArray_sort;
-    // pValuesArray.sort(pValuesArray_sort);
-    // double pSignificant = 1.0;
-    // int q = 0.05; // significance parameter
-
-    // // Benjamini-Hochberg procedure: find the smallest p such that p > (i/m) * q
-    // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(pValuesArray_sort)
-    // {
-    //     if (DIRECT_MULTIDIM_ELEM(pValuesArray_sort,n) > (n/(numberPx*1.0))*q)
-    //     {
-    //         pSignificant = DIRECT_MULTIDIM_ELEM(pValuesArray_sort,n);
-    //         break;
-    //     }
-    // }
-
-    // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V_Zscores())
-    // {
-    //     if (DIRECT_MULTIDIM_ELEM(V_Zscores(),n) > pSignificant)
-    //     {
-    //         DIRECT_MULTIDIM_ELEM(V_Zscores(),n) = 0;
-    //     }
-    // }
-    
-    // calculate t-statistc
-    // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
-    // {
-    //     double tStat = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / sqrt(DIRECT_MULTIDIM_ELEM(stdVolume(),n)/Ndim);
-    //     double pValue = t_p_value(tStat, Ndim-1);
-
-    //     // Invert p-value scale (higher more significant)
-    //     DIRECT_MULTIDIM_ELEM(V_Zscores(),n) = 1/pValue;
-    //     // if (pValue < 0.05)
-    //     // {
-    //     //     DIRECT_MULTIDIM_ELEM(V_Zscores(),n) = pValue;
-    //     // }
-    // }
-
-    MultidimArray<double> differentMask_double;
-    differentMask_double.initZeros(Zdim, Ydim, Xdim);
-
-    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(differentMask)
-    {
-        DIRECT_MULTIDIM_ELEM(differentMask_double, n) = 1.0 * DIRECT_MULTIDIM_ELEM(differentMask, n);
-    }
-
-    removeSmallComponents(differentMask_double, 5);
-
-    // MultidimArray<double> differentMask_double_tmp = differentMask_double;
-    // int neig = 6;   // Neighbourhood
-    // int count = 0;  // Min number of empty elements in neighbourhood
-    // int size = 1;   // Number of iterations or erosion 
-    // closing3D(differentMask_double_tmp, differentMask_double, neig, count, size);
-
-    double epsilon = 1e-5;
-    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(differentMask_double)
-    {
-        if (DIRECT_MULTIDIM_ELEM(differentMask_double, n) > epsilon)
-        {
-            DIRECT_MULTIDIM_ELEM(differentMask, n) = 1;
-        }
-        else
-        {
-            DIRECT_MULTIDIM_ELEM(differentMask, n) = 0;
-        }
-    }
-}
-
 void ProgStatisticalMap::calculateZscoreMADMap()
 {
     std::cout << "    Calculating Zscore MAD map..." << std::endl;
@@ -1077,114 +891,6 @@ void ProgStatisticalMap::calculateZscoreMADMap()
  ///////////////////////////////////////////////////////////////////////////////
 
     std::cout << "    Zscore MAD map calculated successfully!" << std::endl;
-}
-
-void ProgStatisticalMap::calculateZscoreMap_GlobalSigma()
-{
-    std::cout << "    Calculating Zscore map with global sigma correction..." << std::endl;
-
-    // Mask common region between new map and pool using "cosine average"
-    size_t numCoincidentPx = 0;
-    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
-    {
-        if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask,n) > 0)
-        {
-            double num = (DIRECT_MULTIDIM_ELEM(V(),n) * DIRECT_MULTIDIM_ELEM(avgVolume(), n));
-            double dem = sqrt((DIRECT_MULTIDIM_ELEM(V(),n) * DIRECT_MULTIDIM_ELEM(V(), n)) + (DIRECT_MULTIDIM_ELEM(avgVolume(),n) * DIRECT_MULTIDIM_ELEM(avgVolume(), n)));
-            double div = num / dem;
-
-            // Using 2.1213 as threshold corresponds a consistent intensity of 3 standard deviations between both maps
-            if (div > 2.1213)
-            {
-                DIRECT_MULTIDIM_ELEM(coincidentMask,n) = 1;
-                numCoincidentPx++;
-            }             
-        }
-    }
-    std::cout << "    Number of coincident pixels: " << numCoincidentPx << std::endl;
-
-    double v_avg;
-    double v_std;
-
-    V().computeAvgStdev_within_binary_mask(coincidentMask, v_avg, v_std);
-
-    std::cout << "    Average of the coincident region: " << v_avg << std::endl;
-    std::cout << "    Std of the coincident region: " << v_std << std::endl;
-
-    // El que ponga segundo es que el que se aplica!!!!!!
-    computeSigmaNormIQR(v_std);
-    computeSigmaNormMAD(v_std);
-
-    size_t numDifferentPx = 0;
-    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
-    {
-        if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask,n) > 0)
-        {
-            // Classic Z-score
-            // double zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / DIRECT_MULTIDIM_ELEM(stdVolume(),n);
-
-            // Z-score with sigma norm correction
-            // double zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / sqrt(v_std*v_std + DIRECT_MULTIDIM_ELEM(stdVolume(),n)*DIRECT_MULTIDIM_ELEM(stdVolume(),n));
-
-            // Z-scores based on local MAD
-            double zscore  = (DIRECT_MULTIDIM_ELEM(V(),n) - DIRECT_MULTIDIM_ELEM(avgVolume(),n)) / sqrt(v_std*v_std + DIRECT_MULTIDIM_ELEM(stdVolume(),n)*DIRECT_MULTIDIM_ELEM(stdVolume(),n));
-
-
-            DIRECT_MULTIDIM_ELEM(V_Zscores(),n) = zscore;
-
-            if (zscore > significance_thr)
-            {
-                DIRECT_MULTIDIM_ELEM(differentMask,n) = 1;
-                numDifferentPx++;
-            }
-        }
-    }
-    std::cout << "    Number of different pixels: " << numDifferentPx << std::endl;
-
-    // Remove small components and closing 3D in different mask
-    MultidimArray<double> differentMask_double;
-    differentMask_double.initZeros(Zdim, Ydim, Xdim);
-
-    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(differentMask)
-    {
-        DIRECT_MULTIDIM_ELEM(differentMask_double, n) = 1.0 * DIRECT_MULTIDIM_ELEM(differentMask, n);
-    }
-
-    removeSmallComponents(differentMask_double, 5);
-
-    // MultidimArray<double> differentMask_double_tmp = differentMask_double;
-    // int neig = 6;   // Neighbourhood
-    // int count = 0;  // Min number of empty elements in neighbourhood
-    // int size = 1;   // Number of iterations or erosion 
-    // closing3D(differentMask_double_tmp, differentMask_double, neig, count, size);
-
-    double epsilon = 1e-5;
-    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(differentMask_double)
-    {
-        if (DIRECT_MULTIDIM_ELEM(differentMask_double, n) > epsilon)
-        {
-            DIRECT_MULTIDIM_ELEM(differentMask, n) = 1;
-        }
-        else
-        {
-            DIRECT_MULTIDIM_ELEM(differentMask, n) = 0;
-        }
-    }
-}
-
-void ProgStatisticalMap::calculatePercetileMap()
-{
-    std::cout << "    Calculating percentile map..." << std::endl;
-
-    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V_Zscores())
-    {
-        if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask, n) > 0)
-        {
-            auto pos = std::lower_bound(zScoreAccumulator.begin(), zScoreAccumulator.end(), DIRECT_MULTIDIM_ELEM(V_Zscores(), n)) - zScoreAccumulator.begin();
-            double percentile = (static_cast<double>(pos) / zScoreAccumulator.size()) * 100.0;
-            DIRECT_MULTIDIM_ELEM(V_Percentile(), n) = percentile;
-        }
-    }
 }
 
 
@@ -1435,60 +1141,6 @@ double ProgStatisticalMap::median(std::vector<double> v)
     }
 }
 
-// void ProgStatisticalMap::generateDistanceMask(MultidimArray<int>& mask, MultidimArray<double>& maskDistance, double tao)
-// {
-//     maskDistance.initZeros(Zdim, Ydim, Xdim);
-
-//     for(size_t k = 0; k < Zdim; k++)
-//     {
-//         std::cout << "    Generating distance mask slice " << k+1 << " of " << Zdim << "\r" << std::flush;
-//         for(size_t j = 0; j <Xdim; j++)
-//         {
-//             for(size_t i = 0; i < Ydim; i++)
-//             {
-//                 // Unmasked region
-//                 if (DIRECT_ZYX_ELEM(mask, k, i, j) == 0)
-//                 {
-//                     DIRECT_ZYX_ELEM(maskDistance, k, i, j)= 0.0;
-//                     continue;
-//                 }
-
-//                 // Masked region                
-//                 float minDist2 = 1e30f;
-
-//                 for(size_t kk = 0; kk < Zdim; kk++)
-//                 {
-//                     for(size_t jj = 0; jj < Xdim; jj++)
-//                     {
-//                         for(size_t ii = 0; ii < Ydim; ii++)
-//                         {
-//                             if (DIRECT_ZYX_ELEM(mask, kk, ii, jj) == 0)
-//                             {
-//                                 float dx = float(i - ii);
-//                                 float dy = float(j - jj);
-//                                 float dz = float(k - kk);
-
-//                                 float d2 = dx*dx + dy*dy + dz*dz;
-
-//                                 if (d2 < minDist2)
-//                                     minDist2 = d2;
-//                             }
-//                         }
-//                     }
-//                 }
-
-//                 DIRECT_ZYX_ELEM(maskDistance, k, i, j) = std::sqrt(minDist2) / tao;
-//             }
-//         }
-//     }
-// }
-
-
-#include <vector>
-#include <limits>
-#include <cmath>
-#include <algorithm>
-#include <iostream>
 
 // ------------------------------------------------------------
 // 1D Euclidean Distance Transform (Felzenszwalb & Huttenlocher)
@@ -1651,11 +1303,6 @@ void ProgStatisticalMap::generateDistanceMask(
     std::cout << std::endl;
 }
 
-
-
-double ProgStatisticalMap::normal_cdf(double z) {
-    return 0.5 * (1.0 + std::erf(z / std::sqrt(2.0)));
-}
 
 double ProgStatisticalMap::percentile(MultidimArray<double>& data, double p)
 {
