@@ -242,46 +242,83 @@ void ProgStatisticalMap::writeWeightedMap(FileName fnIn)
     V.write(fnOut);
 }
 
+
 void ProgStatisticalMap::writeMask(FileName fnIn)
 {
-    // Compose filename
+    // Compose filename base
     size_t lastSlashPos = fnIn.find_last_of("/\\");
-    size_t lastDotPos = fnIn.find_last_of('.');
+    size_t lastDotPos   = fnIn.find_last_of('.');
 
-    // ----------- Coincident Mask -----------
-    FileName newFileName = fnIn.substr(lastSlashPos + 1, lastDotPos - lastSlashPos - 1) + "_coincidentMask.mrc";
-    FileName fn_out_coincident_mask = fn_oroot + (fn_oroot.back() == '/' || fn_oroot.back() == '\\' ? "" : "/") + newFileName;
+    const FileName baseName = fnIn.substr(
+        lastSlashPos == FileName::npos ? 0 : lastSlashPos + 1,
+        (lastDotPos == FileName::npos ? fnIn.size() : lastDotPos) -
+        (lastSlashPos == FileName::npos ? 0 : lastSlashPos + 1)
+    );
 
-    int counter = 1;
-    while (std::ifstream(fn_out_coincident_mask)) 
+    const bool rootHasSep = !fn_oroot.empty() &&
+                            (fn_oroot.back() == '/' || fn_oroot.back() == '\\');
+    const FileName rootPrefix = fn_oroot + (rootHasSep ? "" : "/");
+
+    // 1) Coincident Mask
+    FileName fn_out_coincident_mask = rootPrefix + baseName + "_coincidentMask.mrc";
     {
-        fn_out_coincident_mask = fn_oroot + (fn_oroot.back() == '/' || fn_oroot.back() == '\\' ? "" : "/") +
-            fnIn.substr(lastSlashPos + 1, lastDotPos - lastSlashPos - 1) + "_coincidentMask_" + std::to_string(counter++) + ".mrc";
+        int counter = 1;
+        while (std::ifstream(fn_out_coincident_mask))
+            fn_out_coincident_mask = rootPrefix + baseName + "_coincidentMask_" + std::to_string(counter++) + ".mrc";
     }
 
-    // ----------- Different Mask -----------
-    newFileName = fnIn.substr(lastSlashPos + 1, lastDotPos - lastSlashPos - 1) + "_differentMask.mrc";
-    FileName fn_out_different_mask = fn_oroot + (fn_oroot.back() == '/' || fn_oroot.back() == '\\' ? "" : "/") + newFileName;
-
-    counter = 1;
-    while (std::ifstream(fn_out_different_mask)) 
+    // 2) Different Mask
+    FileName fn_out_different_mask = rootPrefix + baseName + "_differentMask.mrc";
     {
-        fn_out_different_mask = fn_oroot + (fn_oroot.back() == '/' || fn_oroot.back() == '\\' ? "" : "/") +
-            fnIn.substr(lastSlashPos + 1, lastDotPos - lastSlashPos - 1) + "_differentMask_" + std::to_string(counter++) + ".mrc";
+        int counter = 1;
+        while (std::ifstream(fn_out_different_mask))
+            fn_out_different_mask = rootPrefix + baseName + "_differentMask_" + std::to_string(counter++) + ".mrc";
     }
 
-    // Write output masks
-    Image<int> saveMask;
-    saveMask() = coincidentMask;
-    saveMask.write(fn_out_coincident_mask);
-    saveMask() = differentMask;
-    saveMask.write(fn_out_different_mask);
+    // 3) Coincident Distance Mask
+    FileName fn_out_coincident_dist = rootPrefix + baseName + "_coincidentDistance.mrc";
+    {
+        int counter = 1;
+        while (std::ifstream(fn_out_coincident_dist))
+            fn_out_coincident_dist = rootPrefix + baseName + "_coincidentDistance_" + std::to_string(counter++) + ".mrc";
+    }
+
+    // 4) Different Distance Mask
+    FileName fn_out_different_dist = rootPrefix + baseName + "_differentDistance.mrc";
+    {
+        int counter = 1;
+        while (std::ifstream(fn_out_different_dist))
+            fn_out_different_dist = rootPrefix + baseName + "_differentDistance_" + std::to_string(counter++) + ".mrc";
+    }
+
+    // Binary masks (int)
+    {
+        Image<int> saveMask;
+        saveMask() = coincidentMask;
+        saveMask.write(fn_out_coincident_mask);
+
+        saveMask() = differentMask;
+        saveMask.write(fn_out_different_mask);
+    }
+
+    // Distance masks (double)
+    {
+        Image<double> saveDist;
+        saveDist() = distanceCoincidentMask;
+        saveDist.write(fn_out_coincident_dist);
+
+        saveDist() = distanceDifferentMask;
+        saveDist.write(fn_out_different_dist);
+    }
 
     #ifdef DEBUG_WRITE_OUTPUT
     std::cout << "Coincident mask saved at: " << fn_out_coincident_mask << std::endl;
-    std::cout << "Different mask saved at: " << fn_out_different_mask << std::endl;
+    std::cout << "Different  mask saved at: " << fn_out_different_mask << std::endl;
+    std::cout << "Coincident distance mask saved at: " << fn_out_coincident_dist << std::endl;
+    std::cout << "Different  distance mask saved at: " << fn_out_different_dist << std::endl;
     #endif
 }
+
 
 
 // Main method ===================================================================
@@ -1150,65 +1187,135 @@ void ProgStatisticalMap::calculatePercetileMap()
     }
 }
 
+
 void ProgStatisticalMap::weightMap()
 { 
     std::cout << "    Calculating weighted map..." << std::endl;
 
-    // Determiane tao (defined as the median distance‑to‑boundary within the tighter ROI)
-    std::vector<double> voxelValues;
+    // Parámetros
+    const double EPS   = 1e-6;   // umbral para excluir fuera/borde (distancia ~0)
+    const double K_EXP = 2.0;    // agresividad del peso: prueba 2 ó 4 si necesitas más efecto
 
-    float coincidentMedianDistance;
-    float differentMedianDistance;
-    float tao;
-    
-    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(coincidentMask)
+    // -------------------------------------------------------------------
+    // 1) Generar "distance masks" en modo RAW usando TU método
+    //    (truco: pasar tao=1.0 => d_norm = d_raw / 1 = d_raw)
+    // -------------------------------------------------------------------
+    generateDistanceMask(coincidentMask, distanceCoincidentMask, 1.0); // d_raw
+    generateDistanceMask(differentMask,  distanceDifferentMask,  1.0); // d_raw
+
+    // -------------------------------------------------------------------
+    // 2) Calcular tau = min(mediana(distancias RAW dentro de ROI coincidente),
+    //                        mediana(distancias RAW dentro de ROI diferente))
+    //    -> Excluimos ceros (fuera/borde)
+    // -------------------------------------------------------------------
+    std::vector<double> voxelValues;
+    voxelValues.reserve(distanceCoincidentMask.nzyxdim / 8);
+
+    // Mediana para ROI coincidente
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(distanceCoincidentMask)
     {
-        if (DIRECT_MULTIDIM_ELEM(coincidentMask, n) > 0)
+        if (DIRECT_MULTIDIM_ELEM(coincidentMask, n) > 0) // dentro de ROI
         {
-            voxelValues.push_back(DIRECT_MULTIDIM_ELEM(coincidentMask, n));
+            double d_raw = DIRECT_MULTIDIM_ELEM(distanceCoincidentMask, n);
+            if (d_raw > EPS) voxelValues.push_back(d_raw);
         }
     }
-
-    coincidentMedianDistance = median(voxelValues);
+    double coincidentMedianDistance = voxelValues.empty() ? 0.0 : median(voxelValues);
     voxelValues.clear();
 
-    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(differentMask)
+    // Mediana para ROI diferente
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(distanceDifferentMask)
     {
+        if (DIRECT_MULTIDIM_ELEM(differentMask, n) > 0) // dentro de ROI
+        {
+            double d_raw = DIRECT_MULTIDIM_ELEM(distanceDifferentMask, n);
+            if (d_raw > EPS) voxelValues.push_back(d_raw);
+        }
+    }
+    double differentMedianDistance = voxelValues.empty() ? 0.0 : median(voxelValues);
+
+    double tao = std::min(coincidentMedianDistance, differentMedianDistance);
+    if (tao <= 0.0) {
+        tao = 1e-6; // salvaguarda si las ROIs son ultra-finas
+        std::cerr << "  [WARN] tau <= 0; using epsilon " << tao << "\n";
+    }
+    std::cout << "  Calculated tau (min median raw distances): " << tao << std::endl;
+
+    // -------------------------------------------------------------------
+    // 3) Medias ponderadas correctas con w = min(1, (d_raw/tau)^k)
+    //    -> Excluimos fuera/borde (d_raw <= EPS)
+    // -------------------------------------------------------------------
+    double coincident_num = 0.0;
+    double coincident_den = 0.0;
+    double different_num  = 0.0;
+    double different_den  = 0.0;
+
+    // Diagnóstico opcional de pesos (para entender sensibilidad)
+    size_t C_total=0, C_full=0, D_total=0, D_full=0;
+
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+    {
+        // --- ROI coincidente ---
+        if (DIRECT_MULTIDIM_ELEM(coincidentMask, n) > 0)
+        {
+            double d_raw = DIRECT_MULTIDIM_ELEM(distanceCoincidentMask, n); // d_raw (porque arriba tao=1)
+            if (d_raw > EPS)
+            {
+                double d_norm = d_raw / tao;
+                double w = std::min(1.0, std::pow(d_norm, K_EXP));
+                coincident_num += w * DIRECT_MULTIDIM_ELEM(V(), n);
+                coincident_den += w;
+
+                // diag
+                ++C_total;
+                if (w >= 1.0 - 1e-12) ++C_full;
+            }
+        }
+
+        // --- ROI diferente ---
         if (DIRECT_MULTIDIM_ELEM(differentMask, n) > 0)
         {
-            voxelValues.push_back(DIRECT_MULTIDIM_ELEM(differentMask, n));
+            double d_raw = DIRECT_MULTIDIM_ELEM(distanceDifferentMask, n);
+            if (d_raw > EPS)
+            {
+                double d_norm = d_raw / tao;
+                double w = std::min(1.0, std::pow(d_norm, K_EXP));
+                different_num += w * DIRECT_MULTIDIM_ELEM(V(), n);
+                different_den += w;
+
+                // diag
+                ++D_total;
+                if (w >= 1.0 - 1e-12) ++D_full;
+            }
         }
     }
 
-    differentMedianDistance = median(voxelValues);
+    double coincident_avg = (coincident_den > 0.0) ? (coincident_num / coincident_den)
+                                                   : std::numeric_limits<double>::quiet_NaN();
+    double different_avg  = (different_den  > 0.0) ? (different_num  / different_den)
+                                                   : std::numeric_limits<double>::quiet_NaN();
 
-    tao = std::min(coincidentMedianDistance, differentMedianDistance);
+    double partialOccupancyFactor = different_avg / coincident_avg;
 
-    // Compute distance masks
-    MultidimArray<double> distanceCoincidentMask;
-    MultidimArray<double> distanceDifferentMask;
+    std::cout << "  coincident_avg ---------------------> " << coincident_avg << std::endl;
+    std::cout << "  different_avg  ---------------------> " << different_avg  << std::endl;
+    std::cout << "  partialOccupancyFactor -------------> " << partialOccupancyFactor << std::endl;
 
-    generateDistanceMask(coincidentMask, distanceCoincidentMask, tao);
-    generateDistanceMask(differentMask, distanceDifferentMask, tao);
+    // Diagnóstico (opcional pero recomendable las primeras veces)
+    if (C_total > 0 || D_total > 0) {
+        double pctC = (C_total>0) ? (100.0 * C_full / (double)C_total) : 0.0;
+        double pctD = (D_total>0) ? (100.0 * D_full / (double)D_total) : 0.0;
+        std::cout << "  [diag] coincident: %w==1 = " << pctC << "% (" << C_full << "/" << C_total << ")\n";
+        std::cout << "  [diag] different : %w==1 = " << pctD << "% (" << D_full << "/" << D_total << ")\n";
+    }
 
-    // Compare intesities between coincident and different regions
-    double coincident_avg;
-    double different_avg;
-    double unused_std;
-
-    V().computeAvgStdev_within_binary_mask(coincidentMask, coincident_avg, unused_std);
-    V().computeAvgStdev_within_binary_mask(differentMask, different_avg, unused_std);
-
-    partialOccupancyFactor = different_avg / coincident_avg;
-
-    std::cout << "coincident_avg ---------------------> " << coincident_avg << std::endl;
-    std::cout << "different_avg ---------------------> " << different_avg << std::endl;
-    std::cout << "partialOccupancyFactor ---------------------> " << partialOccupancyFactor << std::endl;
-
-    // Subtract weighted average map 
+    // -------------------------------------------------------------------
+    // 4) Resta del mapa medio ponderado global (tu lógica original)
+    // -------------------------------------------------------------------
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
-        DIRECT_MULTIDIM_ELEM(V(),n) =  DIRECT_MULTIDIM_ELEM(V(),n) - (DIRECT_MULTIDIM_ELEM(avgVolume(),n) * (1-partialOccupancyFactor));
+        DIRECT_MULTIDIM_ELEM(V(),n) =  DIRECT_MULTIDIM_ELEM(V(),n)
+            - (DIRECT_MULTIDIM_ELEM(avgVolume(),n) * (1 - partialOccupancyFactor));
     }
 }
 
@@ -1328,52 +1435,222 @@ double ProgStatisticalMap::median(std::vector<double> v)
     }
 }
 
-void ProgStatisticalMap::generateDistanceMask(MultidimArray<int>& mask, MultidimArray<double>& maskDistance, double tao)
+// void ProgStatisticalMap::generateDistanceMask(MultidimArray<int>& mask, MultidimArray<double>& maskDistance, double tao)
+// {
+//     maskDistance.initZeros(Zdim, Ydim, Xdim);
+
+//     for(size_t k = 0; k < Zdim; k++)
+//     {
+//         std::cout << "    Generating distance mask slice " << k+1 << " of " << Zdim << "\r" << std::flush;
+//         for(size_t j = 0; j <Xdim; j++)
+//         {
+//             for(size_t i = 0; i < Ydim; i++)
+//             {
+//                 // Unmasked region
+//                 if (DIRECT_ZYX_ELEM(mask, k, i, j) == 0)
+//                 {
+//                     DIRECT_ZYX_ELEM(maskDistance, k, i, j)= 0.0;
+//                     continue;
+//                 }
+
+//                 // Masked region                
+//                 float minDist2 = 1e30f;
+
+//                 for(size_t kk = 0; kk < Zdim; kk++)
+//                 {
+//                     for(size_t jj = 0; jj < Xdim; jj++)
+//                     {
+//                         for(size_t ii = 0; ii < Ydim; ii++)
+//                         {
+//                             if (DIRECT_ZYX_ELEM(mask, kk, ii, jj) == 0)
+//                             {
+//                                 float dx = float(i - ii);
+//                                 float dy = float(j - jj);
+//                                 float dz = float(k - kk);
+
+//                                 float d2 = dx*dx + dy*dy + dz*dz;
+
+//                                 if (d2 < minDist2)
+//                                     minDist2 = d2;
+//                             }
+//                         }
+//                     }
+//                 }
+
+//                 DIRECT_ZYX_ELEM(maskDistance, k, i, j) = std::sqrt(minDist2) / tao;
+//             }
+//         }
+//     }
+// }
+
+
+#include <vector>
+#include <limits>
+#include <cmath>
+#include <algorithm>
+#include <iostream>
+
+// ------------------------------------------------------------
+// 1D Euclidean Distance Transform (Felzenszwalb & Huttenlocher)
+// Entrada: f (0 en background, +INF en foreground)
+// Salida:  d = distancia^2 a 0 más cercano a lo largo de la línea
+// Complejidad: O(n)
+// ------------------------------------------------------------
+template<typename T>
+static inline void edt_1d(const T* f, T* d, int n)
 {
-    maskDistance.initZeros(Zdim, Ydim, Xdim);
+    const T INF = std::numeric_limits<T>::infinity();
+    std::vector<int> v(n);
+    std::vector<T> z(n + 1);
 
-    for(size_t k = 0; k < Zdim; k++)
+    int k = 0;
+    v[0] = 0;
+    z[0] = -INF;
+    z[1] = +INF;
+
+    auto sq = [](T x) { return x * x; };
+
+    for (int q = 1; q < n; ++q)
     {
-        for(size_t j = 0; j <Xdim; j++)
+        T s;
+        while (true)
         {
-            for(size_t i = 0; i < Ydim; i++)
+            int p = v[k];
+            // Intersección entre parábolas centradas en p y q
+            s = ((f[q] + sq((T)q)) - (f[p] + sq((T)p))) / (2 * (q - p));
+            if (s <= z[k])
             {
-                // Unmasked region
-                if (DIRECT_ZYX_ELEM(mask, k, i, j) == 0)
-                {
-                    DIRECT_ZYX_ELEM(distanceMap, k, i, j)= 0.0;
-                    continue;
-                }
-
-                // Masked region                
-                float minDist2 = 1e30f;
-
-                for(size_t kk = 0; kk < Zdim; kk++)
-                {
-                    for(size_t jj = 0; jj < Xdim; jj++)
-                    {
-                        for(size_t ii = 0; ii < Ydim; ii++)
-                        {
-                            if (DIRECT_ZYX_ELEM(mask, kk, ii, jj) == 0)
-                            {
-                                float dx = float(i - ii);
-                                float dy = float(j - jj);
-                                float dz = float(k - kk);
-
-                                float d2 = dx*dx + dy*dy + dz*dz;
-
-                                if (d2 < minDist2)
-                                    minDist2 = d2;
-                            }
-                        }
-                    }
-                }
-
-                DIRECT_MULTIDIM_ELEM(distanceMap, n) = std::sqrt(minDist2) / tao;
+                if (k == 0) break;
+                --k;
             }
+            else break;
+        }
+        ++k;
+        v[k] = q;
+        z[k] = s;
+        z[k + 1] = +INF;
+    }
+
+    int kk = 0;
+    for (int q = 0; q < n; ++q)
+    {
+        while (z[kk + 1] < q) ++kk;
+        T dx = (T)q - (T)v[kk];
+        d[q] = dx * dx + f[v[kk]];
+    }
+}
+
+// ------------------------------------------------------------
+// EDT 3D exacto (pases separables X -> Y -> Z) usando tu layout ZYX
+// mask: 0 = fondo (fuera ROI), !=0 = interior ROI
+// dist2: distancias^2 al fondo tras 3 pases
+// ------------------------------------------------------------
+static inline void edt3d_exact_zyx(
+    MultidimArray<int>& mask,
+    MultidimArray<double>& dist2, // salida (dist^2)
+    size_t Zdim, size_t Ydim, size_t Xdim)
+{
+    const double INF = std::numeric_limits<double>::infinity();
+
+    // 0) Inicializa dist2: 0 en fondo, INF en ROI
+    dist2.initZeros(Zdim, Ydim, Xdim);
+    for (size_t k = 0; k < Zdim; ++k)
+        for (size_t j = 0; j < Xdim; ++j)
+            for (size_t i = 0; i < Ydim; ++i)
+                DIRECT_ZYX_ELEM(dist2, k, i, j) =
+                    (DIRECT_ZYX_ELEM(mask, k, i, j) == 0) ? 0.0 : INF;
+
+    // Buffers temporales para líneas (longitud = max dimensión)
+    const int Lmax = (int)std::max({ Zdim, Ydim, Xdim });
+    std::vector<double> line(Lmax), out(Lmax);
+
+    // --- Pase X: para cada (z,y), línea a lo largo de x=j=0..Xdim-1
+    for (size_t k = 0; k < Zdim; ++k)
+    {
+        for (size_t i = 0; i < Ydim; ++i)
+        {
+            for (size_t j = 0; j < Xdim; ++j)
+                line[(int)j] = DIRECT_ZYX_ELEM(dist2, k, i, j);
+
+            edt_1d(line.data(), out.data(), (int)Xdim);
+
+            for (size_t j = 0; j < Xdim; ++j)
+                DIRECT_ZYX_ELEM(dist2, k, i, j) = out[(int)j];
+        }
+    }
+
+    // --- Pase Y: para cada (z,x), línea a lo largo de y=i=0..Ydim-1
+    for (size_t k = 0; k < Zdim; ++k)
+    {
+        for (size_t j = 0; j < Xdim; ++j)
+        {
+            for (size_t i = 0; i < Ydim; ++i)
+                line[(int)i] = DIRECT_ZYX_ELEM(dist2, k, i, j);
+
+            edt_1d(line.data(), out.data(), (int)Ydim);
+
+            for (size_t i = 0; i < Ydim; ++i)
+                DIRECT_ZYX_ELEM(dist2, k, i, j) = out[(int)i];
+        }
+    }
+
+    // --- Pase Z: para cada (y,x), línea a lo largo de z=k=0..Zdim-1
+    for (size_t i = 0; i < Ydim; ++i)
+    {
+        for (size_t j = 0; j < Xdim; ++j)
+        {
+            for (size_t k = 0; k < Zdim; ++k)
+                line[(int)k] = DIRECT_ZYX_ELEM(dist2, k, i, j);
+
+            edt_1d(line.data(), out.data(), (int)Zdim);
+
+            for (size_t k = 0; k < Zdim; ++k)
+                DIRECT_ZYX_ELEM(dist2, k, i, j) = out[(int)k];
         }
     }
 }
+
+// ------------------------------------------------------------
+// Tu método re‑hecho con EDT exacto y misma firma/sintaxis
+// ------------------------------------------------------------
+void ProgStatisticalMap::generateDistanceMask(
+    MultidimArray<int>&    mask,
+    MultidimArray<double>& maskDistance,
+    double tao)
+{
+    // 1) Distancia euclídea exacta al fondo (al cuadrado)
+    MultidimArray<double> dist2;
+    edt3d_exact_zyx(mask, dist2, Zdim, Ydim, Xdim);
+
+    // 2) Normaliza por tao y deja 0 fuera de ROI
+    maskDistance.initZeros(Zdim, Ydim, Xdim);
+
+    for (size_t k = 0; k < Zdim; ++k)
+    {
+        std::cout << "    Generating distance mask slice " << (k + 1)
+                  << " of " << Zdim << "\r" << std::flush;
+
+        for (size_t j = 0; j < Xdim; ++j)
+        {
+            for (size_t i = 0; i < Ydim; ++i)
+            {
+                if (DIRECT_ZYX_ELEM(mask, k, i, j) == 0)
+                {
+                    DIRECT_ZYX_ELEM(maskDistance, k, i, j) = 0.0;
+                }
+                else
+                {
+                    const double d2 = DIRECT_ZYX_ELEM(dist2, k, i, j);
+                    const double d  = (d2 > 0.0) ? std::sqrt(d2) : 0.0;
+                    DIRECT_ZYX_ELEM(maskDistance, k, i, j) =
+                        (tao > 0.0) ? (d / tao) : 0.0;
+                }
+            }
+        }
+    }
+    std::cout << std::endl;
+}
+
 
 
 double ProgStatisticalMap::normal_cdf(double z) {
