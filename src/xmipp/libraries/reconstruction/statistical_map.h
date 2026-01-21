@@ -132,7 +132,6 @@ public:
     void calculateAvgDiffMap();
     void computeSigmaNormMAD(double& sigmaNorm);
     void computeSigmaNormIQR(double& sigmaNorm);
-    void calculateZscoreMap_GlobalSigma();
     void weightMap();
 
     // ---------------------- UTILS METHODS ------------------------------
@@ -143,7 +142,7 @@ public:
 
     double t_cdf(double t, int nu);
     double t_p_value(double t_stat, int nu);
-    double percentile(MultidimArray<double>& data, double p);
+    double percentile(const std::vector<double>& values, double p);
 
 
     // Methdos for new approach

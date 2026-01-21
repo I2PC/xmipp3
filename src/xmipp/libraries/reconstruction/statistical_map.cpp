@@ -894,77 +894,64 @@ void ProgStatisticalMap::calculateZscoreMADMap()
 }
 
 
+
 void ProgStatisticalMap::weightMap()
 { 
     std::cout << "    Calculating weighted map..." << std::endl;
 
     // Parámetros
-    const double EPS   = 1e-6;   // umbral para excluir fuera/borde (distancia ~0)
-    const double K_EXP = 2.0;    // agresividad del peso: prueba 2 ó 4 si necesitas más efecto
+    const double EPS   = 1e-6;  // excluir fuera/borde
+    const double K_EXP = 2.0;   // agresividad del peso: prueba 2 o 4 si quieres más efecto
 
-    // -------------------------------------------------------------------
-    // 1) Generar "distance masks" en modo RAW usando TU método
-    //    (truco: pasar tao=1.0 => d_norm = d_raw / 1 = d_raw)
-    // -------------------------------------------------------------------
+    // 1) Distancias RAW (truco: tao=1.0 => d_norm = d_raw)
     generateDistanceMask(coincidentMask, distanceCoincidentMask, 1.0); // d_raw
     generateDistanceMask(differentMask,  distanceDifferentMask,  1.0); // d_raw
 
-    // -------------------------------------------------------------------
-    // 2) Calcular tau = min(mediana(distancias RAW dentro de ROI coincidente),
-    //                        mediana(distancias RAW dentro de ROI diferente))
-    //    -> Excluimos ceros (fuera/borde)
-    // -------------------------------------------------------------------
-    std::vector<double> voxelValues;
-    voxelValues.reserve(distanceCoincidentMask.nzyxdim / 8);
+    // 2) Construye vectores con distancias RAW > EPS dentro de cada ROI (filtrado fuera del percentile)
+    std::vector<double> distCoinPos; distCoinPos.reserve(4096);
+    std::vector<double> distDiffPos; distDiffPos.reserve(4096);
 
-    // Mediana para ROI coincidente
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(distanceCoincidentMask)
     {
-        if (DIRECT_MULTIDIM_ELEM(coincidentMask, n) > 0) // dentro de ROI
-        {
-            double d_raw = DIRECT_MULTIDIM_ELEM(distanceCoincidentMask, n);
-            if (d_raw > EPS) voxelValues.push_back(d_raw);
+        if (DIRECT_MULTIDIM_ELEM(coincidentMask, n) > 0) {
+            double d = DIRECT_MULTIDIM_ELEM(distanceCoincidentMask, n);
+            if (d > EPS) distCoinPos.push_back(d);
         }
     }
-    double coincidentMedianDistance = voxelValues.empty() ? 0.0 : median(voxelValues);
-    voxelValues.clear();
-
-    // Mediana para ROI diferente
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(distanceDifferentMask)
     {
-        if (DIRECT_MULTIDIM_ELEM(differentMask, n) > 0) // dentro de ROI
-        {
-            double d_raw = DIRECT_MULTIDIM_ELEM(distanceDifferentMask, n);
-            if (d_raw > EPS) voxelValues.push_back(d_raw);
+        if (DIRECT_MULTIDIM_ELEM(differentMask, n) > 0) {
+            double d = DIRECT_MULTIDIM_ELEM(distanceDifferentMask, n);
+            if (d > EPS) distDiffPos.push_back(d);
         }
     }
-    double differentMedianDistance = voxelValues.empty() ? 0.0 : median(voxelValues);
 
-    double tao = std::min(coincidentMedianDistance, differentMedianDistance);
-    if (tao <= 0.0) {
-        tao = 1e-6; // salvaguarda si las ROIs son ultra-finas
-        std::cerr << "  [WARN] tau <= 0; using epsilon " << tao << "\n";
+    // 3) tau = min(P95_tight, P95_loose) sobre distancias RAW > 0
+    double tauA = distCoinPos.empty() ? 0.0 : percentile(distCoinPos, 95.0);
+    double tauB = distDiffPos.empty() ? 0.0 : percentile(distDiffPos, 95.0);
+    double tao  = std::min(tauA, tauB);
+
+    // Salvaguardas: si queda <= 1, forzamos algo > 1 para evitar saturación total
+    if (tao <= 1.0 + 1e-12) {
+        // Opción conservadora: forzar sqrt(2)
+        tao = 1.41421356237; // sqrt(2)
+        std::cerr << "  [WARN] tau (P95 tight-anchored) <= 1; forcing tau = sqrt(2)\n";
     }
-    std::cout << "  Calculated tau (min median raw distances): " << tao << std::endl;
+    std::cout << "  Calculated tau (tight-anchored P95): " << tao << std::endl;
 
-    // -------------------------------------------------------------------
-    // 3) Medias ponderadas correctas con w = min(1, (d_raw/tau)^k)
-    //    -> Excluimos fuera/borde (d_raw <= EPS)
-    // -------------------------------------------------------------------
-    double coincident_num = 0.0;
-    double coincident_den = 0.0;
-    double different_num  = 0.0;
-    double different_den  = 0.0;
+    // 4) Medias ponderadas con w = min(1, (d_raw/tau)^k), excluyendo d_raw <= EPS
+    double coincident_num = 0.0, coincident_den = 0.0;
+    double different_num  = 0.0, different_den  = 0.0;
 
-    // Diagnóstico opcional de pesos (para entender sensibilidad)
+    // Diagnóstico: porcentaje de pesos saturados (w==1)
     size_t C_total=0, C_full=0, D_total=0, D_full=0;
 
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
-        // --- ROI coincidente ---
+        // ROI coincidente
         if (DIRECT_MULTIDIM_ELEM(coincidentMask, n) > 0)
         {
-            double d_raw = DIRECT_MULTIDIM_ELEM(distanceCoincidentMask, n); // d_raw (porque arriba tao=1)
+            double d_raw = DIRECT_MULTIDIM_ELEM(distanceCoincidentMask, n);
             if (d_raw > EPS)
             {
                 double d_norm = d_raw / tao;
@@ -972,13 +959,11 @@ void ProgStatisticalMap::weightMap()
                 coincident_num += w * DIRECT_MULTIDIM_ELEM(V(), n);
                 coincident_den += w;
 
-                // diag
-                ++C_total;
-                if (w >= 1.0 - 1e-12) ++C_full;
+                ++C_total; if (w >= 1.0 - 1e-12) ++C_full;
             }
         }
 
-        // --- ROI diferente ---
+        // ROI diferente
         if (DIRECT_MULTIDIM_ELEM(differentMask, n) > 0)
         {
             double d_raw = DIRECT_MULTIDIM_ELEM(distanceDifferentMask, n);
@@ -989,9 +974,7 @@ void ProgStatisticalMap::weightMap()
                 different_num += w * DIRECT_MULTIDIM_ELEM(V(), n);
                 different_den += w;
 
-                // diag
-                ++D_total;
-                if (w >= 1.0 - 1e-12) ++D_full;
+                ++D_total; if (w >= 1.0 - 1e-12) ++D_full;
             }
         }
     }
@@ -1000,14 +983,13 @@ void ProgStatisticalMap::weightMap()
                                                    : std::numeric_limits<double>::quiet_NaN();
     double different_avg  = (different_den  > 0.0) ? (different_num  / different_den)
                                                    : std::numeric_limits<double>::quiet_NaN();
-
     double partialOccupancyFactor = different_avg / coincident_avg;
 
     std::cout << "  coincident_avg ---------------------> " << coincident_avg << std::endl;
     std::cout << "  different_avg  ---------------------> " << different_avg  << std::endl;
     std::cout << "  partialOccupancyFactor -------------> " << partialOccupancyFactor << std::endl;
 
-    // Diagnóstico (opcional pero recomendable las primeras veces)
+    // Diagnóstico de saturación
     if (C_total > 0 || D_total > 0) {
         double pctC = (C_total>0) ? (100.0 * C_full / (double)C_total) : 0.0;
         double pctD = (D_total>0) ? (100.0 * D_full / (double)D_total) : 0.0;
@@ -1015,39 +997,13 @@ void ProgStatisticalMap::weightMap()
         std::cout << "  [diag] different : %w==1 = " << pctD << "% (" << D_full << "/" << D_total << ")\n";
     }
 
-    // -------------------------------------------------------------------
-    // 4) Resta del mapa medio ponderado global (tu lógica original)
-    // -------------------------------------------------------------------
+    // 5) Tu resta final
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
-        DIRECT_MULTIDIM_ELEM(V(),n) =  DIRECT_MULTIDIM_ELEM(V(),n)
-            - (DIRECT_MULTIDIM_ELEM(avgVolume(),n) * (1 - partialOccupancyFactor));
+        DIRECT_MULTIDIM_ELEM(V(),n) =
+            DIRECT_MULTIDIM_ELEM(V(),n) - (DIRECT_MULTIDIM_ELEM(avgVolume(),n) * (1 - partialOccupancyFactor));
     }
 }
-
-double ProgStatisticalMap::t_cdf(double t, int nu) {
-    // Adapted from: ACM Algorithm 395 (Hill, 1962)
-    // Two-tailed probability
-    double a = t / std::sqrt(nu);
-    double b = 1.0 + (a * a);
-    double y = std::pow(b, -0.5 * (nu + 1));
-    
-    double sum = 0.0;
-    if (nu % 2 == 0) {
-        for (int i = 1; i <= nu / 2 - 1; ++i)
-            sum += std::tgamma(nu / 2.0) / (std::tgamma(i + 1.0) * std::tgamma(nu / 2.0 - i)) * std::pow(a * a / b, i);
-        return 0.5 + a * y * sum;
-    } else {
-        return 0.5 + std::asin(a / std::sqrt(b)) / M_PI;
-    }
-}
-
-// Returns two-sided p-value
-double ProgStatisticalMap::t_p_value(double t_stat, int nu) {
-    double cdf = t_cdf(t_stat, nu);
-    return 2 * std::min(cdf, 1.0 - cdf);
-}
-
 
 
 // Utils methods ===================================================================
@@ -1304,68 +1260,27 @@ void ProgStatisticalMap::generateDistanceMask(
 }
 
 
-double ProgStatisticalMap::percentile(MultidimArray<double>& data, double p)
+double ProgStatisticalMap::percentile(const std::vector<double>& values, double p)
 {
-    // MultidimArray<double> data_sorted;
-    // data.sort(data_sorted);
+    // Caso trivial
+    if (values.empty()) return 0.0;
 
-    // std::cout << "------------------------" << std::endl;
-    // std::cout << "NZYXSIZE(data_sorted)   "  << NZYXSIZE(data_sorted) << std::endl;
-    // std::cout << "NZYXSIZE(data)   "  << NZYXSIZE(data) << std::endl;
+    // Clamp p a [0, 100]
+    if (p <= 0.0) return *std::min_element(values.begin(), values.end());
+    if (p >= 100.0) return *std::max_element(values.begin(), values.end());
 
-    // double pos = (p / 100.0) * (NZYXSIZE(data_sorted) - 1);
-    // size_t idx = static_cast<size_t>(std::floor(pos));
-    // double frac = pos - idx;
+    // Copia y ordena (si prefieres evitar O(n log n), puedo darte versión con nth_element)
+    std::vector<double> v = values;
+    std::sort(v.begin(), v.end());
 
-    // std::cout << "idx   "  <<  idx << std::endl;
-    // std::cout << "pos   "  <<  pos << std::endl;
-    // std::cout << "frac   "  << frac << std::endl;
+    const double pos  = (p / 100.0) * (static_cast<double>(v.size() - 1));
+    const size_t i0   = static_cast<size_t>(std::floor(pos));
+    const size_t i1   = static_cast<size_t>(std::ceil(pos));
+    const double frac = pos - static_cast<double>(i0);
 
-    // // Linear interpolation
-    // // double percentile = DIRECT_MULTIDIM_ELEM(data_sorted, idx) * (1.0 - frac) + DIRECT_MULTIDIM_ELEM(data_sorted, idx+1) * frac;
-    // double percentile = DIRECT_MULTIDIM_ELEM(data_sorted, NZYXSIZE(data_sorted)-1);
+    const double v0 = v[i0];
+    const double v1 = v[i1];
 
-    // #ifdef DEBUG_PERCENTILE
-    // std::cout << "Calulated percentile: " << percentile << std::endl;
-    // #endif
-
-    // std::cout << "------------------------" << std::endl;
-
-    // return percentile;
-
-    MultidimArray<double> data_sorted;
-    data.sort(data_sorted);
-
-    std::cout << "------------------------" << std::endl;
-    std::cout << "NZYXSIZE(data_sorted)   "  << NZYXSIZE(data_sorted) << std::endl;
-    std::cout << "NZYXSIZE(data)   "  << NZYXSIZE(data) << std::endl;
-
-    double p_over3 = 0;
-    double p_over0 = 0;
-
-    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(data_sorted)
-    {
-        if (DIRECT_MULTIDIM_ELEM(data_sorted, n) > 0)
-        {
-            p_over0++;
-
-            if (DIRECT_MULTIDIM_ELEM(data_sorted, n) > 3)
-            {
-                p_over3++;
-            }        
-        }
-    }
-
-    double calculated_percentile = (p_over3/p_over0) * NZYXSIZE(data_sorted);
-
-    std::cout << "p_over0 " << p_over0 << std::endl;
-    std::cout << "p_over3 " << p_over3 << std::endl;
-
-    #ifdef DEBUG_PERCENTILE
-    std::cout << "Calulated percentile: " << calculated_percentile << std::endl;
-    #endif
-
-    std::cout << "------------------------" << std::endl;
-
-    return calculated_percentile;
+    // Interpolación lineal
+    return v0 * (1.0 - frac) + v1 * frac;
 }
