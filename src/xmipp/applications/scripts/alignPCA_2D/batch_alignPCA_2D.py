@@ -119,7 +119,7 @@ if __name__=="__main__":
     if refImages:
         maxRes = highRes
     else: 
-        maxRes = 18.0   
+        maxRes = 16.0   
     freqBn, cvecs, coef = pca.calculatePCAbasis(mmap, Ntrain, nBand, dim, sampling, maxRes, 
                                                 minRes=530, per_eig=per_eig_value, batchPCA=True)
 
