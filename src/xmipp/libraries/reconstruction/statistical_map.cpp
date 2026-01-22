@@ -859,15 +859,27 @@ void ProgStatisticalMap::calculateZscoreMADMap()
     {
         if (DIRECT_MULTIDIM_ELEM(positiveMask,n) > 0)
         {
-            double num = (DIRECT_MULTIDIM_ELEM(V(),n) * DIRECT_MULTIDIM_ELEM(avgVolume(), n));
-            double dem = sqrt((DIRECT_MULTIDIM_ELEM(V(),n) * DIRECT_MULTIDIM_ELEM(V(), n)) + (DIRECT_MULTIDIM_ELEM(avgVolume(),n) * DIRECT_MULTIDIM_ELEM(avgVolume(), n)));
-            double div = num / dem;
+            // Reward signal consistency (over the noise)
+            bool consistency = DIRECT_MULTIDIM_ELEM(V_Zscores(), n) < 1;
+            
+            // Reward signal intensity
+            double localSigma = sqrt(mapMAD*mapMAD + DIRECT_MULTIDIM_ELEM(stdVolume(),n)*DIRECT_MULTIDIM_ELEM(stdVolume(),n));
+            bool intesity = DIRECT_MULTIDIM_ELEM(V(),n) > significance_thr * localSigma && DIRECT_MULTIDIM_ELEM(avgVolume(),n) > significance_thr * localSigma;
 
-            // Using 2.1213 as threshold corresponds a consistent intensity of 3 standard deviations between both maps
-            if (div > 2.1213)
+            if (intesity && consistency)
             {
                 DIRECT_MULTIDIM_ELEM(coincidentMask,n) = 1;
-            }             
+            }       
+
+            // double num = (DIRECT_MULTIDIM_ELEM(V(),n) * DIRECT_MULTIDIM_ELEM(avgVolume(), n));
+            // double dem = sqrt((DIRECT_MULTIDIM_ELEM(V(),n) * DIRECT_MULTIDIM_ELEM(V(), n)) + (DIRECT_MULTIDIM_ELEM(avgVolume(),n) * DIRECT_MULTIDIM_ELEM(avgVolume(), n)));
+            // double div = num / dem;
+
+            // // Using 2.1213 as threshold corresponds a consistent intensity of 3 standard deviations between both maps
+            // if (div > 2.1213)
+            // {
+            //     DIRECT_MULTIDIM_ELEM(coincidentMask,n) = 1;
+            // }             
         }
     }
 
