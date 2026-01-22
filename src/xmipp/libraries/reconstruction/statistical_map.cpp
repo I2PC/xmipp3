@@ -982,8 +982,24 @@ void ProgStatisticalMap::calculateZscoreMADMap()
 
 void ProgStatisticalMap::weightMap()
 {
-    std::cout << "    Calculating weighted map (switchable POF)..." << std::endl;
+    std::cout << "    Calculating weighted map..." << std::endl;
 
+    // --- Raw partial occupancy factor
+    double raw_different_avg;
+    double raw_coincident_avg;
+    double foo;
+
+    V().computeAvgStdev_within_binary_mask(coincidentMask, raw_coincident_avg, foo);
+    V().computeAvgStdev_within_binary_mask(differentMask,  raw_different_avg,  foo);
+
+    double rawPartialOccupancyFactor = raw_different_avg / raw_coincident_avg;
+
+    std::cout << "  raw coincident_avg ---------------------> " << raw_coincident_avg << std::endl;
+    std::cout << "  raw different_avg  ---------------------> " << raw_different_avg  << std::endl;
+    std::cout << "  raw partialOccupancyFactor -------------> " << rawPartialOccupancyFactor << std::endl;
+
+    // --- Weighted partial occupancy factor
+    
     // Select mode (toggle this flag)
     enum class POFMode { CorePercentile, RankMatching };
     const POFMode MODE = POFMode::CorePercentile; // <-- switch to RankMatching if desired
