@@ -54,6 +54,7 @@ class ProgStatisticalMap: public XmippProgram
     FileName fn_mapPool;                    // Input metadata with map pool for analysis
     FileName fn_mapPool_statistical;        // Input metadata with map pool for statistical map calculation
     FileName fn_oroot;                      // Location for saving output maps
+    FileName fn_mask;                       // Protein mask filename
     double sampling_rate;                   // Sampling rate of input maps
     double protein_radius;                  // Protein radius
     double significance_thr;                // Significance Z-score threshold
@@ -63,6 +64,7 @@ class ProgStatisticalMap: public XmippProgram
     FileName fn_out_std_map;
     FileName fn_out_median_map;
     FileName fn_out_mad_map;
+    bool proteinMaskProvided = false;
 
     // Volume dimensions
     bool dimInitialized = false;
@@ -83,7 +85,7 @@ class ProgStatisticalMap: public XmippProgram
     Image<double> avgVolume;                // Average volume
     Image<double> stdVolume;                // Standard deviation volume
     Image<double> avgDiffVolume;            // Average difference volume
-    MultidimArray<int> proteinRadiusMask;   // Mask for focus analysis if protein radius provided
+    MultidimArray<int> ROI_mask;   // Mask for focus analysis if protein radius provided
     MultidimArray<int> coincidentMask;      // Mask for coincident regions between each input map and the statiscal pool
     MultidimArray<int> differentMask;       // Mask for different regions between each input map and the statiscal pool
     MultidimArray<int> positiveMask;        // Mask for positive values in each input map

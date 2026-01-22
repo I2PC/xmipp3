@@ -45,21 +45,47 @@ void ProgStatisticalMap::readParams()
     fn_mapPool_statistical = getParam("--input_mapPool");
     fn_oroot = getParam("--oroot");
     sampling_rate = getDoubleParam("--sampling_rate");
-    protein_radius = getDoubleParam("--protein_radius");
     significance_thr = getDoubleParam("--significance_thr");
+
+    if (checkParam("--protein_mask") && checkParam("--protein_radius"))
+    {
+        REPORT_ERROR(ERR_ARG_INCORRECT,"--protein_mask and --protein_radius are excluyent");
+    }
+    else if (checkParam("--protein_mask"))
+    {
+        fn_mask = getParam("--protein_mask");
+        proteinMaskProvided = true;
+    }
+    else
+    {
+        protein_radius = getDoubleParam("--protein_radius");
+    }
 }
 
 void ProgStatisticalMap::show() const
 {
     if (!verbose)
         return;
+
+    std::string maskMessage;
+
+
+    if (proteinMaskProvided) 
+    {
+        maskMessage = "Input mask for ROI definition:\t" + fn_mask;
+    } 
+    else 
+    {
+        maskMessage = "Protein radius for ROI definition:\t" + std::to_string(protein_radius);
+    }
+
 	std::cout
     << "RUNNING IN MAD (MEAN AVERAGE DEVIATION) MODE!!!!!!!!!!!!!!!" << std::endl
 	<< "Input metadata with map pool for analysis:\t" << fn_mapPool << std::endl
 	<< "Input metadata with map pool for statistical map calculation:\t" << fn_mapPool_statistical << std::endl
 	<< "Output location for statistical volumes:\t" << fn_oroot << std::endl
+    << maskMessage << std::endl
 	<< "Sampling rate:\t" << sampling_rate << std::endl
-	<< "Protein radius:\t" << protein_radius << std::endl
 	<< "Significance Z-score threshold:\t" << significance_thr << std::endl;
 }
 
@@ -74,8 +100,9 @@ void ProgStatisticalMap::defineParams()
     addParamsLine("--input_mapPool <input_mapPool=\"\">       : Input metadata containing map pool for statistical map calculation.");
     addParamsLine("--oroot <oroot=\"\">                       : Location for saving output.");
     addParamsLine("--sampling_rate <sampling_rate=1.0>        : Sampling rate of the input of maps.");
-    addParamsLine("[--protein_radius <protein_radius=-1>]     : Protein raius (in Angstroms). This is used to restrain the number of pixeles considered in the analysis. By default no pixel is removed from analysis.");
-    addParamsLine("[--significance_thr <significance_thr=3>] : Z-score threshold to consider a region significantly different.");
+    addParamsLine("[--protein_radius <protein_radius=-1>]     : Protein radius (in Angstroms) defining a ROI for analysis. By default considers the whole volume. Excluyent with --protein_mask.");
+    addParamsLine("[--protein_mask <protein_mask=\"\">]       : Maks containing the ROI of the protein for analysis. Excluyent with --protein_radius.");
+    addParamsLine("[--significance_thr <significance_thr=3>]  : Z-score threshold to consider a region significantly different.");
 }
 
 void ProgStatisticalMap::writeStatisticalMap() 
@@ -523,18 +550,25 @@ void ProgStatisticalMap::preprocessMap(FileName fnIn)
     // Create mask with only positive values (std>1 in protein radius)
     double foo;
     double std;
-    V().computeAvgStdev_within_binary_mask(proteinRadiusMask, foo, std);
+    V().computeAvgStdev_within_binary_mask(ROI_mask, foo, std);
 
-    positiveMask.initZeros(Zdim, Ydim, Xdim);
-
-    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+    if (proteinMaskProvided) 
     {
-        if (DIRECT_MULTIDIM_ELEM(V(), n) > std && DIRECT_MULTIDIM_ELEM(proteinRadiusMask, n) > 0)
+        positiveMask = ROI_mask;
+    } 
+    else 
+    {
+        positiveMask.initZeros(Zdim, Ydim, Xdim);
+
+        FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
         {
-            DIRECT_MULTIDIM_ELEM(positiveMask, n) = 1;
+            if (DIRECT_MULTIDIM_ELEM(V(), n) > std && DIRECT_MULTIDIM_ELEM(ROI_mask, n) > 0)
+            {
+                DIRECT_MULTIDIM_ELEM(positiveMask, n) = 1;
+            }
         }
     }
-   
+
     std::cout << "    Positive density mask created." << std::endl;
 
     // Normalize map on positive densities dividing by std
@@ -548,8 +582,7 @@ void ProgStatisticalMap::preprocessMap(FileName fnIn)
     }
 
     #ifdef DEBUG_OUTPUT_FILES
-
-    // Build base name (no path, no extension)
+    // Build base name
     const size_t s = fnIn.find_last_of("/\\");
     const size_t d = fnIn.find_last_of('.');
     const size_t start = (s == FileName::npos ? 0 : s + 1);
@@ -599,7 +632,7 @@ void ProgStatisticalMap::computeMedianMap()
 		{
 			for(size_t i = 0; i < Ydim; i++)
             {
-                if (DIRECT_ZYX_ELEM(proteinRadiusMask, k, i, j) > 0)
+                if (DIRECT_ZYX_ELEM(ROI_mask, k, i, j) > 0)
                 {
                     for (size_t n = 0; n < Ndim; n++)
                     {
@@ -628,7 +661,7 @@ void ProgStatisticalMap::computemMADMap()
 		{
 			for(size_t i = 0; i < Ydim; i++)
             {
-                if (DIRECT_ZYX_ELEM(proteinRadiusMask, k, i, j) > 0)
+                if (DIRECT_ZYX_ELEM(ROI_mask, k, i, j) > 0)
                 {
                     for (size_t n = 0; n < Ndim; n++)
                     {
@@ -660,14 +693,21 @@ void ProgStatisticalMap::computeStatisticalMaps()
     }
 
     // Update positive mask from average map for posterior analysis (std>1 in protein radius)
-    positiveMask.initZeros(Zdim, Ydim, Xdim);
-
-    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(avgVolume())
+    if (proteinMaskProvided) 
     {
-        // As maps are normalized to std=1 the comparison is direct
-        if (DIRECT_MULTIDIM_ELEM(avgVolume(), n) > 1 && DIRECT_MULTIDIM_ELEM(proteinRadiusMask, n) > 0)
+        positiveMask = ROI_mask;
+    } 
+    else 
+    {
+        positiveMask.initZeros(Zdim, Ydim, Xdim);
+
+        FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(avgVolume())
         {
-            DIRECT_MULTIDIM_ELEM(positiveMask, n) = 1;
+            // As maps are normalized to std=1 the comparison is direct
+            if (DIRECT_MULTIDIM_ELEM(avgVolume(), n) > 1 && DIRECT_MULTIDIM_ELEM(ROI_mask, n) > 0)
+            {
+                DIRECT_MULTIDIM_ELEM(positiveMask, n) = 1;
+            }
         }
     }
 
@@ -705,7 +745,7 @@ void ProgStatisticalMap::computeSigmaNormMAD(double& sigmaNorm)
 
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(diffMap)
     {
-        if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask, n) > 0)
+        if (DIRECT_MULTIDIM_ELEM(ROI_mask, n) > 0)
         {
             DIRECT_MULTIDIM_ELEM(diffMap, n) = DIRECT_MULTIDIM_ELEM(V(), n) - DIRECT_MULTIDIM_ELEM(medianMap(), n);
         }
@@ -713,12 +753,12 @@ void ProgStatisticalMap::computeSigmaNormMAD(double& sigmaNorm)
 
     // Calculate abosule difference map median
     double median;
-    diffMap.computeMedian_within_binary_mask(proteinRadiusMask, median);
+    diffMap.computeMedian_within_binary_mask(ROI_mask, median);
 
     // Compute absolute deviations from the median
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(diffMap)
     {
-        if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask, n) > 0)
+        if (DIRECT_MULTIDIM_ELEM(ROI_mask, n) > 0)
         {
             DIRECT_MULTIDIM_ELEM(diffMap, n) = std::fabs(DIRECT_MULTIDIM_ELEM(diffMap, n) - median);
         }
@@ -726,7 +766,7 @@ void ProgStatisticalMap::computeSigmaNormMAD(double& sigmaNorm)
 
     // Compute MAD
     double mad;
-    diffMap.computeMedian_within_binary_mask(proteinRadiusMask, mad);
+    diffMap.computeMedian_within_binary_mask(ROI_mask, mad);
     
     // Scale MAD to estimate sigma under normality
     // For a normal distribution, MAD ≈ 0.6745 * sigma.
@@ -781,7 +821,7 @@ void ProgStatisticalMap::calculateZscoreMADMap()
 
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
-        if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask,n) > 0)
+        if (DIRECT_MULTIDIM_ELEM(ROI_mask,n) > 0)
         {
             double mad_local = DIRECT_MULTIDIM_ELEM(MADMap(), n);
             mad_local = mad_local * 1.4826; // Scale MAD to estimate sigma under normality
@@ -805,9 +845,9 @@ void ProgStatisticalMap::calculateZscoreMADMap()
     // Calculate different mask
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V_Zscores())
     {
-        if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask,n) > 0)
+        if (DIRECT_MULTIDIM_ELEM(ROI_mask,n) > 0)
         {
-            if (DIRECT_MULTIDIM_ELEM(V_Zscores(), n) > 3.0)
+            if (DIRECT_MULTIDIM_ELEM(V_Zscores(), n) > significance_thr)
             {
                 DIRECT_MULTIDIM_ELEM(differentMask,n) = 1;
             }
@@ -839,7 +879,7 @@ void ProgStatisticalMap::calculateZscoreMADMap()
 
 // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V_Zscores())
 // {
-//     if (DIRECT_MULTIDIM_ELEM(proteinRadiusMask, n) > 0)
+//     if (DIRECT_MULTIDIM_ELEM(ROI_mask, n) > 0)
 //         tmp.push_back(DIRECT_MULTIDIM_ELEM(V_Zscores, n));
 // }
 
@@ -934,7 +974,7 @@ void ProgStatisticalMap::weightMap()
 
     // Select mode (toggle this flag)
     enum class POFMode { CorePercentile, RankMatching };
-    const POFMode MODE = POFMode::RankMatching; // <-- switch to RankMatching if desired
+    const POFMode MODE = POFMode::CorePercentile; // <-- switch to RankMatching if desired
 
     // Common parameters
     const double EPS = 1e-6;
@@ -1187,57 +1227,66 @@ void ProgStatisticalMap::generateSideInfo()
 
 void ProgStatisticalMap::createRadiusMask()
 {
-    proteinRadiusMask.initZeros(Zdim, Ydim, Xdim);
+    ROI_mask.initZeros(Zdim, Ydim, Xdim);
 
-    if (protein_radius > 0) // If mas radius is provided
+    if (proteinMaskProvided)
     {
-        double radiusInPx = protein_radius / sampling_rate;
-
-        // Directional radius along each direction
-        double half_Xdim = (Xdim * 1.0) / 2;
-        double half_Ydim = (Ydim * 1.0) / 2;
-        double half_Zdim = (Zdim * 1.0) / 2;
-        double uz;
-        double uy;
-        double ux;
-        double uz2;
-        double uz2y2;
-        long n=0;
-
-        for(size_t k=0; k<Zdim; ++k)
+        Image<int> maskImage;
+        maskImage.read(fn_mask);
+        ROI_mask = maskImage();
+    }
+    else
+    {
+        if (protein_radius > 0) // If mas radius is provided
         {
-            uz = k - half_Zdim;
-            uz2 = uz*uz;
-            
-            for(size_t i=0; i<Ydim; ++i)
+            double radiusInPx = protein_radius / sampling_rate;
+
+            // Directional radius along each direction
+            double half_Xdim = (Xdim * 1.0) / 2;
+            double half_Ydim = (Ydim * 1.0) / 2;
+            double half_Zdim = (Zdim * 1.0) / 2;
+            double uz;
+            double uy;
+            double ux;
+            double uz2;
+            double uz2y2;
+            long n=0;
+
+            for(size_t k=0; k<Zdim; ++k)
             {
-                uy = i - half_Ydim;
-                uz2y2 = uz2 + uy*uy;
-
-                for(size_t j=0; j<Xdim; ++j)
+                uz = k - half_Zdim;
+                uz2 = uz*uz;
+                
+                for(size_t i=0; i<Ydim; ++i)
                 {
-                    ux = j - half_Xdim;
-                    ux = sqrt(uz2y2 + ux*ux);
+                    uy = i - half_Ydim;
+                    uz2y2 = uz2 + uy*uy;
 
-                    if (ux < radiusInPx)
+                    for(size_t j=0; j<Xdim; ++j)
                     {
-                        DIRECT_MULTIDIM_ELEM(proteinRadiusMask,n) = 1;
-                    }
+                        ux = j - half_Xdim;
+                        ux = sqrt(uz2y2 + ux*ux);
 
-                    ++n;
+                        if (ux < radiusInPx)
+                        {
+                            DIRECT_MULTIDIM_ELEM(ROI_mask,n) = 1;
+                        }
+
+                        ++n;
+                    }
                 }
             }
         }
-    }
-    else // If no mask radius is provided, use full map
-    {
-        proteinRadiusMask.initConstant(1);
+        else // If no mask radius is provided, use full map
+        {
+            ROI_mask.initConstant(1);
+        }
     }
 
     #ifdef DEBUG_OUTPUT_FILES
     Image<int> saveImage;
-    std::string debugFileFn = fn_oroot + "proteinRadiusMask.mrc";
-    saveImage() = proteinRadiusMask;
+    std::string debugFileFn = fn_oroot + "ROI_mask.mrc";
+    saveImage() = ROI_mask;
     saveImage.write(debugFileFn);
     #endif   
 } 
