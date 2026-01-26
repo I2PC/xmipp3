@@ -854,7 +854,37 @@ void ProgStatisticalMap::calculateZscoreMADMap()
         }
     }
 
-    // Calculate coincident mask via "cosine average"
+    // Apply morphological operations to clean different mask
+    // double epsilon = 1e-5;
+    // MultidimArray<double> differentMask_double;
+    // differentMask_double.initZeros(Zdim, Ydim, Xdim);
+
+    // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(differentMask)
+    // {
+    //     DIRECT_MULTIDIM_ELEM(differentMask_double, n) = 1.0 * DIRECT_MULTIDIM_ELEM(differentMask, n);
+    // }
+
+    // removeSmallComponents(differentMask_double, 5);
+
+    // MultidimArray<double> differentMask_double_tmp = differentMask_double;
+    // int neig = 18;   // Neighbourhood
+    // int count = 0;  // Min number of empty elements in neighbourhood
+    // int size = 5;   // Number of iterations or erosion 
+    // closing3D(differentMask_double_tmp, differentMask_double, neig, count, size);
+
+    // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(differentMask_double)
+    // {
+    //     if (DIRECT_MULTIDIM_ELEM(differentMask_double, n) > epsilon)
+    //     {
+    //         DIRECT_MULTIDIM_ELEM(differentMask, n) = 1;
+    //     }
+    //     else
+    //     {
+    //         DIRECT_MULTIDIM_ELEM(differentMask, n) = 0;
+    //     }
+    // }
+
+    // Calculate coincident mask
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
         if (DIRECT_MULTIDIM_ELEM(positiveMask,n) > 0)
@@ -1222,19 +1252,34 @@ void ProgStatisticalMap::weightMap()
                   << " matched_per_ROI=" << matchedPerROI << std::endl;
     }
 
-    // 3) Final POF and logs
     double partialOccupancyFactor = different_avg / coincident_avg;
 
-    std::cout << "  coincident_avg ---------------------> " << coincident_avg << std::endl;
-    std::cout << "  different_avg  ---------------------> " << different_avg  << std::endl;
-    std::cout << "  partialOccupancyFactor -------------> " << partialOccupancyFactor << std::endl;
+    std::cout << "  weighted coincident_avg ---------------------> " << coincident_avg << std::endl;
+    std::cout << "  weighted different_avg  ---------------------> " << different_avg  << std::endl;
+    std::cout << "  weighted partialOccupancyFactor -------------> " << partialOccupancyFactor << std::endl;
+
+    // 3) Final POF and logs
+
+    // Domain assumption: density does not decrease with interior depth (larger EDT).
+    // Safeguard: prefer the larger POF (avoid underestimating due to edge bias).
+    if (partialOccupancyFactor < rawPartialOccupancyFactor) {
+        partialOccupancyFactor = rawPartialOccupancyFactor;
+    }
 
     // 4) Final subtraction
-    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+    if (partialOccupancyFactor < 1)
     {
-        DIRECT_MULTIDIM_ELEM(V(),n) =
-            DIRECT_MULTIDIM_ELEM(V(),n) - (DIRECT_MULTIDIM_ELEM(avgVolume(),n) * (1 - partialOccupancyFactor));
+        FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+        {
+            DIRECT_MULTIDIM_ELEM(V(),n) -= (DIRECT_MULTIDIM_ELEM(avgVolume(),n) * (1 - partialOccupancyFactor));
+        }
     }
+    else
+    {
+        partialOccupancyFactor = 1.0;
+    }
+
+    std::cout << "\n  FINAL partialOccupancyFactor -------------> " << partialOccupancyFactor << std::endl;
 }
 
 
@@ -1494,7 +1539,6 @@ void ProgStatisticalMap::generateDistanceMask(
             }
         }
     }
-    std::cout << std::endl;
 }
 
 
