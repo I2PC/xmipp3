@@ -891,7 +891,7 @@ void ProgStatisticalMap::calculateZscoreMADMap()
         if (DIRECT_MULTIDIM_ELEM(positiveMask,n) > 0)
         {
             // Reward signal consistency (over the noise)
-            bool consistency = DIRECT_MULTIDIM_ELEM(V_Zscores(), n) < 1;
+            bool consistency = abs(DIRECT_MULTIDIM_ELEM(V_Zscores(), n)) < 1;
             
             // Reward signal intensity
             double localSigma = sqrt(mapMAD*mapMAD + DIRECT_MULTIDIM_ELEM(stdVolume(),n)*DIRECT_MULTIDIM_ELEM(stdVolume(),n));
