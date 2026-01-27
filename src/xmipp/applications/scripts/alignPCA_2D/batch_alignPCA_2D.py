@@ -35,24 +35,28 @@ def save_images(data, voxel, outfilename):
         mrc.update_header_stats()
         
 
-
 def flatGrid(freq_band, coef, nBand):
-    
-    grid_flat = [torch.zeros((2, int(coef[n]/2)), dtype=torch.float32, device = cuda) for n in range(nBand)]
-    
-    dim = freq_band.size(dim=0) 
-    dimfreq = freq_band.size(dim=1)
-    
-    freq_x = torch.fft.rfftfreq(dim, d=0.5/np.pi, device=cuda)
-    freq_y = torch.fft.fftfreq(dim, d=0.5/np.pi, device=cuda)
 
-    grid = torch.meshgrid(freq_x, freq_y, indexing='xy')
-    
+    dim, dimfreq = freq_band.shape
+
+    fx = torch.fft.rfftfreq(dim, d=0.5/np.pi, device=cuda)  
+    fy = torch.fft.fftfreq(dim, d=0.5/np.pi, device=cuda)   
+
+    grid = torch.meshgrid(fx, fy, indexing='xy')
+
+    grid_flat = []
+
     for n in range(nBand):
-        grid_flat[n][0] = grid[0][:,:dimfreq][freq_band == n]      
-        grid_flat[n][1] = grid[1][:,:dimfreq][freq_band == n]
-        
-    return(grid_flat)  
+        mask = (freq_band == n)
+
+        fx_n = grid[0][mask]
+        fy_n = grid[1][mask]
+
+        grid_flat.append(
+            torch.stack([fx_n, fy_n], dim=0) 
+        )
+ 
+    return grid_flat
 
        
 if __name__=="__main__":

@@ -256,28 +256,50 @@ class PCAgpu:
         return(self.Bvecs)
     
     
-    def precalculateBands(self, nBand, dim, sampling, maxRes, minRes):
+    def precalculateBands_new(self, nBand, dim, sampling, maxRes, minRes):
+        
+        fx = torch.fft.rfftfreq(dim, device=self.cuda)
+        fy = torch.fft.fftfreq(dim, device=self.cuda)              
     
-        vectorFreq = torch.fft.fftfreq(dim)
-        freq_band = torch.full((dim,int(np.floor(dim/2))), 50)   
+        dimfreq = fx.numel()  
     
-        maxFreq = sampling/maxRes
-        minFreq = sampling/minRes
-        factor = nBand * (1/maxFreq)  
+        freq_band = torch.full((dim, dimfreq), 50, device=self.cuda, dtype=torch.long)
     
-        for x in range(dim):
-            
-            if vectorFreq[x] >= 0:
-                wx = vectorFreq[x]
+        maxFreq = sampling / maxRes
+        minFreq = sampling / minRes
+        factor  = nBand / maxFreq
+        
+        for x in range(dimfreq):
+            wx = fx[x]
     
             for y in range(dim):
-                wy = vectorFreq[y]
+                wy = fy[y]
+                w = torch.sqrt(wx*wx + wy*wy)
     
-                w = torch.sqrt(wx**2 + wy**2)
-                
-                if (w > minFreq) and (w < maxFreq):
-                    freq_band[y][x] = torch.floor(w*factor)
+                if minFreq < w < maxFreq:
+                    freq_band[y, x] = torch.floor(w*factor)
+    
+        return freq_band
+    
+    def precalculateBands(self, nBand, dim, sampling, maxRes, minRes):
         
+        fx = torch.fft.rfftfreq(dim, device=self.cuda)
+        fy = torch.fft.fftfreq(dim, device=self.cuda)
+        
+        gy, gx = torch.meshgrid(fy, fx, indexing='ij')
+        
+        w = torch.sqrt(gx**2 + gy**2)
+        
+        # Inicialization
+        freq_band = torch.full((dim, fx.numel()), 50, device=self.cuda, dtype=torch.long)
+        
+        maxFreq = sampling / maxRes
+        minFreq = sampling / minRes
+        factor = nBand / maxFreq
+        
+        mask = (w > minFreq) & (w < maxFreq)
+        freq_band[mask] = torch.floor(w[mask] * factor).long()
+    
         return freq_band
 
     
