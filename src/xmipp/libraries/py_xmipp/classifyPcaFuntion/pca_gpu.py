@@ -256,31 +256,6 @@ class PCAgpu:
         return(self.Bvecs)
     
     
-    def precalculateBands_new(self, nBand, dim, sampling, maxRes, minRes):
-        
-        fx = torch.fft.rfftfreq(dim, device=self.cuda)
-        fy = torch.fft.fftfreq(dim, device=self.cuda)              
-    
-        dimfreq = fx.numel()  
-    
-        freq_band = torch.full((dim, dimfreq), 50, device=self.cuda, dtype=torch.long)
-    
-        maxFreq = sampling / maxRes
-        minFreq = sampling / minRes
-        factor  = nBand / maxFreq
-        
-        for x in range(dimfreq):
-            wx = fx[x]
-    
-            for y in range(dim):
-                wy = fy[y]
-                w = torch.sqrt(wx*wx + wy*wy)
-    
-                if minFreq < w < maxFreq:
-                    freq_band[y, x] = torch.floor(w*factor)
-    
-        return freq_band
-    
     def precalculateBands(self, nBand, dim, sampling, maxRes, minRes):
         
         fx = torch.fft.rfftfreq(dim, device=self.cuda)
