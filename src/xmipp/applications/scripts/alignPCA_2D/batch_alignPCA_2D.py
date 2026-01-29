@@ -231,10 +231,14 @@ if __name__=="__main__":
                 batch_projExp_cpu.append( bnb.batchExpToCpu(Texp, freqBn, coef, cvecs) )           
                 if i == initStep-1:
                     mode = "create_classes"
+                    print("Classification mode", flush=True)
+                    print(f"Processing batch 0 - {endBatch}", flush=True)
             
             else:            
                 batch_projExp_cpu = bnb.create_batchExp(Texp, freqBn, coef, cvecs)
                 mode = "align_classes"
+                print("Assignment mode", flush=True)
+                print(f"Processing batch {initBatch} - {endBatch}", flush=True)
             del(Texp)
             
             if mode:    

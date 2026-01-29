@@ -421,14 +421,11 @@ class BnBgpu:
         # Aplanar partículas
         flat_data = particles.view(particles.shape[0], -1)
     
-        # Centrar datos
         mu = flat_data.mean(dim=0)
         centered_data = flat_data - mu
     
-        # PCA rápida (solo PC1)
         U, S, V = torch.pca_lowrank(centered_data, q=1, niter = 2)
     
-        # Proyección sobre PC1
         projections = torch.matmul(centered_data, V[:, 0])
     
         center = projections.median()
@@ -437,7 +434,6 @@ class BnBgpu:
         mask = projections > (center + 0.5 * mad)
         # -------------------
     
-        # Evitar clusters vacíos
         if mask.sum() == 0 or (~mask).sum() == 0:
             mask = projections > center
     

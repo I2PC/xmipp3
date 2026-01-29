@@ -183,7 +183,7 @@ class PCAgpu:
     
     def batchPCA(self, band, coef, firstSet):
         
-        print("-----batch PCA for initializing-----")
+        # print("-----batch PCA for initializing-----")
         self.Bmean = [torch.zeros(coef[n], device = self.cuda) for n in range(self.nBand)]
         self.Bvar = [torch.zeros(coef[n], device = self.cuda) for n in range(self.nBand)]
         self.Bvals = [torch.zeros(coef[n], device = self.cuda) for n in range(self.nBand)]
@@ -210,7 +210,7 @@ class PCAgpu:
 
             eigTotal[n] = coef[n]
         
-        print("Batch PCA")
+        print("PCA space")
         self.batchPCA(band, coef, firstSet)
         
         if batchPCA:
@@ -243,9 +243,10 @@ class PCAgpu:
             # self.Bvecs[n] = self.Bvecs[n][:,:(int(trunc+1))]
             
             #Reshaping Eigenvectors
-            print("eigenvector %s ---- percentage %s" %(int(self.eigs[n]+1), "{:.2f}".format(self.perc[n])))
+            # print("eigenvector %s ---- percentage %s" %(int(self.eigs[n]+1), "{:.2f}".format(self.perc[n])))
+            print(f"eigenvector {int(self.eigs[n]+1)} ---- percentage {self.perc[n]:.2f}")
             self.Bvecs[n] = self.Bvecs[n][:,:(int(self.eigs[n]+1))]
-            print(self.Bvecs[n].shape)
+            print(self.Bvecs[n].shape, flush=True)
         del (band)
     
         del self.Bmean, self.Bvar, self.Bvals, self.covariance, self.mean
