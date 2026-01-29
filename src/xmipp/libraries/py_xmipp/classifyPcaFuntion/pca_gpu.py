@@ -265,6 +265,7 @@ class PCAgpu:
         gy, gx = torch.meshgrid(fy, fx, indexing='ij')
         
         w = torch.sqrt(gx**2 + gy**2)
+        del gx, gy
         
         # Inicialization
         freq_band = torch.full((dim, fx.numel()), 50, device=self.cuda, dtype=torch.long)
@@ -275,6 +276,8 @@ class PCAgpu:
         
         mask = (w > minFreq) & (w < maxFreq)
         freq_band[mask] = torch.floor(w[mask] * factor).long()
+        
+        del w, mask, fx, fy
     
         return freq_band
 
@@ -313,7 +316,7 @@ class PCAgpu:
                 band[n][initBatch:endBatch] = bandBatch[n]
             
             del(bandBatch)
-
+        
         # mean, vals, vecs = self.trainingPCAonline(band, coef, per_eig, batchPCA)
         vecs = self.trainingPCAonline(band, coef, per_eig, batchPCA)
      

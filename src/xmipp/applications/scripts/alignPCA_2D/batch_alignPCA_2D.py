@@ -33,28 +33,30 @@ def save_images(data, voxel, outfilename):
         mrc.set_data(data)
         mrc.voxel_size = (voxel, voxel, 1)
         mrc.update_header_stats()
-        
+
 
 def flatGrid(freq_band, coef, nBand):
-
+    
     dim, dimfreq = freq_band.shape
 
     fx = torch.fft.rfftfreq(dim, d=0.5/np.pi, device=cuda)  
     fy = torch.fft.fftfreq(dim, d=0.5/np.pi, device=cuda)   
 
-    grid = torch.meshgrid(fx, fy, indexing='xy')
+    grid_x, grid_y = torch.meshgrid(fx, fy, indexing='xy')
+    del fx, fy 
 
     grid_flat = []
 
     for n in range(nBand):
         mask = (freq_band == n)
 
-        fx_n = grid[0][mask]
-        fy_n = grid[1][mask]
+        fx_n = grid_x[mask]
+        fy_n = grid_y[mask]
+        
+        grid_flat.append(torch.stack([fx_n, fy_n], dim=0))
+        del mask, fx_n, fy_n 
 
-        grid_flat.append(
-            torch.stack([fx_n, fy_n], dim=0) 
-        )
+    del grid_x, grid_y
  
     return grid_flat
 
@@ -124,6 +126,7 @@ if __name__=="__main__":
         maxRes = highRes
     else: 
         maxRes = 16.0   
+
     freqBn, cvecs, coef = pca.calculatePCAbasis(mmap, Ntrain, nBand, dim, sampling, maxRes, 
                                                 minRes=530, per_eig=per_eig_value, batchPCA=True)
 
@@ -231,13 +234,13 @@ if __name__=="__main__":
                 batch_projExp_cpu.append( bnb.batchExpToCpu(Texp, freqBn, coef, cvecs) )           
                 if i == initStep-1:
                     mode = "create_classes"
-                    print("Classification mode", flush=True)
-                    print(f"Processing batch 0 - {endBatch}", flush=True)
-            
+                    print(f"\nClassification mode", flush=True)
+                    print(f"Processing batch 0 - {endBatch}\n", flush=True)
             else:            
                 batch_projExp_cpu = bnb.create_batchExp(Texp, freqBn, coef, cvecs)
                 mode = "align_classes"
-                print("Assignment mode", flush=True)
+                if i == initStep:
+                    print(f"\nAssignment mode", flush=True)
                 print(f"Processing batch {initBatch} - {endBatch}", flush=True)
             del(Texp)
             
@@ -256,7 +259,8 @@ if __name__=="__main__":
                     niter = 3
                     
                 for iter in range(niter):
-                    # print("-----Iteration %s for updating classes-------"%(iter+1))                
+                    if mode == "create_classes":
+                        print(f"[{iter + 1}/{niter}] Updating classes...", flush=True)                
                                               
                     matches = torch.full((subset, 5), float("Inf"), device = cuda)
                     
