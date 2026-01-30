@@ -632,7 +632,7 @@ class BnBgpu:
       
         else: 
             del(transforIm)
-            torch.cuda.empty_cache()
+            # torch.cuda.empty_cache()
             clk = cl  
             
         return (clk, tMatrix, batch_projExp_cpu) 
@@ -987,6 +987,8 @@ class BnBgpu:
                   torch.fft.fftfreq(W, d=pixel_size, device=device))
         gy, gx = torch.meshgrid(fy, fx, indexing='ij')
         freq2  = (gx**2 + gy**2).unsqueeze(0)  # [1, H, W]
+        
+        del fy, fx, gy, gx
     
         # === Filtro Gaussiano adaptativo
         ln2    = torch.log(torch.tensor(2.0, device=device))
@@ -994,14 +996,18 @@ class BnBgpu:
         sigma2 = (D0 / torch.sqrt(2*ln2))**2             
     
         exponent = (-freq2) / (2*sigma2 + eps)
-        filt     = torch.exp(exponent.clamp(max=clamp_exp))
+        
+        filt = torch.exp(exponent.clamp(max=clamp_exp))
     
         if hard_cut:
             filt = torch.where(freq2 > D0**2, 0.0, filt)
+        
+        del sigma2, exponent, freq2, D0
     
         # === Aplicar filtro y transformar inversa
         img_filt = torch.fft.ifft2(torch.fft.fft2(imgs, norm="forward") * filt, norm="forward").real
         img_filt = torch.nan_to_num(img_filt)
+        del filt
     
         # === Restaurar contraste original
         if normalize:
@@ -1014,6 +1020,7 @@ class BnBgpu:
             img_filt = torch.where(valid,
                                    (img_filt - mean_f)/(std_f+eps)*std0 + mean0,
                                    imgs)
+            del mean0, std0, mean_f, std_f, valid
     
         return img_filt
 
@@ -1760,15 +1767,16 @@ class BnBgpu:
     
         # --- malla de frecuencias físicas (Å⁻¹) ---
         fy = torch.fft.fftfreq(h, d=pixel_size, device=device)
-        # fx = torch.fft.fftfreq(w, d=pixel_size, device=device)
         fx = torch.fft.rfftfreq(w, d=pixel_size, device=device)
         gy, gx = torch.meshgrid(fy, fx, indexing="ij")
-        r = torch.sqrt(gx**2 + gy**2)   # frecuencia radial en Å⁻¹
+        r = torch.sqrt(gx**2 + gy**2)   
     
         # discretizar radios en bins
         freq_bins = torch.linspace(0, 0.5/pixel_size, Rmax, device=device)
         r_bin = torch.bucketize(r.flatten(), freq_bins) - 1
         r_bin = r_bin.clamp(0, Rmax-1)
+        
+        del fy, fx, gy, gx, r  
     
         # --- Ventana Hann (opcional) ---
         if apply_window:
@@ -1780,7 +1788,7 @@ class BnBgpu:
         for c, imgs in enumerate(newCL):
             n = imgs.shape[0]
             if n < 2:
-                continue  # no se puede partir en mitades
+                continue  
     
             # ---- half maps ----
             perm          = torch.randperm(n, device=device)
@@ -1790,10 +1798,12 @@ class BnBgpu:
             if apply_window:
                 avg1 = avg1 * window
                 avg2 = avg2 * window
+                
     
             # ---- FFT ----
             fft1 = torch.fft.rfft2(avg1, norm="forward")
             fft2 = torch.fft.rfft2(avg2, norm="forward")
+            
     
             p1   = (fft1.real**2 + fft1.imag**2)
             p2   = (fft2.real**2 + fft2.imag**2)
@@ -1822,6 +1832,8 @@ class BnBgpu:
                                    posinf=fallback_res, neginf=fallback_res)
         
         res_out = torch.where(res_out > rcut, torch.tensor(fallback_res, device=res_out.device), res_out)
+        
+        del r_bin, freq_bins
         
         return res_out#, frc_curves, freq_bins
     
@@ -2816,8 +2828,8 @@ class BnBgpu:
     def highpass_cosine_sharpen(
         self,
         averages: torch.Tensor,         # [B, H, W]
-        resolutions: torch.Tensor,      # [B] en Å
-        pixel_size: float,              # tamaño del píxel en Å/pix
+        resolutions: torch.Tensor,      # [B] Å
+        pixel_size: float,              # píxel(Å/pix)
         f_energy: float = 2.0,
         # R_high: float = 25.0,
         boost_max: float = None,        # si None, se ajusta para energía
@@ -2830,7 +2842,7 @@ class BnBgpu:
         B, H, W = averages.shape
         device = averages.device
     
-        # === FFT + energía original ===
+        # === FFT + original energy ===
         fft = torch.fft.fft2(averages, norm='forward')
         fft_mag2 = torch.abs(fft) ** 2  # [B, H, W]
         energy_orig = torch.sum(fft_mag2, dim=(-2, -1))  # [B]
@@ -2840,12 +2852,13 @@ class BnBgpu:
         fx = torch.fft.fftfreq(W, d=pixel_size, device=device)
         gy, gx = torch.meshgrid(fy, fx, indexing='ij')
         freq_r = torch.sqrt(gx**2 + gy**2).unsqueeze(0).expand(B, -1, -1)  # [B, H, W]
+        del fy, fx, gy, gx
     
         # === Frecuencia de corte por imagen ===
         f_cutoff = (1.0 / resolutions.clamp(min=1e-3)).view(B, 1, 1)  # [B, 1, 1]
     
         # === Ajuste dinámico de sharpen_power por resolución ===
-#           # sharpen_power = (0.1 * resolutions).clamp(min=0.3, max=2.5)
+            # sharpen_power = (0.1 * resolutions).clamp(min=0.3, max=2.5)
             #sharpen_power = (0.08 * resolutions).clamp(min=0.3, max=2.5)
         if sharpen_power is None:
             # factorR = torch.where(resolutions > 8, 0.1, 0.08)
@@ -2871,16 +2884,13 @@ class BnBgpu:
         # === Filtro en forma de coseno ===
         cos_term = torch.pi * freq_r / (f_cutoff + eps)
         cosine_shape = ((1 - torch.cos(cos_term)) / 2).clamp(min=0.0, max=1.0)
+        del cos_term
 
         cosine_shape = torch.where(freq_r <= f_cutoff, cosine_shape, torch.ones_like(freq_r))
         cosine_shape = cosine_shape ** sharpen_power  # [B, H, W]
     
         # === Ajuste automático de boost_max para duplicar energía ===
         if boost_max is None:
-            def energy_with_gain(g: torch.Tensor) -> torch.Tensor:
-                boost = 1.0 + (g - 1.0) * cosine_shape
-                energy = torch.sum(fft_mag2 * boost**2, dim=(-2, -1))  # [B]
-                return energy
             
             target_energy = f_energy * energy_orig  # [B]
             g_low = torch.ones(B, device=device)
@@ -2888,13 +2898,16 @@ class BnBgpu:
             
             for _ in range(max_iter):
                 g_mid = (g_low + g_high) / 2
-                energy_mid = energy_with_gain(g_mid.view(B, 1, 1))
+                g_val = g_mid.view(B, 1, 1)
+                energy_mid = torch.sum(fft_mag2 * (1.0 + (g_val - 1.0) * cosine_shape)**2, dim=(-2, -1))
+                
                 delta = target_energy - energy_mid
                 mask_too_low = delta > 0
                 g_low = torch.where(mask_too_low, g_mid, g_low)
                 g_high = torch.where(~mask_too_low, g_mid, g_high)
             
             boost_max = g_mid.view(B, 1, 1)
+            del fft_mag2, energy_orig, g_low, g_high, target_energy
     
         else:
             if not torch.is_tensor(boost_max):
@@ -2908,11 +2921,13 @@ class BnBgpu:
         # === Filtro coseno final con limitación hasta f_cutoff ===
         boost = 1.0 + (boost_max - 1.0) * cosine_shape
         boost = torch.where(freq_r <= f_cutoff, boost, torch.ones_like(freq_r))
-        filt = boost
+        del cosine_shape, freq_r, f_cutoff, boost_max, sharpen_power
     
         # === Aplicar filtro ===
-        fft_filt = fft * filt
-        filtered = torch.fft.ifft2(fft_filt, norm='forward').real
+        fft *= boost  
+        del boost
+        filtered = torch.fft.ifft2(fft, norm='forward').real
+        del fft
     
         # === (Opcional) Normalizar contraste en espacio real ===
         if normalize:
@@ -2921,6 +2936,7 @@ class BnBgpu:
             mean_filt = filtered.mean(dim=(-2, -1), keepdim=True)
             std_filt = filtered.std(dim=(-2, -1), keepdim=True)
             filtered = (filtered - mean_filt) / (std_filt + eps) * std_orig + mean_orig
+            del mean_orig, std_orig, mean_filt, std_filt
     
         return filtered#, boost_max, sharpen_power
     
