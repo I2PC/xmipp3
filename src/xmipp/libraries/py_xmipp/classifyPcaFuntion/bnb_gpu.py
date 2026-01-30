@@ -699,10 +699,10 @@ class BnBgpu:
         tMatrixLocal[:, 2, 2] = 1.0
         
         M = torch.matmul(M, tMatrixLocal)
-        M = M[:, :2, :] 
+        M = M[:, :2, :].contiguous() 
         del(tMatrixLocal)  
     
-        Texp = torch.from_numpy(data.astype(np.float32)).to(self.cuda).unsqueeze(1)
+        Texp = torch.from_numpy(data.astype(np.float32)).to(self.cuda).unsqueeze(1).contiguous()
 
         transforIm = kornia.geometry.warp_affine(Texp, M, dsize=(data.shape[1], data.shape[2]), mode='bilinear', padding_mode='zeros')
         transforIm = transforIm.view(batchsize, data.shape[1], data.shape[2])
