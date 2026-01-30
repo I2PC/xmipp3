@@ -269,7 +269,7 @@ class BnBgpu:
     
     
     @torch.no_grad()
-    def match_batch(self, batchExp, batchRef, initBatch, matches, rot, nShift):
+    def match_batch_old(self, batchExp, batchRef, initBatch, matches, rot, nShift):
         
         nExp = batchExp[0].size(dim=0) 
         nShift = torch.tensor(nShift, device=self.cuda)
@@ -292,6 +292,38 @@ class BnBgpu:
         matches[initBatch:initBatch + nExp] = torch.where(cond.view(nExp, 1), iter_matches, matches[initBatch:initBatch + nExp])      
                 
         return(matches)
+    
+    @torch.no_grad()
+    def match_batch(self, batchExp, batchRef, initBatch, matches, rot, nShift):
+    
+        nExp = batchExp[0].size(0)
+        nShift = int(nShift)
+    
+        for n in range(self.nBand):
+            score = torch.cdist(batchRef[n], batchExp[n])
+    
+        min_score, ref = score.min(dim=0)
+        del score
+    
+        target = matches[initBatch:initBatch + nExp]
+        improved = min_score < target[:, 2]
+    
+        if improved.any():
+            br = ref[improved]
+    
+            target[improved, 2] = min_score[improved]
+            target[improved, 1] = br.div(nShift, rounding_mode='floor').to(target.dtype)
+            target[improved, 4] = br.remainder(nShift).to(target.dtype)
+            target[improved, 3] = rot
+    
+        exp_idx = torch.arange(
+            initBatch, initBatch + nExp,
+            device=target.device,
+            dtype=target.dtype
+        )
+        target[improved, 0] = exp_idx[improved]
+    
+        return matches
     
     @torch.no_grad()
     def match_batch_correlation(self, batchExp, batchRef, initBatch, matches, rot, nShift):
@@ -3502,7 +3534,7 @@ class BnBgpu:
             elif dim <= 256:
                 expBatchSize = 5000 
                 expBatchSize2 = 6000
-                numFirstBatch = 4 
+                numFirstBatch = 5 
                 initClBatch = 15000 
                 
         # else: #test with 23Gb GPU
