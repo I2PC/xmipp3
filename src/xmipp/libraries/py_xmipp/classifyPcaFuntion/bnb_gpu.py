@@ -687,33 +687,22 @@ class BnBgpu:
         rotation_matrix = kornia.geometry.get_rotation_matrix2d(centerxy.expand(batchsize, -1), rotBatch, scale)
         del(scale)
         
-        # M = torch.matmul(rotation_matrix, translation_matrix)
-        # del(rotation_matrix, translation_matrix)       
-        #
-        # M = torch.cat((M, torch.zeros((batchsize, 1, 3), device=self.cuda)), dim=1)
-        # M[:, 2, 2] = 1.0      
-        #
-        #
-        # #combined matrix
-        # tMatrixLocal = torch.cat((tMatrix, torch.zeros((batchsize, 1, 3), device=self.cuda)), dim=1)
-        # tMatrixLocal[:, 2, 2] = 1.0
-        #
-        # M = torch.matmul(M, tMatrixLocal)
-        # M = M[:, :2, :].contiguous() 
+        M = torch.matmul(rotation_matrix, translation_matrix)
+        del(rotation_matrix, translation_matrix)       
         
-        M3 = torch.eye(3, device=self.cuda).expand(batchsize, 3, 3).clone()
-        M3[:, :2, :] = rotation_matrix @ translation_matrix
-        del rotation_matrix, translation_matrix
-    
-        tMatrixLocal = torch.eye(3, device=self.cuda).expand(batchsize, 3, 3).clone()
-        tMatrixLocal[:, :2, :] = tMatrix
-    
-        M3 = M3 @ tMatrixLocal
-        M = M3[:, :2, :].contiguous()
+        M = torch.cat((M, torch.zeros((batchsize, 1, 3), device=self.cuda)), dim=1)
+        M[:, 2, 2] = 1.0      
+
+                         
+        #combined matrix
+        tMatrixLocal = torch.cat((tMatrix, torch.zeros((batchsize, 1, 3), device=self.cuda)), dim=1)
+        tMatrixLocal[:, 2, 2] = 1.0
         
-        del tMatrixLocal, M3  
+        M = torch.matmul(M, tMatrixLocal)
+        M = M[:, :2, :] 
+        del(tMatrixLocal)  
     
-        Texp = torch.from_numpy(data.astype(np.float32)).to(self.cuda).unsqueeze(1).contiguous()
+        Texp = torch.from_numpy(data.astype(np.float32)).to(self.cuda).unsqueeze(1)
 
         transforIm = kornia.geometry.warp_affine(Texp, M, dsize=(data.shape[1], data.shape[2]), mode='bilinear', padding_mode='zeros')
         transforIm = transforIm.view(batchsize, data.shape[1], data.shape[2])
@@ -3551,9 +3540,9 @@ class BnBgpu:
         # else: #test with 23Gb GPU
         elif free_memory >= 21 and free_memory < 45: #test with 15Gb GPU
             if dim <= 64:
-                expBatchSize = 80000 
+                expBatchSize = 50000 
                 expBatchSize2 = 80000
-                numFirstBatch = 1
+                numFirstBatch = 2
                 initClBatch = 100000
             elif dim <= 128:
                 expBatchSize = 30000 
