@@ -687,20 +687,31 @@ class BnBgpu:
         rotation_matrix = kornia.geometry.get_rotation_matrix2d(centerxy.expand(batchsize, -1), rotBatch, scale)
         del(scale)
         
-        M = torch.matmul(rotation_matrix, translation_matrix)
-        del(rotation_matrix, translation_matrix)       
+        # M = torch.matmul(rotation_matrix, translation_matrix)
+        # del(rotation_matrix, translation_matrix)       
+        #
+        # M = torch.cat((M, torch.zeros((batchsize, 1, 3), device=self.cuda)), dim=1)
+        # M[:, 2, 2] = 1.0      
+        #
+        #
+        # #combined matrix
+        # tMatrixLocal = torch.cat((tMatrix, torch.zeros((batchsize, 1, 3), device=self.cuda)), dim=1)
+        # tMatrixLocal[:, 2, 2] = 1.0
+        #
+        # M = torch.matmul(M, tMatrixLocal)
+        # M = M[:, :2, :].contiguous() 
         
-        M = torch.cat((M, torch.zeros((batchsize, 1, 3), device=self.cuda)), dim=1)
-        M[:, 2, 2] = 1.0      
-
-                         
-        #combined matrix
-        tMatrixLocal = torch.cat((tMatrix, torch.zeros((batchsize, 1, 3), device=self.cuda)), dim=1)
-        tMatrixLocal[:, 2, 2] = 1.0
+        M3 = torch.eye(3, device=self.cuda).expand(batchsize, 3, 3).clone()
+        M3[:, :2, :] = rotation_matrix @ translation_matrix
+        del rotation_matrix, translation_matrix
+    
+        tMatrixLocal = torch.eye(3, device=self.cuda).expand(batchsize, 3, 3).clone()
+        tMatrixLocal[:, :2, :] = tMatrix
+    
+        M3 = M3 @ tMatrixLocal
+        M = M3[:, :2, :].contiguous()
         
-        M = torch.matmul(M, tMatrixLocal)
-        M = M[:, :2, :].contiguous() 
-        del(tMatrixLocal)  
+        del tMatrixLocal, M3  
     
         Texp = torch.from_numpy(data.astype(np.float32)).to(self.cuda).unsqueeze(1).contiguous()
 
