@@ -3537,8 +3537,7 @@ class BnBgpu:
                 numFirstBatch = 4 
                 initClBatch = 15000 
                 
-        # else: #test with 23Gb GPU
-        elif free_memory >= 21 and free_memory < 45: #test with 15Gb GPU
+        elif free_memory >= 21 and free_memory < 45: #test with 23Gb GPU
             if dim <= 64:
                 expBatchSize = 50000 
                 expBatchSize2 = 60000
@@ -3556,9 +3555,9 @@ class BnBgpu:
                 initClBatch = 20000
         else:  #test with 49Gb GPU
             if dim <= 64:
-                expBatchSize = 50000 
-                expBatchSize2 = 60000
-                numFirstBatch = 2
+                expBatchSize = 100000 
+                expBatchSize2 = 80000
+                numFirstBatch = 1
                 initClBatch = 100000
             elif dim <= 128:
                 expBatchSize = 50000 
@@ -3595,13 +3594,8 @@ class BnBgpu:
     
     def determine_ROTandSHIFT(self, iter, mode, dim):
         
-        # maxShift_20 = round( (dim * 20)/100 )
-        # maxShift_20 = (maxShift_20//5)*5
-        maxShift_20 = round( (dim * 15)/100 )
-        maxShift_20 = (maxShift_20//5)*5
-        
-        maxShift_15 = round( (dim * 15)/100 )
-        maxShift_15 = (maxShift_15//4)*4
+        maxShift_15 = math.ceil((dim * 0.15) / 5) * 5
+        maxShift_10 = math.ceil((dim * 0.10) / 4) * 4
         
         if mode == "create_classes":
             #print("---Iter %s for creating classes---"%(iter+1))           
@@ -3609,15 +3603,15 @@ class BnBgpu:
             max_iter = 18
             if iter < 4:
                 ang = self.apply_jitter_annealing(-180, 180, 10, iter, max_iter)
-                shiftMove = self.apply_jitter_annealing(-maxShift_20, maxShift_20+5, 5, iter, max_iter)
+                shiftMove = self.apply_jitter_annealing(-maxShift_15, maxShift_15+5, 5, iter, max_iter)
             elif iter < 7:
                 ang = self.apply_jitter_annealing(-180, 180, 8, iter, max_iter)
-                shiftMove = self.apply_jitter_annealing(-maxShift_15, maxShift_15+4, 4, iter, max_iter)
+                shiftMove = self.apply_jitter_annealing(-maxShift_10, maxShift_10+4, 4, iter, max_iter)
             elif iter < 10:
                 ang = self.apply_jitter_annealing(-180, 180, 6, iter, max_iter)
                 shiftMove = self.apply_jitter_annealing(-12, 16, 4, iter, max_iter)
             elif iter < 13:
-                ang = self.apply_jitter_annealing(-180, 180, 4, iter, max_iter)
+                ang = self.apply_jitter_annealing(-90, 94, 4, iter, max_iter)
                 shiftMove = self.apply_jitter_annealing(-8, 10, 2, iter, max_iter)
             elif iter < 18:
                 ang = self.apply_jitter_annealing(-90, 92, 2, iter, max_iter)
@@ -3627,7 +3621,7 @@ class BnBgpu:
         else:
             #print("---Iter %s for align to classes---"%(iter+1))
             if iter < 1:
-                ang, shiftMove = (-180, 180, 6), (-maxShift_15, maxShift_15+4, 4)
+                ang, shiftMove = (-180, 180, 6), (-maxShift_10, maxShift_10+4, 4)
             elif iter < 2:
                 ang, shiftMove = (-180, 180, 4), (-8, 10, 2)
             elif iter < 3:
