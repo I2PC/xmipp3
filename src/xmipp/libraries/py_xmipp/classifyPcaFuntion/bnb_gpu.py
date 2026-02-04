@@ -26,7 +26,9 @@ class BnBgpu:
         
         torch.cuda.is_available()
         torch.cuda.current_device()
-        self.cuda = torch.device('cuda:0')    
+        self.cuda = torch.device('cuda:0')  
+          
+        self.exp_buffer = None
     
     def setRotAndShift2(self, angle, shift, shiftTotal):
 
@@ -673,9 +675,22 @@ class BnBgpu:
     @torch.no_grad()
     def center_particles_inverse_save_matrix(self, data, tMatrix, update_rot, update_shifts, centerxy):
           
+        batchsize, H, W = data.shape
         
+        # -------- buffer ----------
+        if (self.exp_buffer is None or
+            self.exp_buffer.shape[0] < batchsize or
+            self.exp_buffer.shape[2] != H or
+            self.exp_buffer.shape[3] != W):
+        
+            self.exp_buffer = torch.empty(
+                (batchsize, 1, H, W),
+                device=self.cuda,
+                dtype=torch.float32
+            )
+            
         rotBatch = update_rot.view(-1)
-        batchsize = rotBatch.size(dim=0)
+        # batchsize = rotBatch.size(dim=0)
 
         scale = torch.tensor([[1.0, 1.0]], device=self.cuda).expand(batchsize, -1)      
         
@@ -702,10 +717,17 @@ class BnBgpu:
         M = M[:, :2, :] 
         del(tMatrixLocal)  
     
-        Texp = torch.from_numpy(data.astype(np.float32)).to(self.cuda).unsqueeze(1)
+        # Texp = torch.from_numpy(data.astype(np.float32)).to(self.cuda).unsqueeze(1)
+        # -------- load data ----------
+        src = torch.from_numpy(data)
+        if src.dtype != torch.float32:
+            src = src.float()
+            
+        self.exp_buffer[:batchsize, 0].copy_(src,non_blocking=True)
+        Texp = self.exp_buffer[:batchsize]
 
-        transforIm = kornia.geometry.warp_affine(Texp, M, dsize=(data.shape[1], data.shape[2]), mode='bilinear', padding_mode='zeros')
-        transforIm = transforIm.view(batchsize, data.shape[1], data.shape[2])
+        transforIm = kornia.geometry.warp_affine(Texp, M, dsize=(H, W), mode='bilinear', padding_mode='zeros')
+        transforIm = transforIm.view(batchsize, H, W)
         del(Texp)
         
         return(transforIm, M)

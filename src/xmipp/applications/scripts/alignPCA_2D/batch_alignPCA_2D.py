@@ -236,10 +236,15 @@ if __name__=="__main__":
             
             # expImages = mmap.data[initBatch:endBatch].astype(np.float32)
             # Texp = torch.from_numpy(expImages).float().to(cuda)
-            expImages = mmap.data[initBatch:endBatch]
-            cpu_batch = torch.from_numpy(expImages).to(dtype=torch.float32)
-            exp_buffer[:cpu_batch.size(0)].copy_(cpu_batch, non_blocking=True)
-            Texp = exp_buffer[:cpu_batch.size(0)]
+            expImages = mmap.data[initBatch:endBatch]    
+            cpu_batch = torch.from_numpy(expImages)
+            
+            if cpu_batch.dtype != torch.float32:
+                cpu_batch = cpu_batch.float()
+            
+            bs = cpu_batch.size(0)
+            exp_buffer[:bs].copy_(cpu_batch, non_blocking=True)
+            Texp = exp_buffer[:bs]
                   
             if i < initStep:          
                 batch_projExp_cpu.append( bnb.batchExpToCpu(Texp, freqBn, coef, cvecs) )           
