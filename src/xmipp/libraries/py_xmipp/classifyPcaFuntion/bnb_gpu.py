@@ -28,7 +28,7 @@ class BnBgpu:
         torch.cuda.current_device()
         self.cuda = torch.device('cuda:0')  
           
-        self.exp_buffer = None
+        # self.exp_buffer = None
     
     def setRotAndShift2(self, angle, shift, shiftTotal):
 
@@ -678,16 +678,16 @@ class BnBgpu:
         batchsize, H, W = data.shape
         
         # -------- buffer ----------
-        if (self.exp_buffer is None or
-            self.exp_buffer.shape[0] < batchsize or
-            self.exp_buffer.shape[2] != H or
-            self.exp_buffer.shape[3] != W):
-        
-            self.exp_buffer = torch.empty(
-                (batchsize, 1, H, W),
-                device=self.cuda,
-                dtype=torch.float32
-            )
+        # if (self.exp_buffer is None or
+        #     self.exp_buffer.shape[0] < batchsize or
+        #     self.exp_buffer.shape[2] != H or
+        #     self.exp_buffer.shape[3] != W):
+        #
+        #     self.exp_buffer = torch.empty(
+        #         (batchsize, 1, H, W),
+        #         device=self.cuda,
+        #         dtype=torch.float32
+        #     )
             
         rotBatch = update_rot.view(-1)
         # batchsize = rotBatch.size(dim=0)
@@ -716,15 +716,16 @@ class BnBgpu:
         M = torch.matmul(M, tMatrixLocal)
         M = M[:, :2, :] 
         del(tMatrixLocal)  
-    
-        # Texp = torch.from_numpy(data.astype(np.float32)).to(self.cuda).unsqueeze(1)
+        
         # -------- load data ----------
-        src = torch.from_numpy(data)
-        if src.dtype != torch.float32:
-            src = src.float()
-            
-        self.exp_buffer[:batchsize, 0].copy_(src,non_blocking=True)
-        Texp = self.exp_buffer[:batchsize]
+        Texp = torch.from_numpy(data.astype(np.float32)).to(self.cuda).unsqueeze(1)
+        
+        # src = torch.from_numpy(data)
+        # if src.dtype != torch.float32:
+        #     src = src.float()
+        #
+        # self.exp_buffer[:batchsize, 0].copy_(src,non_blocking=True)
+        # Texp = self.exp_buffer[:batchsize]
 
         transforIm = kornia.geometry.warp_affine(Texp, M, dsize=(H, W), mode='bilinear', padding_mode='zeros')
         transforIm = transforIm.view(batchsize, H, W)
