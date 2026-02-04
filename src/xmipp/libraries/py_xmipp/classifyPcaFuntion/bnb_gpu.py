@@ -3556,8 +3556,8 @@ class BnBgpu:
         else:  #test with 49Gb GPU
             if dim <= 64:
                 expBatchSize = 50000 
-                expBatchSize2 = 120000
-                numFirstBatch = 1
+                expBatchSize2 = 80000
+                numFirstBatch = 2
                 initClBatch = 100000
             elif dim <= 128:
                 expBatchSize = 50000 
