@@ -573,9 +573,8 @@ class BnBgpu:
         if iter > 1:
             # cut = (25 if iter < 5 else 20) if sampling < 3 else (35 if iter < 5 else 30)
             # cut_res = 100 if iter < (iterSplit-1) else 50
-            cut=100
-            cut_res = 50
-            
+            cut=50
+            cut_res = 50           
             res_classes = self.frc_resolution_tensor(newCL, sampling, fallback_res=cut_res, rcut=cut)
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             
@@ -1048,7 +1047,10 @@ class BnBgpu:
         # === Filtro Gaussiano adaptativo
         ln2    = torch.log(torch.tensor(2.0, device=device))
         D0     = (1.0 / res_eff).view(B,1,1)                            
-        sigma2 = (D0 / torch.sqrt(2*ln2))**2             
+        sigma2 = (D0 / torch.sqrt(2*ln2))**2 
+        
+        # scale_factor = torch.tensor(H/128, device=device)  # referencia 128px
+        # sigma2 = ((D0 / torch.sqrt(2*ln2)) * scale_factor)**2            
     
         exponent = (-freq2) / (2*sigma2 + eps)
         
@@ -1811,14 +1813,13 @@ class BnBgpu:
         Devuelve tensor [n_classes] con la resolución FRC por clase (Å)
         y las curvas FRC por clase.
         """
-    
+        
         n_classes = len(newCL)
         h, w = next((imgs.shape[-2], imgs.shape[-1]) for imgs in newCL if imgs.numel() > 0)
         device    = newCL[0].device
         Rmax  = min(h, w) // 2
     
         res_out   = torch.full((n_classes,), float('nan'), device=device)
-        # frc_curves = torch.zeros((n_classes, Rmax), device=device)
     
         # --- malla de frecuencias físicas (Å⁻¹) ---
         fy = torch.fft.fftfreq(h, d=pixel_size, device=device)
@@ -1883,8 +1884,9 @@ class BnBgpu:
                 res_out[c] = 1.0 / freq_bins[idx[0]]
     
         # ---- reemplazo de NaN/Inf por fallback ----
-        res_out = torch.nan_to_num(res_out, nan=fallback_res,
-                                   posinf=fallback_res, neginf=fallback_res)
+        nq_save = (2 * pixel_size) / 0.8
+        res_out = torch.nan_to_num(res_out, nan=nq_save,
+                                   posinf=nq_save, neginf=nq_save)
         
         res_out = torch.where(res_out > rcut, torch.tensor(fallback_res, device=res_out.device), res_out)
         
@@ -3617,39 +3619,45 @@ class BnBgpu:
     
     def determine_ROTandSHIFT(self, iter, mode, dim):
         
-        maxShift_15 = math.ceil((dim * 0.15) / 5) * 5
-        maxShift_10 = math.ceil((dim * 0.10) / 4) * 4
-        
+        if dim >= 200:   s, final = [6, 4, 4, 2, 2], 6
+        elif dim >= 100: s, final = [5, 4, 4, 2, 2], 6
+        else:            s, final = [3, 3, 2, 2, 1], 4
+    
         if mode == "create_classes":
-            #print("---Iter %s for creating classes---"%(iter+1))           
-            
+            max_s10 = math.ceil((dim * 0.10) / s[0]) * s[0]
+            max_s10_f2 = math.ceil((dim * 0.10) / s[1]) * s[1] 
+            limit_f3 = 8 if dim < 100 else 12
             max_iter = 18
-            if iter < 4:
-                ang = self.apply_jitter_annealing(-180, 180, 10, iter, max_iter)
-                shiftMove = self.apply_jitter_annealing(-maxShift_15, maxShift_15+5, 5, iter, max_iter)
-            elif iter < 7:
-                ang = self.apply_jitter_annealing(-180, 180, 8, iter, max_iter)
-                shiftMove = self.apply_jitter_annealing(-maxShift_10, maxShift_10+4, 4, iter, max_iter)
-            elif iter < 10:
-                ang = self.apply_jitter_annealing(-180, 180, 6, iter, max_iter)
-                shiftMove = self.apply_jitter_annealing(-12, 16, 4, iter, max_iter)
-            elif iter < 13:
-                ang = self.apply_jitter_annealing(-90, 94, 4, iter, max_iter)
-                shiftMove = self.apply_jitter_annealing(-8, 10, 2, iter, max_iter)
-            elif iter < 18:
-                ang = self.apply_jitter_annealing(-90, 92, 2, iter, max_iter)
-                shiftMove = self.apply_jitter_annealing(-6, 8, 2, iter, max_iter)
-                
-                
+            
+            schedule = [
+                (4,  (-180, 180, 10), (-max_s10, max_s10 + s[0], s[0])),
+                (7,  (-180, 180, 8),  (-max_s10_f2, max_s10_f2 + s[1], s[1])), 
+                (10, (-180, 180, 6),  (-limit_f3, limit_f3 + s[2], s[2])),
+                (13, (-90, 94, 4),    (-8, 8 + s[3], s[3])),
+                (18, (-90, 92, 2),    (-final, final + s[4], s[4]))
+            ]
+            
+            res_ang, res_shift = schedule[-1][1], schedule[-1][2]
+            for it_lim, a_p, s_p in schedule:
+                if iter < it_lim:
+                    res_ang, res_shift = a_p, s_p
+                    break
+            ang = self.apply_jitter_annealing(*res_ang, iter, max_iter)
+            shiftMove = self.apply_jitter_annealing(*res_shift, iter, max_iter)
+    
         else:
-            #print("---Iter %s for align to classes---"%(iter+1))
-            if iter < 1:
-                ang, shiftMove = (-180, 180, 6), (-maxShift_10, maxShift_10+4, 4)
-            elif iter < 2:
-                ang, shiftMove = (-180, 180, 4), (-8, 10, 2)
-            elif iter < 3:
-                ang, shiftMove = (-90, 92, 2), (-6, 8, 2)
-
+            max_s10 = math.ceil((dim * 0.10) / s[2]) * s[2]
+            schedule = [
+                (1, (-180, 180, 6), (-max_s10, max_s10 + s[2], s[2])),
+                (2, (-180, 180, 4), (-8, 8 + s[3], s[3])),
+                (3, (-90, 92, 2),   (-final, final + s[4], s[4]))
+            ]
+            
+            ang, shiftMove = schedule[-1][1], schedule[-1][2]
+            for it_lim, a_v, s_v in schedule:
+                if iter < it_lim:
+                    ang, shiftMove = a_v, s_v
+                    break
            
         vectorRot, vectorshift = self.setRotAndShift(ang, shiftMove)
         return (vectorRot, vectorshift)
