@@ -1843,7 +1843,8 @@ class BnBgpu:
     
         for c, imgs in enumerate(newCL):
             n = imgs.shape[0]
-            if n < 2:
+            if n < 8:
+                res_out[c] = 40.0
                 continue  
     
             # ---- half maps ----
