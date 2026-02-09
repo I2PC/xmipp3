@@ -1555,7 +1555,7 @@ class BnBgpu:
     
     
     def relion_filter_frc_relion_style(self, images_list, class_avg,
-                                       sampling, gamma: float = 1.0, B_factor: float = 0.0,
+                                       sampling, gamma = 1, B_factor = 0,
                                        eps=1e-8, smooth_sigma: float = 1.5):
         """
         Filtro tipo RELION basado en FRC/SNR → Wiener → optional gamma/B-factor.
@@ -1624,7 +1624,7 @@ class BnBgpu:
         W = F.conv1d(W_pad, kernel.view(1,1,-1)).view(-1)
     
         # Gamma
-        if gamma != 1.0:
+        if gamma != 1:
             W = torch.clamp(W, 0.0, 1.0) ** gamma
     
         # Suavizado final
@@ -1648,7 +1648,7 @@ class BnBgpu:
         fft_filtered = fft_avg_shift * filt_map
     
         # B-factor moderado
-        if B_factor != 0.0:
+        if B_factor != 0:
             y_f = (torch.arange(Himg, device=device) - Himg//2) / (Himg*sampling)
             x_f = (torch.arange(Wimg, device=device) - Wimg//2) / (Wimg*sampling)
             s = torch.sqrt(x_f[None,:]**2 + y_f[:,None]**2)
