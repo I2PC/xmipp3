@@ -486,6 +486,10 @@ class BnBgpu:
             split = final_classes - classes
         else:
             split = 0
+        
+        # --- Z-score thresholds por clase ---    
+        if iter < 10: # Filters the best-scoring particles
+            thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
             
         total_slots = classes + split
         newCL = [[] for i in range(total_slots)]
@@ -524,8 +528,26 @@ class BnBgpu:
             count+=1
 
             #Create classes for batches
+            
             batch_class_indices = matches[initBatch:endBatch, 1].to(self.cuda, non_blocking=True).long()
+            batch_scores = matches[initBatch:endBatch, 2].to(self.cuda, non_blocking=True)
             projs_gpu = proj_batch.to(self.cuda, non_blocking=True)[0]
+            
+            # ---------- ZSCORE FILTER ----------
+            if iter < 10:
+                low  = thr_low[batch_class_indices]
+                high = thr_high[batch_class_indices]
+                valid_mask = (batch_scores >= low) & (batch_scores <= high)
+            else:
+                valid_mask = torch.ones_like(batch_scores, dtype=torch.bool)
+    
+            if valid_mask.sum() == 0:
+                del transforIm
+                continue
+    
+            transforIm = transforIm[valid_mask]
+            batch_class_indices = batch_class_indices[valid_mask]
+            projs_gpu = projs_gpu[valid_mask]
                 
             labels = batch_class_indices
             order = torch.argsort(labels)
@@ -550,7 +572,7 @@ class BnBgpu:
         newCL = [torch.cat(l, dim=0) if len(l) > 0 else torch.empty((0,H,W), device=self.cuda) for l in newCL]
         newProj = [torch.cat(l, dim=0) if len(l) > 0 else None for l in newProj]
 
-        #  Split Estructural sobre la clase COMPLETA
+        #  Split Estructural 
         if 2 <= iter < iterSplit and split > 0:
             for n in range(classes):
                 if newCL[n].shape[0] > 20: # Mínimo de partículas para que el split tenga sentido
