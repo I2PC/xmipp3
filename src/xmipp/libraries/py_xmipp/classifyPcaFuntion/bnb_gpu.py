@@ -65,31 +65,6 @@ class BnBgpu:
 
         return self.vectorRot, self.vectorShift
     
-       
-    @torch.no_grad()
-    def precShiftBand_old(self, ft, freq_band, grid_flat, coef, shift):
-        
-        fourier_band = self.selectFourierBands(ft, freq_band, coef)
-        nRef = fourier_band[0].size(dim=0)
-        nShift = shift.size(dim=0)
-        
-        band_shifted = [torch.zeros((nRef*nShift, coef[n]), device = self.cuda) for n in range(self.nBand)]
-                     
-        ONE = torch.tensor(1, dtype=torch.float32, device=self.cuda)
-        
-        for n in range (self.nBand):           
-            angles = torch.mm(shift, grid_flat[n])     
-            filter = torch.polar(ONE, angles)
-            
-            for i in range(nRef):
-                temp = fourier_band[n][i].repeat(nShift,1)
-                               
-                band_shifted_complex = torch.mul(temp, filter)
-                band_shifted_complex[:, int(coef[n] / 2):] = 0.0 
-                band_shifted[n][i*nShift : (i*nShift)+nShift] = torch.cat((band_shifted_complex.real, band_shifted_complex.imag), dim=1)
-
-        return(band_shifted)
-    
     
     @torch.no_grad()
     def precShiftBand(self, ft, freq_band, grid_flat, coef, shift):
@@ -161,37 +136,20 @@ class BnBgpu:
         return proj
         
        
-    #Applying rotation and shift
-    @torch.no_grad()
-    def precalculate_projection_old(self, prjTensorCpu, freqBn, grid_flat, coef, cvecs, rot, shift):
-                    
-        shift_tensor = torch.Tensor(shift).to(self.cuda)       
-        prjTensor = prjTensorCpu.to(self.cuda)
-   
-        rotFFT = torch.fft.rfft2(T.rotate(prjTensor, rot), norm="forward")
-        del prjTensor
-        band_shifted = self.precShiftBand(rotFFT, freqBn, grid_flat, coef, shift_tensor) 
-        del(rotFFT)  
-        projBatch = self.phiProjRefs(band_shifted, cvecs)
-        del(band_shifted)
-
-        return(projBatch)
-    
+    #Applying rotation and shift    
     @torch.no_grad()
     def precalculate_projection(self, prjTensorCpu, freqBn, grid_flat, coef, cvecs, rot_tensor, shift):
         device = self.cuda
         prj = prjTensorCpu.to(device, dtype=torch.float32, non_blocking=True)
         N, H, W = prj.shape
     
-        # Asegurarse que rot_tensor es un vector 1D
         rot_tensor = torch.as_tensor(rot_tensor, device=device, dtype=torch.float32).flatten()
         num_angles = rot_tensor.numel()
     
-        # Expandir imágenes para cada ángulo
         prj_exp = prj.unsqueeze(0).repeat(num_angles, 1, 1, 1)  # (num_angles, N, H, W)
         prj_exp = prj_exp.view(-1, 1, H, W)                     # (N*num_angles, 1, H, W)
     
-        # Crear matrices de rotación
+        # Rotation matrix
         theta = rot_tensor * math.pi / 180.0  # convertir a radianes
         c = torch.cos(theta)
         s = torch.sin(theta)
@@ -201,7 +159,6 @@ class BnBgpu:
         A[:,1,0] = s
         A[:,1,1] = c
     
-        # Repetir matrices para todas las imágenes
         A_exp = A.unsqueeze(1).repeat(1, N, 1, 1).view(-1, 2, 3)  # (N*num_angles, 2, 3)
     
         # Grid sampling
@@ -1690,137 +1647,6 @@ class BnBgpu:
     
     
     @torch.no_grad()
-    def frc_resolution_tensor2(
-            self,
-            newCL,                       # lista de tensores [N_i,H,W]
-            pixel_size: float,           # Å/px
-            frc_threshold: float = 0.143,
-            fallback_res: float = 40.0
-    ) -> torch.Tensor:
-        """Devuelve tensor [n_classes] con la resolución FRC por clase (Å)."""
-        n_classes = len(newCL)
-        device    = newCL[0].device
-        res_out   = torch.full((n_classes,), float('nan'), device=device)
-    
-        for c, imgs in enumerate(newCL):
-            n, h, w = imgs.shape
-            if n < 2:
-                continue  # no se puede partir en mitades
-    
-            # ---------------- half maps -----------------
-            perm          = torch.randperm(n, device=device)
-            half1, half2  = torch.chunk(imgs[perm], 2, dim=0)
-            avg1, avg2    = half1.mean(0), half2.mean(0)
-    
-            # ---------------- FRC -----------------------
-            fft1 = torch.fft.fftshift(torch.fft.fft2(avg1))
-            fft2 = torch.fft.fftshift(torch.fft.fft2(avg2))
-    
-            p1   = (fft1.real**2 + fft1.imag**2)
-            p2   = (fft2.real**2 + fft2.imag**2)
-            prod = (fft1 * fft2.conj()).real
-    
-            y, x = torch.meshgrid(torch.arange(h, device=device),
-                                  torch.arange(w, device=device),
-                                  indexing='ij')
-            r     = ((x - w//2)**2 + (y - h//2)**2).sqrt().long()
-            Rmax  = min(h, w) // 2
-            r.clamp_(0, Rmax-1)
-            r_flat = r.view(-1)
-    
-            frc_num = torch.zeros(Rmax, device=device).scatter_add_(0, r_flat, prod.view(-1))
-            frc_d1  = torch.zeros(Rmax, device=device).scatter_add_(0, r_flat, p1.view(-1))
-            frc_d2  = torch.zeros(Rmax, device=device).scatter_add_(0, r_flat, p2.view(-1))
-            frc     = frc_num / (torch.sqrt(frc_d1*frc_d2) + 1e-12)
-    
-            freqs   = torch.linspace(0, 0.5/pixel_size, Rmax, device=device)
-            idx     = torch.where(frc < frc_threshold)[0]
-    
-            if len(idx) and idx[0] > 0:                # evita f_cut=0
-                f_cut        = freqs[idx[0]]
-                res_out[c]   = 1.0 / f_cut
-    
-        # ---------- sustituye NaN e Inf una sola vez ------------
-        res_out = torch.nan_to_num(res_out,
-                                   nan   = fallback_res,
-                                   posinf= fallback_res,
-                                   neginf= fallback_res)
-        return res_out
-    
-  
-    @torch.no_grad()
-    def frc_resolution_tensor_old(
-            self,
-            newCL,                       # lista de tensores [N_i,H,W]
-            pixel_size: float,           # Å/px
-            frc_threshold: float = 0.143,
-            fallback_res: float = 40.0,
-            apply_window: bool = True    # NUEVO: aplica ventana Hann si True
-    ) -> torch.Tensor:
-        
-        """Devuelve tensor [n_classes] con la resolución FRC por clase (Å)."""
-        n_classes = len(newCL)
-        h, w = next((imgs.shape[-2], imgs.shape[-1]) for imgs in newCL if imgs.numel() > 0)
-        device    = newCL[0].device
-        res_out   = torch.full((n_classes,), float('nan'), device=device)
-        Rmax  = min(h, w) // 2
-        frc_curves = torch.zeros((n_classes, Rmax), device=device)
-        
-        y, x = torch.meshgrid(torch.arange(h, device=device),
-                              torch.arange(w, device=device),
-                              indexing='ij')
-        r     = ((x - w//2)**2 + (y - h//2)**2).sqrt().long()
-        r.clamp_(0, Rmax-1)
-        r_flat = r.view(-1)
-        freqs   = torch.linspace(0, 0.5/pixel_size, Rmax, device=device)
-    
-        # Ventana Hann si se solicita
-        if apply_window:
-            wy = torch.hann_window(h, periodic=False, device=device)
-            wx = torch.hann_window(w, periodic=False, device=device)
-            window = wy[:, None] * wx[None, :]
-    
-        for c, imgs in enumerate(newCL):
-            n = imgs.shape[0]
-            if n < 2:
-                continue  # no se puede partir en mitades
-    
-            # ---------------- half maps -----------------
-            perm          = torch.randperm(n, device=device)
-            half1, half2  = torch.chunk(imgs[perm], 2, dim=0)
-            avg1, avg2    = half1.mean(0), half2.mean(0)
-    
-            if apply_window:
-                avg1 = avg1 * window
-                avg2 = avg2 * window
-    
-            # ---------------- FRC -----------------------
-            fft1 = torch.fft.fftshift(torch.fft.fft2(avg1, norm="forward"))
-            fft2 = torch.fft.fftshift(torch.fft.fft2(avg2, norm="forward"))
-    
-            p1   = (fft1.real**2 + fft1.imag**2)
-            p2   = (fft2.real**2 + fft2.imag**2)
-            prod = (fft1 * fft2.conj()).real
-    
-            frc_num = torch.zeros(Rmax, device=device).scatter_add_(0, r_flat, prod.view(-1))
-            frc_d1  = torch.zeros(Rmax, device=device).scatter_add_(0, r_flat, p1.view(-1))
-            frc_d2  = torch.zeros(Rmax, device=device).scatter_add_(0, r_flat, p2.view(-1))
-            frc     = frc_num / (torch.sqrt(frc_d1*frc_d2) + 1e-12)
-            
-            frc_curves[c] = frc
-            
-            idx     = torch.where(frc < frc_threshold)[0]
-    
-            if len(idx) and idx[0] > 0:
-                res_out[c] = 1.0 / freqs[idx[0]]
-
-    
-        # ---------- sustituye NaN e Inf una sola vez ------------
-        res_out = torch.nan_to_num(res_out, nan=fallback_res, posinf=fallback_res, neginf=fallback_res)
-        return res_out, frc_curves
-    
-    
-    @torch.no_grad()
     def frc_resolution_tensor(
             self,
             newCL,                       # [N_i,H,W]
@@ -2083,99 +1909,6 @@ class BnBgpu:
     
             slope = (mean_xy - mean_x * mean_y) / denom
             b_factors[i] = -4 * slope
-    
-        b_factors = torch.nan_to_num(b_factors, nan=0.0, posinf=0.0, neginf=0.0)
-        return b_factors
-    
-    @torch.no_grad()
-    def estimate_bfactor_batch_2(self, averages, pixel_size, res_cutoff=None, freq_min=0.04, min_points=5, nyquist_fraction=0.8):
-        N, H, W = averages.shape
-        device = averages.device
-    
-        # FFT y amplitud
-        fft = torch.fft.fftshift(torch.fft.fft2(averages, norm="forward"), dim=(-2, -1))
-        amplitude = torch.abs(fft)
-    
-        # Frecuencias físicas (Å^-1)
-        fy = torch.fft.fftfreq(H, d=pixel_size).to(device)
-        fx = torch.fft.fftfreq(W, d=pixel_size).to(device)
-        gy, gx = torch.meshgrid(fy, fx, indexing='ij')
-        freq_r = torch.sqrt(gx ** 2 + gy ** 2)
-    
-        # Nyquist físico
-        f_nyquist = 1.0 / (2.0 * pixel_size)
-        max_fit_freq = f_nyquist * nyquist_fraction  # Usamos 80% del Nyquist por defecto
-    
-        num_bins = 200
-        freq_linspace = torch.linspace(0, freq_r.max(), num_bins + 1, device=device)
-        freq_r_flat = freq_r.flatten()
-        bin_idx = torch.bucketize(freq_r_flat, freq_linspace)
-    
-        amplitude_flat = amplitude.view(N, -1)
-        radial_profile = torch.zeros(N, num_bins, device=device)
-    
-        for b in range(N):
-            for i_bin in range(num_bins):
-                mask_bin = (bin_idx == i_bin)
-                if mask_bin.any():
-                    radial_profile[b, i_bin] = torch.median(amplitude_flat[b, mask_bin])
-    
-        # Frecuencia de corte opcional basada en FRC solo para información (no para limitar)
-        if res_cutoff is not None:
-            if torch.is_tensor(res_cutoff):
-                if res_cutoff.numel() == 1:
-                    frc_freq = (1.0 / res_cutoff).repeat(N)
-                elif res_cutoff.numel() == N:
-                    frc_freq = 1.0 / res_cutoff
-                else:
-                    raise ValueError(f"res_cutoff debe ser escalar o tamaño {N}, tiene {res_cutoff.numel()}")
-            else:
-                frc_freq = torch.full((N,), 1.0 / float(res_cutoff), device=device)
-        else:
-            frc_freq = torch.full((N,), max_fit_freq, device=device)
-    
-        freq_centers = (freq_linspace[:-1] + freq_linspace[1:]) / 2
-        freq_centers_exp = freq_centers.unsqueeze(0).expand(N, -1)
-    
-        # NUEVO: límite superior basado SOLO en Nyquist
-        upper_limit = torch.full((N, freq_centers.size(0)), max_fit_freq, device=device)
-    
-        # Definir máscara (no usar FRC como corte duro)
-        valid_mask = (freq_centers_exp > freq_min) & (freq_centers_exp <= upper_limit)
-    
-        amplitude_threshold = 1e-6
-        valid_mask &= (radial_profile > amplitude_threshold)
-    
-        x = freq_centers_exp ** 2
-        # y = torch.log(radial_profile + 1e-10)
-        y = torch.log((radial_profile + 1e-12)**2)
-    
-        b_factors = torch.full((N,), float('nan'), device=device)
-    
-        for i in range(N):
-            xi = x[i][valid_mask[i]]
-            yi = y[i][valid_mask[i]]
-    
-            if xi.numel() < min_points:
-                print(f"[ADVERTENCIA] Clase {i}: solo {xi.numel()} puntos válidos para ajuste (se necesitan >= {min_points}). "
-                      f"Probable espectro plano o resolución pobre.")
-                continue
-    
-            if torch.any(torch.isnan(yi)) or torch.any(torch.isinf(yi)):
-                continue
-    
-            mean_x = xi.mean()
-            mean_y = yi.mean()
-            mean_xy = (xi * yi).mean()
-            mean_x2 = (xi ** 2).mean()
-    
-            denom = mean_x2 - mean_x ** 2
-            if abs(denom) < 1e-12:
-                continue
-    
-            slope = (mean_xy - mean_x * mean_y) / denom
-            # b_factors[i] = -4 * slope
-            b_factors[i] = -2 * slope
     
         b_factors = torch.nan_to_num(b_factors, nan=0.0, posinf=0.0, neginf=0.0)
         return b_factors
@@ -3212,12 +2945,6 @@ class BnBgpu:
     ):
         B, H, W = averages.shape
         device = averages.device
-    
-        # === Aplicar ventana de Hann 2D para reducir ringing ===
-        # wy = torch.hann_window(H, periodic=False, device=device)
-        # wx = torch.hann_window(W, periodic=False, device=device)
-        # window = wy[:, None] * wx[None, :]              # [H, W]
-        # averages = averages * window                    # [B, H, W]
     
         # === FFT y energía original ===
         fft = torch.fft.fft2(averages, norm='forward')  # [B, H, W]
