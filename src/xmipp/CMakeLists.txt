@@ -157,21 +157,9 @@ install(
 )
 
 # Create the Python binding
-add_library(xmippLib MODULE ${PYTHON_BINDING_SOURCES})
-set_target_properties(xmippLib PROPERTIES PREFIX "")
-target_link_libraries(
-	xmippLib
-	PUBLIC
-		Xmipp
-		Python3::Python
-		Python3::NumPy
-)
 set(PYTHON_BINDING_DIR ${CMAKE_CURRENT_SOURCE_DIR}/bindings/python)
 set(PYTHON_BINDING_INSTALL_DIR bindings/python)
-install(
-	TARGETS xmippLib
-	LIBRARY DESTINATION ${PYTHON_BINDING_INSTALL_DIR}
-)
+
 install(
 	FILES
 		${PYTHON_BINDING_DIR}/xmipp_base.py
