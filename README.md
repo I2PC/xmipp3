@@ -29,7 +29,10 @@ For developers, it becomes handy to install Xmipp in an external directory for e
 
 The first step is to download Xmipp sources:
 
-`git clone https://github.com/I2PC/xmipp.git xmipp-bundle & cd xmipp-bundle`
+`git clone https://github.com/I2PC/xmipp.git xmipp-bundle && cd xmipp-bundle`
+
+In developer installations, the required python package "xmipp3-installer" is not automatically installed. You can install it such as:
+`pip install xmipp3-installer ` 
 
 If you want to checkout an scpecific branch use the following command. For repositories where the branch does not exist, devel is utilized.
 
