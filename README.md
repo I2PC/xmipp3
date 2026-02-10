@@ -20,7 +20,7 @@ To have a complete overview about Xmipp please visit the [documentation web](htt
 
 Xmipp collects **basic information about your installation environment**  (such as library versions, system architecture, and operating system) to  improve compatibility, performance, and stability.
 
-If you prefer **not to send this data**, you can disable collection by setting: `SEND_INSTALLATION_STATISTICS=OFF`
+If you prefer **not to send this data**, you can disable collection by setting: `export XMIPP3_SEND_INSTALLATION_STATISTICS=OFF` as environment variable
 For more information, please visit [Data collection](https://i2pc.github.io/docs/Others/Enhancing/index.html#data-collection)
 
 
