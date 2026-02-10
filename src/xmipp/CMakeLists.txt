@@ -156,6 +156,27 @@ install(
  	LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
 
+# Create the Python binding
+
+set(PYTHON_BINDING_DIR ${CMAKE_CURRENT_SOURCE_DIR}/bindings/python)
+set(PYTHON_BINDING_INSTALL_DIR bindings/python)
+
+install(
+	FILES
+		${PYTHON_BINDING_DIR}/xmipp_base.py
+		${PYTHON_BINDING_DIR}/xmipp_conda_envs.py
+		${PYTHON_BINDING_DIR}/xmipp.py
+	DESTINATION
+		${PYTHON_BINDING_INSTALL_DIR}
+)
+install(
+	DIRECTORY
+		${PYTHON_BINDING_DIR}/envs_DLTK
+	DESTINATION
+		${PYTHON_BINDING_INSTALL_DIR}
+)
+
+
 # Register MPI sources
 if(${XMIPP_USE_MPI})
 	add_library(XmippParallel SHARED ${PARALLEL_SOURCES})
