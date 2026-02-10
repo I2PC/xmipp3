@@ -302,7 +302,7 @@ if __name__=="__main__":
                                 mmap, Ntrain, nBand, dim, sampling, maxRes,
                                 minRes=530, per_eig=per_eig_value, batchPCA=True
                             )
-                            grid_flat = flatGrid(freqBn, coef, nBand)
+                            grid_flat = flatGrid(freqBn, nBand)
      
                     #update classes        
                     classes = len(cl)
