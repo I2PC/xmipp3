@@ -39,15 +39,17 @@ If you want to checkout an scpecific branch use the following command. For repos
 
 `./xmipp getSources -b branch`
 
-Compile Xmipp
+You can compile it by inheriting the environment variables from Scipion (recommended option) such as:
 
 `scipion3 run ./xmipp`
 
-Refer to `./xmipp --help` for additional info on the compilation process and possible customizations.
+Refer to `./xmipp --help` for additional info on the compilation process and possible customizations. Compilation environment variables are stored in xmipp.conf.
 
-Install the Scipion plugin.
+By default, the compilation of Xmipp3 (even when done through Scipion) does not generate the required structures for the linking. Our recommended steps are:
 
+`git clone https://github.com/I2PC/scipion-em-xmipp src/scipion-em-xmipp`
 `scipion3 installp -p src/scipion-em-xmipp --devel`
+
 
 ## That's all
 
