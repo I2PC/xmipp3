@@ -48,6 +48,7 @@ Refer to `./xmipp --help` for additional info on the compilation process and pos
 By default, the compilation of Xmipp3 (even when done through Scipion) does not generate the required structures for the linking. Our recommended steps are:
 
 `git clone https://github.com/I2PC/scipion-em-xmipp src/scipion-em-xmipp`
+
 `scipion3 installp -p src/scipion-em-xmipp --devel`
 
 
