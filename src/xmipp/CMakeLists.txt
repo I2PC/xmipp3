@@ -115,18 +115,18 @@ target_link_libraries(
 		Python3::NumPy
 		XmippCore
 )
-install(
-	TARGETS swig_frm
-	LIBRARY DESTINATION bindings/python
-)
-install(
-	DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/external/sh_alignment/python/
-	DESTINATION bindings/python/sh_alignment
-)
-install(
-	FILES ${CMAKE_CURRENT_SOURCE_DIR}/external/sh_alignment/swig_frm.py
-	DESTINATION bindings/python/sh_alignment
-)
+#install(
+#	TARGETS swig_frm
+#	LIBRARY DESTINATION bindings/python
+#)
+#install(
+#	DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/external/sh_alignment/python/
+#	DESTINATION bindings/python/sh_alignment
+#)
+#install(
+#	FILES ${CMAKE_CURRENT_SOURCE_DIR}/external/sh_alignment/swig_frm.py
+#	DESTINATION bindings/python/sh_alignment
+#)
 
 # Create the shared library
 add_library(Xmipp SHARED ${SOURCES})
