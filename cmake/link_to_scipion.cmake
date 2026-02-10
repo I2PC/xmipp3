@@ -38,8 +38,6 @@ function(link_to_scipion INSTALL_DIRECTORY SCIPION_SOFTWARE SCIPION_XMIPP_LIBRAR
 		COPY_ON_ERROR
 		SYMBOLIC
 	)
-	#endfunction()
-
 
 	# Link python binding
 	message("Linking Xmipp Python bindings to Scipion (${XMIPP_BINDINGS_DIRECTORY}/* -> ${SCIPION_BINDINGS_DIRECTORY})")
