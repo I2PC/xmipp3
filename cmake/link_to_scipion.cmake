@@ -38,7 +38,7 @@ function(link_to_scipion INSTALL_DIRECTORY SCIPION_SOFTWARE SCIPION_XMIPP_LIBRAR
 		COPY_ON_ERROR
 		SYMBOLIC
 	)
-	endfunction()
+	#endfunction()
 #
 #
 #	# Link python binding
@@ -57,16 +57,15 @@ function(link_to_scipion INSTALL_DIRECTORY SCIPION_SOFTWARE SCIPION_XMIPP_LIBRAR
 #		endif()
 #	endforeach()
 #
-#	# Link shared libraries
-#	message("Linking Xmipp C++ libraries to Scipion (${XMIPP_LIB_DIRECTORY}/* -> ${SCIPION_LIB_DIRECTORY})")
-#	foreach(x IN LISTS SCIPION_XMIPP_LIBRARIES)
-#		file(
-#			CREATE_LINK
-#				${XMIPP_LIB_DIRECTORY}/${x}
-#				${SCIPION_LIB_DIRECTORY}/${x}
-#			COPY_ON_ERROR
-#			SYMBOLIC
-#		)
-#	endforeach()
-#endfunction()
-#
+	# Link shared libraries
+	message("Linking Xmipp C++ libraries to Scipion (${XMIPP_LIB_DIRECTORY}/* -> ${SCIPION_LIB_DIRECTORY})")
+	foreach(x IN LISTS SCIPION_XMIPP_LIBRARIES)
+		file(
+			CREATE_LINK
+				${XMIPP_LIB_DIRECTORY}/${x}
+				${SCIPION_LIB_DIRECTORY}/${x}
+			COPY_ON_ERROR
+			SYMBOLIC
+		)
+	endforeach()
+endfunction()
