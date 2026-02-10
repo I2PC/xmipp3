@@ -38,32 +38,34 @@ function(link_to_scipion INSTALL_DIRECTORY SCIPION_SOFTWARE SCIPION_XMIPP_LIBRAR
 		COPY_ON_ERROR
 		SYMBOLIC
 	)
-
-	# Link python binding
-	message("Linking Xmipp Python bindings to Scipion (${XMIPP_BINDINGS_DIRECTORY}/* -> ${SCIPION_BINDINGS_DIRECTORY})")
-	file(GLOB PYTHON_DIR_CONTENT ${XMIPP_BINDINGS_DIRECTORY}/*)
-	foreach(x IN LISTS PYTHON_DIR_CONTENT)
-		get_filename_component(y ${x} NAME)
-		if(NOT ${y} MATCHES ${PYCACHE_DIR_NAME}) # Ignore pycache
-			file(
-				CREATE_LINK
-					${x}
-					${SCIPION_BINDINGS_DIRECTORY}/${y}
-				COPY_ON_ERROR
-				SYMBOLIC
-			)
-		endif()
-	endforeach()
-	
-	# Link shared libraries
-	message("Linking Xmipp C++ libraries to Scipion (${XMIPP_LIB_DIRECTORY}/* -> ${SCIPION_LIB_DIRECTORY})")
-	foreach(x IN LISTS SCIPION_XMIPP_LIBRARIES)
-		file(
-			CREATE_LINK
-				${XMIPP_LIB_DIRECTORY}/${x}
-				${SCIPION_LIB_DIRECTORY}/${x}
-			COPY_ON_ERROR
-			SYMBOLIC
-		)
-	endforeach()
-endfunction()
+#
+#
+#	# Link python binding
+#	message("Linking Xmipp Python bindings to Scipion (${XMIPP_BINDINGS_DIRECTORY}/* -> ${SCIPION_BINDINGS_DIRECTORY})")
+#	file(GLOB PYTHON_DIR_CONTENT ${XMIPP_BINDINGS_DIRECTORY}/*)
+#	foreach(x IN LISTS PYTHON_DIR_CONTENT)
+#		get_filename_component(y ${x} NAME)
+#		if(NOT ${y} MATCHES ${PYCACHE_DIR_NAME}) # Ignore pycache
+#			file(
+#				CREATE_LINK
+#					${x}
+#					${SCIPION_BINDINGS_DIRECTORY}/${y}
+#				COPY_ON_ERROR
+#				SYMBOLIC
+#			)
+#		endif()
+#	endforeach()
+#
+#	# Link shared libraries
+#	message("Linking Xmipp C++ libraries to Scipion (${XMIPP_LIB_DIRECTORY}/* -> ${SCIPION_LIB_DIRECTORY})")
+#	foreach(x IN LISTS SCIPION_XMIPP_LIBRARIES)
+#		file(
+#			CREATE_LINK
+#				${XMIPP_LIB_DIRECTORY}/${x}
+#				${SCIPION_LIB_DIRECTORY}/${x}
+#			COPY_ON_ERROR
+#			SYMBOLIC
+#		)
+#	endforeach()
+#endfunction()
+#
