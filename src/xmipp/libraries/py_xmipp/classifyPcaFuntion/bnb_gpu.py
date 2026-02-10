@@ -267,33 +267,6 @@ class BnBgpu:
                 thr_high[n] = center + threshold * mad
     
         return thr_low, thr_high
-           
-    
-    def split_class_by_structure(self, particles, n_clusters=2):
-
-        if particles.shape[0] < 100:
-            return [particles]
-    
-        # Aplanar partículas
-        flat_data = particles.view(particles.shape[0], -1)
-    
-        mu = flat_data.mean(dim=0)
-        centered_data = flat_data - mu
-    
-        U, S, V = torch.pca_lowrank(centered_data, q=1, niter = 2)
-    
-        projections = torch.matmul(centered_data, V[:, 0])
-    
-        center = projections.median()
-        mad = torch.median(torch.abs(projections - center)) + 1e-6
-    
-        mask = projections > (center + 0.5 * mad)
-        # -------------------
-    
-        if mask.sum() == 0 or (~mask).sum() == 0:
-            mask = projections > center
-    
-        return [particles[mask], particles[~mask]]
     
     
     @torch.no_grad()

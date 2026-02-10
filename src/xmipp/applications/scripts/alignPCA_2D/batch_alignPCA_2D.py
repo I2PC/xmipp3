@@ -35,9 +35,9 @@ def save_images(data, voxel, outfilename):
         mrc.update_header_stats()
 
 
-def flatGrid(freq_band, coef, nBand):
+def flatGrid(freq_band, nBand):
     
-    dim, dimfreq = freq_band.shape
+    dim, _ = freq_band.shape
 
     fx = torch.fft.rfftfreq(dim, d=0.5/np.pi, device=cuda)  
     fy = torch.fft.fftfreq(dim, d=0.5/np.pi, device=cuda)   
@@ -130,7 +130,7 @@ if __name__=="__main__":
     freqBn, cvecs, coef = pca.calculatePCAbasis(mmap, Ntrain, nBand, dim, sampling, maxRes, 
                                                 minRes=530, per_eig=per_eig_value, batchPCA=True)
 
-    grid_flat = flatGrid(freqBn, coef, nBand)
+    grid_flat = flatGrid(freqBn, nBand)
 
     bnb = BnBgpu(nBand)
        
