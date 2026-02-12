@@ -705,7 +705,7 @@ void ProgStatisticalMap::computeStatisticalMaps()
         FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(avgVolume())
         {
             // As maps are normalized to std=1 the comparison is direct
-            if (DIRECT_MULTIDIM_ELEM(avgVolume(), n) > 1 && DIRECT_MULTIDIM_ELEM(ROI_mask, n) > 0)
+            if (DIRECT_MULTIDIM_ELEM(avgVolume(), n) > 1.64 && DIRECT_MULTIDIM_ELEM(ROI_mask, n) > 0)
             {
                 DIRECT_MULTIDIM_ELEM(positiveMask, n) = 1;
             }
