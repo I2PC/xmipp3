@@ -86,23 +86,31 @@ if(${XMIPP_USE_CUDA})
     if(CUDAToolkit_FOUND)
       file(APPEND ${XMIPP_VERSIONS_FILE} "CUDA=${CUDAToolkit_VERSION}\n")
 
-      set(CMAKE_CUDA_STANDARD 14)
+      set(CMAKE_CUDA_STANDARD 17)
 
       string(APPEND CMAKE_CUDA_FLAGS " --expt-extended-lambda")
 
-      if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.18")
-        list(APPEND CMAKE_CUDA_ARCHITECTURES 60 75)
+      # 1. Define base architectures supported by almost everyone (Turing, Ampere)
+      set(XMIPP_CUDA_ARCHS 75 86)
 
-        if(${CUDAToolkit_VERSION} VERSION_GREATER_EQUAL "11")
-          list(APPEND CMAKE_CUDA_ARCHITECTURES 86)
-        endif()
+      # 2. Conditionally add Pascal (compute_60) ONLY if CUDA is older than 12.0
+      if(${CUDAToolkit_VERSION} VERSION_LESS "12.0")
+        list(APPEND XMIPP_CUDA_ARCHS 60)
+      endif()
+
+      # 3. Add newer architectures for CUDA 11.8+ (Ada, Hopper)
+      if(${CUDAToolkit_VERSION} VERSION_GREATER_EQUAL "11.8")
+        list(APPEND XMIPP_CUDA_ARCHS 89 90)
+      endif()
+
+      if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.18")
+        # Modern CMake approach: Just pass the list
+        set(CMAKE_CUDA_ARCHITECTURES ${XMIPP_CUDA_ARCHS})
       else()
-        string(APPEND CMAKE_CUDA_FLAGS " -gencode arch=compute_60,code=sm_60")
-        string(APPEND CMAKE_CUDA_FLAGS " -gencode arch=compute_75,code=sm_75")
-        
-        if(${CUDAToolkit_VERSION} VERSION_GREATER_EQUAL "11")
-          string(APPEND CMAKE_CUDA_FLAGS " -gencode arch=compute_86,code=sm_86")
-        endif()
+        # Fallback for older CMake: Manual flags construction
+        foreach(arch ${XMIPP_CUDA_ARCHS})
+          string(APPEND CMAKE_CUDA_FLAGS " -gencode arch=compute_${arch},code=sm_${arch}")
+        endforeach()
       endif()
 
     else()
