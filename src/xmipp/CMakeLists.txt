@@ -54,11 +54,11 @@ file(
 	FRM_SOURCES 
 		${CMAKE_CURRENT_SOURCE_DIR}/external/sh_alignment/*.cpp 
 )
-file(
-	GLOB_RECURSE 
-	PYTHON_BINDING_SOURCES
-		${CMAKE_CURRENT_SOURCE_DIR}/bindings/python/*.cpp 
-)
+#file(
+#	GLOB_RECURSE
+#	PYTHON_BINDING_SOURCES
+#		${CMAKE_CURRENT_SOURCE_DIR}/bindings/python/*.cpp
+#)
 file(
 	GLOB_RECURSE 
 	MATLAB_BINDING_SOURCES
