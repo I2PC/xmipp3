@@ -12,6 +12,7 @@ import sys, os
 import numpy as np
 import torch
 from xmippPyModules.alignPcaFunctions.assessment import *
+from xmippPyModules.alignPcaFunctions.bnb_gpu import *
 
 torch.cuda.is_available()
 torch.cuda.current_device()
@@ -266,9 +267,13 @@ if __name__=="__main__":
         assess.initRandomStar(star, output)
         
     if initial_angles:
+        nBand = 1
+        bnb = BnBgpu(nBand)
         print("Generating XMD with initial angles")
         expImages = read_images(expFile)
-        texp= torch.from_numpy(expImages).float().to("cuda")
+        texp = torch.from_numpy(expImages).float().to("cuda")
+        radius = 60
+        texp = texp * bnb.create_mask(texp, radius)
         del(expImages)
         initAngles = get_alignPCA_vinit_angles(texp)
         initAngles_numpy = initAngles.detach().cpu().numpy()

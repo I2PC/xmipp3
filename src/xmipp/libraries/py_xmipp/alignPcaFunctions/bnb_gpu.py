@@ -344,6 +344,52 @@ class BnBgpu:
         self.mask = self.mask / self.mask[center, center].clone()
     
         return self.mask 
+    
+    
+    
+    def robust_normalize_and_mask(self, images, radius_ratio=0.85):
+        """
+        Calcula la máscara y normaliza las imágenes en un solo paso.
+        
+        Args:
+            images: Tensor [N, H, W]
+            radius_ratio: Proporción del radio de la máscara (0.85 suele ser ideal).
+        """
+        N, H, W = images.shape
+        device = images.device
+        
+        # 1. Calcular la máscara circular internamente
+        y, x = torch.meshgrid(
+            torch.linspace(-1, 1, H, device=device),
+            torch.linspace(-1, 1, W, device=device),
+            indexing='ij'
+        )
+        dist = torch.sqrt(x**2 + y**2)
+        mask = (dist <= radius_ratio).float()
+        inv_mask = (dist > radius_ratio) # Área de ruido/fondo
+        
+        normalized_images = torch.zeros_like(images)
+        
+        for i in range(N):
+            img = images[i]
+            
+            # 2. Estadísticas del fondo (píxeles fuera del círculo)
+            noise_pixels = img[inv_mask]
+            if noise_pixels.numel() > 0:
+                bg_mean = noise_pixels.mean()
+                bg_std = noise_pixels.std()
+            else:
+                bg_mean, bg_std = img.mean(), img.std()
+                
+            # 3. Normalización Z-score (Fondo -> 0, Ruido -> varianza 1)
+            # Esto nivela el contraste entre diferentes partículas
+            img_norm = (img - bg_mean) / (bg_std + 1e-8)
+            
+            # 4. Aplicar máscara y ReLU
+            # El ReLU es vital: elimina el ruido negativo que confunde al PCA
+            normalized_images[i] = torch.relu(img_norm * mask)
+            
+        return normalized_images
             
 
     
