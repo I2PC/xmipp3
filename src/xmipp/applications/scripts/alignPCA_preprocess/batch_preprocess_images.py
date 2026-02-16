@@ -272,8 +272,9 @@ if __name__=="__main__":
         print("Generating XMD with initial angles")
         expImages = read_images(expFile)
         texp = torch.from_numpy(expImages).float().to("cuda")
-        radius = 60
-        texp = texp * bnb.create_mask(texp, radius)
+        # radius = 60
+        # texp = texp * bnb.create_mask(texp, radius)
+        texp = bnb.robust_normalize_and_mask(texp)
         del(expImages)
         initAngles = get_alignPCA_vinit_angles(texp)
         initAngles_numpy = initAngles.detach().cpu().numpy()
