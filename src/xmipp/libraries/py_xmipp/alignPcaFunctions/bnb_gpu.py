@@ -347,7 +347,7 @@ class BnBgpu:
     
     
     
-    def robust_normalize_and_mask(self, images, radius_ratio=0.85):
+    def robust_normalize_and_mask2(self, images, radius_ratio=0.85):
         """
         Calcula la máscara y normaliza las imágenes en un solo paso.
         
@@ -389,6 +389,35 @@ class BnBgpu:
             # El ReLU es vital: elimina el ruido negativo que confunde al PCA
             # normalized_images[i] = torch.relu(img_norm * mask)
             normalized_images[i] = img_norm
+            
+        return normalized_images
+    
+    
+    def robust_normalize_and_mask(self, images, radius_ratio=0.85):
+        N, H, W = images.shape
+        device = images.device
+        
+        # Crear máscara de coseno suave (evita cortes bruscos que odia el PCA)
+        y, x = torch.meshgrid(torch.linspace(-1, 1, H, device=device),
+                              torch.linspace(-1, 1, W, device=device), indexing='ij')
+        dist = torch.sqrt(x**2 + y**2)
+        
+        # Máscara con caída suave (soft edge)
+        soft_mask = torch.clamp((radius_ratio - dist) / 0.1, 0, 1)
+        
+        normalized_images = torch.zeros_like(images)
+        
+        for i in range(N):
+            img = images[i]
+            
+            # En lugar de Z-score total, solo restamos el percentil 10 (estimación del fondo)
+            # Esto no cambia la escala de la proteína, solo asegura que el fondo sea ~0
+            background_level = torch.quantile(img, 0.1)
+            img_centered = img - background_level
+            
+            # Aplicamos la máscara suave sin ReLU agresivo
+            # Dejamos que los valores negativos existan pero solo cerca de cero
+            normalized_images[i] = img_centered * soft_mask
             
         return normalized_images
             
