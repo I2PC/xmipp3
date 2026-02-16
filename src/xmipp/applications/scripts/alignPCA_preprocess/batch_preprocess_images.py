@@ -11,7 +11,7 @@ import argparse
 import sys, os
 import numpy as np
 import torch
-from xmippPyModules.pcaAlignFunction.assessment import *
+from xmippPyModules.alignPcaFunctions.assessment import *
 
 torch.cuda.is_available()
 torch.cuda.current_device()
@@ -80,6 +80,102 @@ def apply_scale(prjImages, expImages, radius):
     prjImages = (prjImages - b)/a
     
     return prjImages
+
+
+#Initial angles
+def get_alignPCA_vinit_angles(class_averages, inplane_std=0.5, tilt_std=0.3, jitter_std=0.15):
+    """
+    Genera orientaciones iniciales y devuelve ángulos de Euler (Rot, Tilt, Psi) en grados.
+    
+    Args:
+        class_averages: Tensor [N, H, W]
+    Returns:
+        angles: Tensor [N, 3] donde cada fila es [rot, tilt, psi] en grados.
+    """
+    N, H, W = class_averages.shape
+    device = class_averages.device
+
+    # 1. PCA 2D basada en momentos de inercia
+    y, x = torch.meshgrid(
+        torch.linspace(-1, 1, H, device=device),
+        torch.linspace(-1, 1, W, device=device),
+        indexing='ij'
+    )
+    coords = torch.stack([x, y], dim=-1).reshape(-1, 2)
+    
+    imgs = class_averages - class_averages.mean(dim=(-2, -1), keepdim=True)
+    weights = torch.relu(imgs).reshape(N, -1) + 1e-8
+    weights = weights / weights.sum(dim=-1, keepdim=True)
+    
+    cov = torch.einsum('ni,ix,iy->nxy', weights, coords, coords)
+    _, eigvecs = torch.linalg.eigh(cov) 
+
+    base_rots = torch.eye(3, device=device).repeat(N, 1, 1)
+    base_rots[:, 0:2, 0:2] = eigvecs
+
+    # 2. Romper simetrías (In-plane, Tilt y Jitter so3)
+    theta = torch.randn(N, device=device) * inplane_std
+    Rz = rotation_matrix_z(theta)
+    
+    tilt_rand = torch.randn(N, device=device) * tilt_std
+    Rx = rotation_matrix_x(tilt_rand)
+    
+    # Jitter en el álgebra so(3)
+    eps = torch.randn(N, 3, device=device) * jitter_std
+    jitter_rot = torch.matrix_exp(hat(eps))
+
+    # 3. Rotación global (Diversidad de la semilla)
+    q = torch.randn(4, device=device)
+    q = q / q.norm()
+    w, x_q, y_q, z_q = q
+    global_rot = torch.tensor([
+        [1 - 2*y_q**2 - 2*z_q**2, 2*x_q*y_q - 2*z_q*w,     2*x_q*z_q + 2*y_q*w],
+        [2*x_q*y_q + 2*z_q*w,     1 - 2*x_q**2 - 2*z_q**2, 2*y_q*z_q - 2*x_q*w],
+        [2*x_q*z_q - 2*y_q*w,     2*y_q*z_q + 2*x_q*w,     1 - 2*x_q**2 - 2*y_q**2]
+    ], device=device)
+
+    # Matriz final: Global * Jitter * Tilt * InPlane * PCA
+    R = global_rot @ jitter_rot @ Rx @ Rz @ base_rots
+    R = R.transpose(1,2)
+
+    # 4. Extracción de ángulos de Euler (Convención ZYZ: Rot, Tilt, Psi)
+    tilt = torch.acos(R[:, 2, 2].clamp(-1.0, 1.0))
+    
+    rot = torch.atan2(R[:, 1, 2], R[:, 0, 2])
+    
+    psi = torch.atan2(R[:, 2, 1], -R[:, 2, 0])
+
+    # Convertir a grados para el archivo .star
+    angles = torch.stack([rot, tilt, psi], dim=-1)
+    return torch.rad2deg(angles)
+
+# --- Funciones auxiliares ya optimizadas ---
+def hat(v):
+    vx, vy, vz = v[:, 0], v[:, 1], v[:, 2]
+    O = torch.zeros_like(vx)
+    return torch.stack([
+        torch.stack([ O, -vz,  vy], dim=-1),
+        torch.stack([ vz,  O, -vx], dim=-1),
+        torch.stack([-vy,  vx,  O], dim=-1),
+    ], dim=-2)
+
+def rotation_matrix_x(theta):
+    c, s = torch.cos(theta), torch.sin(theta)
+    O, I = torch.zeros_like(theta), torch.ones_like(theta)
+    return torch.stack([
+        torch.stack([I, O, O], dim=-1),
+        torch.stack([O, c,-s], dim=-1),
+        torch.stack([O, s, c], dim=-1),
+    ], dim=-2)
+
+def rotation_matrix_z(theta):
+    c, s = torch.cos(theta), torch.sin(theta)
+    O, I = torch.zeros_like(theta), torch.ones_like(theta)
+    return torch.stack([
+        torch.stack([ c,-s, O], dim=-1),
+        torch.stack([ s, c, O], dim=-1),
+        torch.stack([ O, O, I], dim=-1),
+    ], dim=-2)
   
        
 if __name__=="__main__":
@@ -101,11 +197,12 @@ if __name__=="__main__":
     
     # common arguments
     required_args_group = parser.add_argument_group('required arguments')
+    required_args_group.add_argument("-i", "--exp", help="input mrcs file for experimental images.")
     required_args_group.add_argument("-o", "--output", help="File output", required=True)
     
     # scale_leveling
     scale_leveling_group = parser.add_argument_group('scale_leveling', 'Arguments for scale leveling')
-    scale_leveling_group.add_argument("-i", "--exp", help="input mrcs file for experimental images. It is necessary for scale leveling")
+    # scale_leveling_group.add_argument("-i", "--exp", help="input mrcs file for experimental images. It is necessary for scale leveling")
     scale_leveling_group.add_argument("-r", "--ref", help="input mrcs file for reference images")
     scale_leveling_group.add_argument("-rad", "--radius", type=float, help="Radius of the circular mask that will be used to define the background area (in pixels)")
     scale_leveling_group.add_argument("-b", "--batch", type=int, default=5000, help="Number of experimental images for the statistics. (default = 5000)")
@@ -116,7 +213,8 @@ if __name__=="__main__":
     convert_star_group.add_argument("-s", "--star", help="input star file")
     convert_star_group.add_argument("--convert", action="store_true", help="Convert Relion star to Xmipp xmd")
     convert_star_group.add_argument("--create_stack", action="store_true", help="Create mrcs stack from star file")
-    convert_star_group.add_argument("--random_angles", action="store_true", help="Create xmd with random angles")   
+    convert_star_group.add_argument("--random_angles", action="store_true", help="Create xmd with random angles") 
+    convert_star_group.add_argument("--initial_angles", action="store_true", help="Create xmd with initial angles using pca") 
     
     args = parser.parse_args()
     
@@ -129,6 +227,7 @@ if __name__=="__main__":
     create_stack = args.create_stack
     convert = args.convert
     random = args.random_angles
+    initial_angles = args.initial_angles
 
     if prjFile:
         #Read Images
@@ -165,6 +264,17 @@ if __name__=="__main__":
         assess = evaluation()
         print("Generating XMD with random angles")
         assess.initRandomStar(star, output)
+        
+    if initial_angles:
+        print("Generating XMD with initial angles")
+        expImages = read_images(expFile)
+        texp= torch.from_numpy(expImages).float().to("cuda")
+        del(expImages)
+        initAngles = get_alignPCA_vinit_angles(texp)
+        initAngles_numpy = initAngles.detach().cpu().numpy()
+        assess = evaluation()
+        assess.initPcaAnglesStar(initAngles_numpy, star, output)
+        
 
 
 

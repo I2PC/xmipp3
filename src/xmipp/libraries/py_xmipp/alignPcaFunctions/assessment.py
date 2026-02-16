@@ -393,6 +393,22 @@ class evaluation:
         star.loc[:, "angleTilt"] = anglesTilt  
    
         starfile.write(star, outXMD, overwrite=True)
+        
+    
+    def initPcaAnglesStar(self, angles, expXMD, outXMD):
+        
+        star = starfile.read(expXMD) 
+                
+        columns = ["anglePsi", "angleRot", "angleTilt", "shiftX", "shiftY", "shiftZ"]
+        for column in columns:
+            if column not in star.columns:
+                star[column] = 0.0
+                
+        star.loc[:, "angleRot"] = angles[:, 0]
+        star.loc[:, "angleTilt"] = angles[:, 1]
+        star.loc[:, "anglePsi"] = angles[:, 2]
+   
+        starfile.write(star, outXMD, overwrite=True)
  
             
             

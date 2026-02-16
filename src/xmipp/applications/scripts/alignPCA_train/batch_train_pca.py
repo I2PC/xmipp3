@@ -12,12 +12,12 @@ import argparse
 import sys, os
 import numpy as np
 import torch
-from xmippPyModules.pcaAlignFunction.bnb_gpu import *
-from xmippPyModules.pcaAlignFunction.pca_gpu import *
+from xmippPyModules.alignPcaFunctions.bnb_gpu import *
+from xmippPyModules.alignPcaFunctions.pca_gpu import *
 import torchvision.transforms as T
 import time
 
-def precalculateBands(nBand, dim, sampling, maxRes, minRes):
+def precalculateBands2(nBand, dim, sampling, maxRes, minRes):
 
     vectorFreq = torch.fft.fftfreq(dim)
     freq_band = torch.full((dim,int(np.floor(dim/2))), 50)   
@@ -40,6 +40,30 @@ def precalculateBands(nBand, dim, sampling, maxRes, minRes):
                 freq_band[y][x] = torch.floor(w*factor)
     
     return freq_band
+
+def precalculateBands(nBand, dim, sampling, maxRes, minRes):
+        
+        fx = torch.fft.rfftfreq(dim)
+        fy = torch.fft.fftfreq(dim)
+        
+        gy, gx = torch.meshgrid(fy, fx, indexing='ij')
+        
+        w = torch.sqrt(gx**2 + gy**2)
+        del gx, gy
+        
+        # Inicialization
+        freq_band = torch.full((dim, fx.numel()), 50, dtype=torch.long)
+        
+        maxFreq = sampling / maxRes
+        minFreq = sampling / minRes
+        factor = nBand / maxFreq
+        
+        mask = (w > minFreq) & (w < maxFreq)
+        freq_band[mask] = torch.floor(w[mask] * factor).long()
+        
+        del w, mask, fx, fy
+    
+        return freq_band
 
 
 def augmented(images, num_tr):

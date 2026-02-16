@@ -102,7 +102,7 @@ if __name__=="__main__":
     grid_flat = flatGrid(freqBn, nBand)
 
         
-    bnb = gpu(nBand)
+    bnb = BnBgpu(nBand)
     assess = evaluation()
     
     
