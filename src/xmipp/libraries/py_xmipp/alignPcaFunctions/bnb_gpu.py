@@ -387,7 +387,8 @@ class BnBgpu:
             
             # 4. Aplicar máscara y ReLU
             # El ReLU es vital: elimina el ruido negativo que confunde al PCA
-            normalized_images[i] = torch.relu(img_norm * mask)
+            # normalized_images[i] = torch.relu(img_norm * mask)
+            normalized_images[i] = img_norm
             
         return normalized_images
             
