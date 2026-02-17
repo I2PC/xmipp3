@@ -8,7 +8,7 @@
    - ??pyXmipp?
      
    ### More Xmipp  
-   - ??CUDA 13 is now fully compatible with Xmipp, enabling improved GPU acceleration and performance on modern hardware.
+   - CUDA 13 is now fully compatible with Xmipp, enabling improved GPU acceleration and performance on modern hardware.
 
 
 ## Release 4.0.0 - Apoferritin
