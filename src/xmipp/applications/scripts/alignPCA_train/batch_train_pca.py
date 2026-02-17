@@ -140,9 +140,9 @@ if __name__=="__main__":
         
         expImages = mexp.data[initBatch:endBatch].astype(np.float32)#.copy()
         Texp = torch.from_numpy(expImages).float().to(cuda)
-        radius = 60
-        Texp = Texp * bnb.create_mask(Texp, radius)
-        # Texp = bnb.robust_normalize_and_mask(Texp)
+        # radius = 60
+        # Texp = Texp * bnb.create_mask(Texp, radius)
+        Texp = bnb.robust_normalize_and_mask(Texp)
         del(expImages)
         
         for augm in range(10):
