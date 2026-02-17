@@ -95,7 +95,6 @@ if(${XMIPP_USE_CUDA})
 
       # 2. Conditionally add Pascal (compute_60) ONLY if CUDA is older than 12.0
       if(CMAKE_CUDA_COMPILER_VERSION VERSION_LESS_EQUAL "12.0.0")
-      #if(${CUDAToolkit_VERSION} VERSION_LESS "12.0")
         list(APPEND XMIPP_CUDA_ARCHS 60)
       endif()
 
