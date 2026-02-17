@@ -1,4 +1,4 @@
-## Release 5.0.0 - Bxxxx
+## Release 5.0.0 - Beta-gal 
    ### Xmipp Programs 
    - New programs
       - alignPCA_2D: an alignment method applied for 2D classification using PCA and Euclidean distance.‎
