@@ -138,6 +138,13 @@ if __name__=="__main__":
     print("batches: %s, %s, %s, %s" %(expBatchSize, expBatchSize2, numFirstBatch, initClBatch))   
 
 
+         #Precalculate whitening 
+    Im_whitening = mmap.data[:min(initClBatch, nExp)].astype(np.float32)
+    Texp_whitening = torch.from_numpy(Im_whitening).float().to(cuda)
+    whitening = bnb.compute_radial_whitening_filter(Texp_whitening)
+    del Im_whitening, Texp_whitening
+
+
     #Initial classes with kmeans
     if refImages: 
         initStep = -1
@@ -181,7 +188,7 @@ if __name__=="__main__":
             Texp_zero = torch.as_tensor(Im_zero, device=cuda)
             Texp_zero *= bnb.create_circular_mask(Texp_zero)
         
-            pca_zero = bnb.create_batchExp(Texp_zero, freqBn, coef, cvecs)
+            pca_zero = bnb.create_batchExp(Texp_zero, whitening, freqBn, coef, cvecs)
         
             cl_round, _ = bnb.kmeans_pytorch_for_averages(
                 Texp_zero, pca_zero[0], cvecs, num_clusters=k_round
@@ -231,13 +238,13 @@ if __name__=="__main__":
             Texp = torch.from_numpy(expImages).float().to(cuda)
                   
             if i < initStep:          
-                batch_projExp_cpu.append( bnb.batchExpToCpu(Texp, freqBn, coef, cvecs) )           
+                batch_projExp_cpu.append( bnb.batchExpToCpu(Texp, whitening, freqBn, coef, cvecs) )           
                 if i == initStep-1:
                     mode = "create_classes"
                     print(f"\nClassification mode", flush=True)
                     print(f"Processing batch 0 - {endBatch}\n", flush=True)
             else:            
-                batch_projExp_cpu = bnb.create_batchExp(Texp, freqBn, coef, cvecs)
+                batch_projExp_cpu = bnb.create_batchExp(Texp, whitening, freqBn, coef, cvecs)
                 mode = "align_classes"
                 if i == initStep:
                     print(f"\nAssignment mode", flush=True)
@@ -270,7 +277,7 @@ if __name__=="__main__":
                     for rot in vectorRot:            
             
                         # print("---Precomputing the projections of the reference images---")          
-                        batch_projRef = bnb.precalculate_projection(cl, freqBn, grid_flat, 
+                        batch_projRef = bnb.precalculate_projection(cl, whitening, freqBn, grid_flat, 
                                                             coef, cvecs, float(rot), vectorshift)
                 
                         count = 0  
@@ -309,14 +316,14 @@ if __name__=="__main__":
                     
                     if mode == "create_classes":
                         cl, tMatrix, batch_projExp_cpu = bnb.create_classes(
-                            mmap, tMatrix, iter, subset, expBatchSize, matches, vectorshift, 
+                            mmap, whitening, tMatrix, iter, subset, expBatchSize, matches, vectorshift, 
                             classes, final_classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles)
 
                     else:
                         torch.cuda.empty_cache()
-                        cl, tMatrix, batch_projExp_cpu = bnb.align_particles_to_classes(expImages, 
-                                        cl, tMatrix, iter, subset, matches, vectorshift, classes,
-                                         freqBn, coef, cvecs, mask, sigma, sampling)
+                        cl, tMatrix, batch_projExp_cpu = bnb.align_particles_to_classes( 
+                                        expImages, whitening, cl ,tMatrix, iter, subset, matches, vectorshift,
+                                        classes, freqBn, coef, cvecs, mask, sigma, sampling)
     
                     
                     # save classes
