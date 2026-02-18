@@ -148,8 +148,8 @@ if __name__=="__main__":
                                 
         tref = torch.from_numpy(prjImages).float().to(cuda)  
         if radius:
-        #     tref = tref * bnb.create_mask(tref, radius)
-            tref = bnb.robust_normalize_and_mask2(tref)    
+            tref = tref * bnb.create_mask(tref, radius)
+            # tref = bnb.robust_normalize_and_mask(tref)    
         del(prjImages)
     
         batch_projRef = bnb.create_batchExp(tref, whitening, freqBn, coef, cvecs) 
@@ -160,8 +160,8 @@ if __name__=="__main__":
         expImages = read_images(expFile)
         texp= torch.from_numpy(expImages).float().to("cpu")
         if radius:
-            # texp = texp * bnb.create_mask(texp, radius)
-            texp = bnb.robust_normalize_and_mask2(texp)
+            texp = texp * bnb.create_mask(texp, radius)
+            # texp = bnb.robust_normalize_and_mask(texp)
         del(expImages)
         
         
