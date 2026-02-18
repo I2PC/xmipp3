@@ -152,23 +152,49 @@ def get_alignPCA_vinit_angles2(class_averages, inplane_std=0.5, tilt_std=0.3, ji
 
 
 def get_alignPCA_vinit_angles(class_averages, inplane_std=0.5, tilt_std=0.3, jitter_std=0.15):
+    # Forzar que class_averages sea un tensor de 3 dimensiones [N, H, W]
+    if class_averages.dim() == 4: # Por si viene como [N, 1, H, W]
+        class_averages = class_averages.squeeze(1)
+    
     N, H, W = class_averages.shape
     device = class_averages.device
+    num_pixels = H * W
 
-    # 1. PCA con pesos y normalización
+    # 1. Coordenadas (Asegurar que son vectores de tamaño 16384)
     y, x = torch.meshgrid(torch.linspace(-1, 1, H, device=device),
                           torch.linspace(-1, 1, W, device=device), indexing='ij')
-    coords = torch.stack([x, y], dim=-1).reshape(-1, 2)
+    xc = x.reshape(-1) # [16384]
+    yc = y.reshape(-1) # [16384]
+
+    # 2. Calcular Weights DENTRO de la función para asegurar el tamaño
+    # Usamos una máscara para limpiar el fondo
+    dist = torch.sqrt(x**2 + y**2)
+    mask = (dist <= 0.85).float().reshape(-1) # [16384]
+
+    # Normalización local: restamos fondo y aplicamos ReLU
+    # Forzamos a weights a ser [N, 16384]
+    flat_imgs = class_averages.reshape(N, num_pixels)
+    bg_level = flat_imgs[:, :100].mean(dim=1, keepdim=True) # promedio de los primeros 100 px
     
-    # Restar media local (más robusto que media global)
-    imgs = class_averages - class_averages[:, :5, :5].mean(dim=(1,2), keepdim=True).unsqueeze(-1)
-    weights = torch.relu(imgs).reshape(N, -1) + 1e-8
-    weights /= weights.sum(dim=-1, keepdim=True)
-    
-    cov = torch.einsum('ni,ix,iy->nxy', weights, coords, coords)
+    weights = torch.relu(flat_imgs - bg_level) * mask
+    weights = weights / (weights.sum(dim=1, keepdim=True) + 1e-8) # [N, 16384]
+
+    # 3. Cálculo de Covarianza (Forzando dimensiones)
+    # weights es [N, 16384], xc*xc es [16384]
+    # PyTorch multiplicará xc*xc por cada una de las N filas de weights
+    cxx = torch.sum(weights * (xc * xc), dim=1)
+    cyy = torch.sum(weights * (yc * yc), dim=1)
+    cxy = torch.sum(weights * (xc * yc), dim=1)
+
+    # Construir cov [N, 2, 2]
+    cov = torch.stack([
+        torch.stack([cxx, cxy], dim=-1),
+        torch.stack([cxy, cyy], dim=-1)
+    ], dim=-2)
+
+    # ... resto del código de autovectores y rotaciones ...
     _, eigvecs = torch.linalg.eigh(cov)
     
-    # IMPORTANTE: Corregir determinante para evitar reflexiones
     with torch.no_grad():
         det = torch.linalg.det(eigvecs)
         eigvecs[:, :, 1] *= det.unsqueeze(-1)
@@ -176,32 +202,26 @@ def get_alignPCA_vinit_angles(class_averages, inplane_std=0.5, tilt_std=0.3, jit
     base_rots = torch.eye(3, device=device).repeat(N, 1, 1)
     base_rots[:, 0:2, 0:2] = eigvecs
 
-    # 2. Perturbaciones
-    Rz = rotation_matrix_z(torch.randn(N, device=device) * inplane_std)
-    Rx = rotation_matrix_x(torch.randn(N, device=device) * tilt_std)
+    # Perturbaciones (en radianes)
+    Rz = rotation_matrix_z(torch.randn(N, device=device) * (inplane_std * 3.1415 / 180.0))
+    Rx = rotation_matrix_x(torch.randn(N, device=device) * (tilt_std * 3.1415 / 180.0))
     jitter_rot = torch.matrix_exp(hat(torch.randn(N, 3, device=device) * jitter_std))
 
-    # 3. Rotación global INDEPENDIENTE por partícula
+    # Global rot
     q = torch.randn(N, 4, device=device)
     q /= q.norm(dim=-1, keepdim=True)
     w, xq, yq, zq = q[:,0], q[:,1], q[:,2], q[:,3]
-    
     global_rot = torch.stack([
         torch.stack([1 - 2*yq**2 - 2*zq**2, 2*xq*yq - 2*zq*w, 2*xq*zq + 2*yq*w], dim=-1),
         torch.stack([2*xq*yq + 2*zq*w, 1 - 2*xq**2 - 2*zq**2, 2*yq*zq - 2*xq*w], dim=-1),
         torch.stack([2*xq*zq - 2*yq*w, 2*yq*zq + 2*xq*w, 1 - 2*xq**2 - 2*yq**2], dim=-1)
     ], dim=-2)
 
-    # Matriz Final
     R = global_rot @ jitter_rot @ Rx @ Rz @ base_rots
     
-    # 4. Extracción ZYZ Robusta
     tilt = torch.acos(R[:, 2, 2].clamp(-1.0, 1.0))
-    sin_tilt = torch.sin(tilt)
-    cond = sin_tilt > 1e-6
-    
-    rot = torch.where(cond, torch.atan2(R[:, 1, 2], R[:, 0, 2]), torch.atan2(-R[:, 0, 1], R[:, 0, 0]))
-    psi = torch.where(cond, torch.atan2(R[:, 2, 1], -R[:, 2, 0]), torch.zeros_like(rot))
+    rot = torch.where(torch.sin(tilt) > 1e-6, torch.atan2(R[:, 1, 2], R[:, 0, 2]), torch.atan2(-R[:, 0, 1], R[:, 0, 0]))
+    psi = torch.where(torch.sin(tilt) > 1e-6, torch.atan2(R[:, 2, 1], -R[:, 2, 0]), torch.zeros_like(rot))
 
     return torch.rad2deg(torch.stack([rot, tilt, psi], dim=-1))
 
