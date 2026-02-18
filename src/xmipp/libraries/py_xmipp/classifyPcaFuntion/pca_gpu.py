@@ -299,6 +299,7 @@ class PCAgpu:
                  #Precalculate whitening 
         Im_whitening = mexp.data[:10000].astype(np.float32)
         Texp_whitening = torch.from_numpy(Im_whitening).float().to(self.cuda)
+        Texp_whitening*= bnb.create_circular_mask(Texp_whitening)
         whitening = bnb.compute_radial_whitening_filter(Texp_whitening)
         del Im_whitening, Texp_whitening 
         torch.cuda.empty_cache()
