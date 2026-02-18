@@ -114,7 +114,7 @@ class BnBgpu:
     
     #Applying rotation and shift    
     @torch.no_grad()
-    def precalculate_projection(self, prjTensorCpu, freqBn, grid_flat, coef, cvecs, rot_tensor, shift):
+    def precalculate_projection(self, prjTensorCpu, whitening, freqBn, grid_flat, coef, cvecs, rot_tensor, shift):
         device = self.cuda
         prj = prjTensorCpu.to(device, dtype=torch.float32, non_blocking=True)
         N, H, W = prj.shape
@@ -146,6 +146,8 @@ class BnBgpu:
     
         # FFT y shift
         rotFFT = torch.fft.rfft2(prj_rot, norm="forward")
+        #Apply whitening
+        rotFFT = rotFFT * whitening
         shift_tensor = torch.as_tensor(shift, device=device, dtype=torch.float32)
         band_shifted = self.precShiftBand(rotFFT, freqBn, grid_flat, coef, shift_tensor)
         projBatch = self.phiProjRefs(band_shifted, cvecs)
@@ -155,17 +157,56 @@ class BnBgpu:
     
     
     @torch.no_grad()
-    def create_batchExp(self, Texp, freqBn, coef, vecs):
+    def create_batchExp(self, Texp, whitening, freqBn, coef, vecs):
              
         self.batch_projExp = [torch.zeros((Texp.size(dim=0), vecs[n].size(dim=1)), device = self.cuda) for n in range(self.nBand)]
         expFFT = torch.fft.rfft2(Texp, norm="forward")
         del(Texp)
+        #Apply whitening
+        expFFT = expFFT * whitening
         bandExp = self.selectBandsRefs(expFFT, freqBn, coef)
         self.batch_projExp = self.phiProjRefs(bandExp, vecs)
         del(expFFT , bandExp)
         
         torch.cuda.empty_cache()
         return(self.batch_projExp)
+    
+    
+    def compute_radial_whitening_filter(self, images, eps=1e-8):
+        """
+        Calcula filtro de whitening radial a partir de un stack de imágenes.
+        """
+    
+        device = images.device
+        N, H, W = images.shape
+    
+        fft = torch.fft.rfft2(images, norm="forward")
+        psd2d = torch.mean(torch.abs(fft)**2, dim=0)
+    
+        fy = torch.fft.fftfreq(H, d=1.0, device=device)
+        fx = torch.fft.rfftfreq(W, d=1.0, device=device)
+        yy, xx = torch.meshgrid(fy, fx, indexing="ij")
+    
+        r = torch.sqrt(yy**2 + xx**2)
+        r = r * min(H, W)
+        r = r.round().long()
+    
+        max_r = r.max().item()
+    
+        # Radial average
+        radial_psd = torch.zeros(max_r + 1, device=device)
+        counts = torch.zeros(max_r + 1, device=device)
+    
+        radial_psd.scatter_add_(0, r.flatten(), psd2d.flatten())
+        counts.scatter_add_(0, r.flatten(), torch.ones_like(psd2d.flatten()))
+    
+        radial_psd /= counts + eps
+    
+        whitening_filter = 1.0 / torch.sqrt(radial_psd[r] + eps)
+    
+        whitening_filter[0, 0] = 0.0
+    
+        return whitening_filter
         
       
     def match_batch(self, batchExp, batchRef, initBatch, matches, rot, nShift):

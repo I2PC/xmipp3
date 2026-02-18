@@ -127,7 +127,13 @@ if __name__=="__main__":
         coef[n] = 2*torch.sum(freq_band==n)  
         
     bnb = BnBgpu(nBand)    
-    expBatchSize = 400  
+    expBatchSize = 400 
+    
+    #Precalculate whitening 
+    Im_whitening = mexp.data[:nExp].astype(np.float32)
+    Texp_whitening = torch.from_numpy(Im_whitening).float().to(cuda)
+    whitening = bnb.compute_radial_whitening_filter(Texp_whitening)
+    del Im_whitening, Texp_whitening
  
     band = [torch.empty(0, coef[n], device = cuda) for n in range(nBand)]     
      
@@ -149,6 +155,8 @@ if __name__=="__main__":
             Texp_augmented = augmented(Texp, 5)
 
             ft = torch.fft.rfft2(Texp_augmented, norm="forward")
+            #Apply whitening
+            fr = ft* whitening
             bandBatch = bnb.selectBandsRefs(ft, freq_band, coef)
             del(ft)
 

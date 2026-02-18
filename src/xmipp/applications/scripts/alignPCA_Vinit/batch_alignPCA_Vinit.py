@@ -122,6 +122,12 @@ if __name__=="__main__":
     #Read Experimental Images
     mmap = mrcfile.mmap(expFile, permissive=True)
     nExp = mmap.data.shape[0]
+    
+    #Precalculate whitening 
+    Im_whitening = mmap.data[:nExp].astype(np.float32)
+    Texp_whitening = torch.from_numpy(Im_whitening).float().to(cuda)
+    whitening = bnb.compute_radial_whitening_filter(Texp_whitening)
+    del Im_whitening, Texp_whitening
         
 
     # print("---Precomputing the projections of the references images---")
@@ -146,7 +152,7 @@ if __name__=="__main__":
             tref = bnb.robust_normalize_and_mask(tref)    
         del(prjImages)
     
-        batch_projRef = bnb.create_batchExp(tref, freqBn, coef, cvecs) 
+        batch_projRef = bnb.create_batchExp(tref, whitening, freqBn, coef, cvecs) 
  
     
         
@@ -164,7 +170,7 @@ if __name__=="__main__":
         for rot in vectorRot:
     
             # print("---Computing the projections of the experimental images---")      
-            batch_projExp = bnb.precalculate_projection(texp, freqBn, grid_flat, coef, cvecs, -rot, vectorshift)
+            batch_projExp = bnb.precalculate_projection(texp, whitening, freqBn, grid_flat, coef, cvecs, -rot, vectorshift)
             # print("matches")
 
             matches[i] = bnb.match_batch_initVol(batch_projExp, batch_projRef, 0, matches[i], -rot, nShift)
