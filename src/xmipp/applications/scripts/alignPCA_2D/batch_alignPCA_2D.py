@@ -139,7 +139,7 @@ if __name__=="__main__":
 
 
          #Precalculate whitening 
-    Im_whitening = mmap.data[:min(initClBatch, nExp)].astype(np.float32)
+    Im_whitening = mmap.data[:10000].astype(np.float32)
     Texp_whitening = torch.from_numpy(Im_whitening).float().to(cuda)
     whitening = bnb.compute_radial_whitening_filter(Texp_whitening)
     del Im_whitening, Texp_whitening
