@@ -156,7 +156,7 @@ if __name__=="__main__":
 
             ft = torch.fft.rfft2(Texp_augmented, norm="forward")
             #Apply whitening
-            fr = ft* whitening
+            # fr = ft* whitening
             bandBatch = bnb.selectBandsRefs(ft, freq_band, coef)
             del(ft)
 

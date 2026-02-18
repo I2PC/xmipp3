@@ -147,7 +147,7 @@ class BnBgpu:
         # FFT y shift
         rotFFT = torch.fft.rfft2(prj_rot, norm="forward")
         #Apply whitening
-        rotFFT = rotFFT * whitening
+        # rotFFT = rotFFT * whitening
         shift_tensor = torch.as_tensor(shift, device=device, dtype=torch.float32)
         band_shifted = self.precShiftBand(rotFFT, freqBn, grid_flat, coef, shift_tensor)
         projBatch = self.phiProjRefs(band_shifted, cvecs)
@@ -163,7 +163,7 @@ class BnBgpu:
         expFFT = torch.fft.rfft2(Texp, norm="forward")
         del(Texp)
         #Apply whitening
-        expFFT = expFFT * whitening
+        # expFFT = expFFT * whitening
         bandExp = self.selectBandsRefs(expFFT, freqBn, coef)
         self.batch_projExp = self.phiProjRefs(bandExp, vecs)
         del(expFFT , bandExp)
