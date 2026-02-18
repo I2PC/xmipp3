@@ -175,7 +175,7 @@ class BnBgpu:
     
     
     
-    def compute_radial_whitening_filter(self, images, eps=1e-8):
+    def compute_radial_whitening_filter2(self, images, eps=1e-8):
         """
         Calcula filtro de whitening radial a partir de un stack de imágenes.
         """
@@ -207,9 +207,77 @@ class BnBgpu:
     
         whitening_filter = 1.0 / torch.sqrt(radial_psd[r] + eps)
     
-        whitening_filter[0, 0] = 0.0
+        whitening_filter[0, 0] = 1.0
     
         return whitening_filter
+    
+    def compute_radial_whitening_filter(self, images, eps=1e-8, highfreq_cut=0.25, smooth=2):
+
+    
+        device = images.device
+        N, H, W = images.shape
+    
+        fft = torch.fft.rfft2(images, norm="forward")
+    
+        psd2d = torch.mean(torch.abs(fft)**2, dim=0)
+    
+        fy = torch.fft.fftfreq(H, device=device)
+        fx = torch.fft.rfftfreq(W, device=device)
+    
+        yy, xx = torch.meshgrid(fy, fx, indexing="ij")
+    
+        r = torch.sqrt(xx**2 + yy**2)
+    
+        rbin = (r * min(H, W)).long()
+    
+        maxbin = rbin.max() + 1
+    
+    
+        radial_psd = torch.zeros(maxbin, device=device)
+        counts = torch.zeros(maxbin, device=device)
+    
+        radial_psd.scatter_add_(0, rbin.flatten(), psd2d.flatten())
+        counts.scatter_add_(0, rbin.flatten(), torch.ones_like(psd2d.flatten()))
+    
+        radial_psd /= counts + eps
+    
+    
+        # NORMALIZACION XMIPP
+        mean_psd = radial_psd.mean()
+    
+        radial_filter = torch.sqrt(mean_psd / (radial_psd + eps))
+    
+    
+        # SUAVIZADO RADIAL (MUY IMPORTANTE)
+        kernel_size = smooth*2+1
+    
+        x = torch.arange(kernel_size, device=device) - smooth
+    
+        kernel = torch.exp(-(x**2)/(2*smooth**2))
+    
+        kernel /= kernel.sum()
+    
+        radial_filter = torch.conv1d(
+            radial_filter.view(1,1,-1),
+            kernel.view(1,1,-1),
+            padding=smooth
+        )[0,0]
+    
+    
+        whitening = radial_filter[rbin]
+    
+    
+        # CUTOFF ALTA FRECUENCIA
+        whitening[r > highfreq_cut] = 0
+    
+    
+        whitening[0,0] = 0
+    
+    
+        whitening /= whitening.mean()
+    
+    
+        return whitening
     
     
     @torch.no_grad()
@@ -353,10 +421,9 @@ class BnBgpu:
             
    
             if mask:
-                # sigma_gauss = (0.75*sigma) if (iter < 10 and iter % 2 == 1) else (sigma)# if iter < 10 else sigma
-                #
-                # transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma_gauss)
-                transforIm = transforIm * self.create_circular_mask(transforIm)
+                sigma_gauss = (0.75*sigma) if (iter < 10 and iter % 2 == 1) else (sigma)# if iter < 10 else sigma
+
+                transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma_gauss)
             else:
                 transforIm = transforIm * self.create_circular_mask(transforIm)
                 
@@ -489,8 +556,7 @@ class BnBgpu:
         del rotBatch,translations, centerxy 
         
         if mask:
-            # transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
-            transforIm = transforIm * self.create_circular_mask(transforIm)
+            transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
         else: 
             transforIm = transforIm * self.create_circular_mask(transforIm)
                                
