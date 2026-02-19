@@ -211,50 +211,40 @@ class BnBgpu:
     
         return whitening_filter
     
-    def compute_radial_whitening_filter(self, images, eps=1e-8):
-
-    
+    def compute_radial_whitening_filter(self, images, eps=1e-6):
         device = images.device
-        N,H,W = images.shape
+        N, H, W = images.shape
     
+        # 1. PSD en el espacio de Fourier
         fft = torch.fft.rfft2(images, norm="forward")
+        psd2d = torch.mean(torch.abs(fft)**2, dim=0)
     
-        psd = torch.mean(torch.abs(fft)**2, dim=0)
-    
-        amp = torch.sqrt(psd)
-    
+        # 2. Rejilla radial
         fy = torch.fft.fftfreq(H, device=device)
         fx = torch.fft.rfftfreq(W, device=device)
+        yy, xx = torch.meshgrid(fy, fx, indexing="ij")
+        r = torch.sqrt(yy**2 + xx**2)
+        r_idx = (r * min(H, W)).round().long()
+        
+        # 3. Promedio radial de la PSD
+        max_r = r_idx.max().item()
+        radial_psd = torch.zeros(max_r + 1, device=device)
+        counts = torch.zeros(max_r + 1, device=device)
+        radial_psd.scatter_add_(0, r_idx.flatten(), psd2d.flatten())
+        counts.scatter_add_(0, r_idx.flatten(), torch.ones_like(psd2d.flatten()))
+        radial_psd /= (counts + 1e-12)
     
-        yy,xx = torch.meshgrid(fy,fx,indexing="ij")
+        # 4. Filtro de Whitening con suavizado (Soft-thresholding)
+        # Usar un eps un poco más alto ayuda a no amplificar ruido infinito en los bordes
+        whitening_filter = 1.0 / torch.sqrt(radial_psd[r_idx] + eps)
+        
+        # IMPORTANTE: Matar el término DC (frecuencia 0) para centrar los datos
+        whitening_filter[0, 0] = 0.0 
+        
+        # Normalizar el filtro para que no cambie la escala global de la imagen
+        whitening_filter /= whitening_filter.mean()
     
-        r = torch.sqrt(xx**2 + yy**2)
-    
-        rbin = (r*min(H,W)).long()
-    
-        maxbin = rbin.max()+1
-    
-        radial_amp = torch.zeros(maxbin, device=device)
-        counts = torch.zeros(maxbin, device=device)
-    
-        radial_amp.scatter_add_(0,rbin.flatten(),amp.flatten())
-        counts.scatter_add_(0,rbin.flatten(),torch.ones_like(amp.flatten()))
-    
-        radial_amp /= counts+eps
-    
-    
-        # MUCHO más suave que whitening
-        radial_filter = radial_amp.mean() / (radial_amp + eps)
-    
-    
-        whitening = radial_filter[rbin]
-    
-    
-        whitening /= whitening.mean()
-    
-        whitening[0,0] = 0
-    
-        return whitening
+        return whitening_filter
     
     
     @torch.no_grad()
@@ -404,8 +394,11 @@ class BnBgpu:
             else:
                 transforIm = transforIm * self.create_circular_mask(transforIm)
                 
-
-            proj_batch = self.batchExpToCpu(transforIm, whitening, freqBn, coef, cvecs)
+            if iter < 7:
+                whit = whitening
+            else: 
+                whit = whitening
+            proj_batch = self.batchExpToCpu(transforIm, whit, freqBn, coef, cvecs)
             batch_projExp_cpu[count] = proj_batch
             count+=1
 
@@ -481,9 +474,9 @@ class BnBgpu:
             cut_res = 50           
             res_classes = self.frc_resolution_tensor(newCL, sampling, fallback_res=cut_res, rcut=cut)
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
-            
-            boost = None
-            # clk = self.highpass_cosine_sharpen(clk, res_classes, sampling, factorR = boost)
+            if iter > 15:
+                boost = None
+                clk = self.highpass_cosine_sharpen(clk, res_classes, sampling, factorR = boost)
             
                 
         if iter < (iterSplit + 1): #order by size
@@ -498,12 +491,12 @@ class BnBgpu:
             
             
 
-        if iter in [10, 13]:
-            clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
-                                intensity_percentile=50, smooth_sigma=1.0)
-        if 1 < iter < 7 and iter % 2 == 0:
-            clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
-                                intensity_percentile=50, smooth_sigma=1.0)
+        # if iter in [10, 13]:
+        #     clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
+        #                         intensity_percentile=50, smooth_sigma=1.0)
+        # if 1 < iter < 7 and iter % 2 == 0:
+        #     clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
+        #                         intensity_percentile=50, smooth_sigma=1.0)
 
         
         if iter > 2 and iter < 12:
@@ -559,7 +552,7 @@ class BnBgpu:
             
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             
-            # clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)                       
+            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)                       
         
             if not hasattr(self, 'grad_squared'):
                 self.grad_squared = torch.zeros_like(cl)

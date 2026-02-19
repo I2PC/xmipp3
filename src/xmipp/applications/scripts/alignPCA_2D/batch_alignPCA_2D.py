@@ -202,8 +202,8 @@ if __name__=="__main__":
         cl = torch.cat(all_averages, dim=0)
         del all_averages
         
-        # file_cero = output+"_0.mrcs"
-        # save_images(cl.cpu().detach().numpy(), sampling, file_cero) 
+        file_cero = output+"_0.mrcs"
+        save_images(cl.cpu().detach().numpy(), sampling, file_cero) 
         
     
     if refImages:
@@ -238,14 +238,16 @@ if __name__=="__main__":
             expImages = mmap.data[initBatch:endBatch].astype(np.float32)
             Texp = torch.from_numpy(expImages).float().to(cuda)
                   
-            if i < initStep:          
-                batch_projExp_cpu.append( bnb.batchExpToCpu(Texp, whitening, freqBn, coef, cvecs) )           
+            if i < initStep: 
+                whit = whitening         
+                batch_projExp_cpu.append( bnb.batchExpToCpu(Texp, whit, freqBn, coef, cvecs) )           
                 if i == initStep-1:
                     mode = "create_classes"
                     print(f"\nClassification mode", flush=True)
                     print(f"Processing batch 0 - {endBatch}\n", flush=True)
-            else:            
-                batch_projExp_cpu = bnb.create_batchExp(Texp, whitening, freqBn, coef, cvecs)
+            else: 
+                whit = whitening           
+                batch_projExp_cpu = bnb.create_batchExp(Texp, whit, freqBn, coef, cvecs)
                 mode = "align_classes"
                 if i == initStep:
                     print(f"\nAssignment mode", flush=True)
@@ -277,8 +279,12 @@ if __name__=="__main__":
             
                     for rot in vectorRot:            
             
-                        # print("---Precomputing the projections of the reference images---")          
-                        batch_projRef = bnb.precalculate_projection(cl, whitening, freqBn, grid_flat, 
+                        # print("---Precomputing the projections of the reference images---")
+                        if mode == "create_classes" and iter < 7:
+                            whit = whitening
+                        else: 
+                            whit = whitening        
+                        batch_projRef = bnb.precalculate_projection(cl, whit, freqBn, grid_flat, 
                                                             coef, cvecs, float(rot), vectorshift)
                 
                         count = 0  
@@ -328,8 +334,8 @@ if __name__=="__main__":
     
                     
                     # save classes
-                    # file = output+"_%s_%s_%s.mrcs"%(initBatch,iter+1,cycles)
-                    # save_images(cl.cpu().detach().numpy(), sampling, file)
+                    file = output+"_%s_%s_%s.mrcs"%(initBatch,iter+1,cycles)
+                    save_images(cl.cpu().detach().numpy(), sampling, file)
     
     
                     if cycles == num_cycles-1 and mode == "create_classes" and iter == niter-1:
