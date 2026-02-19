@@ -281,7 +281,7 @@ if __name__=="__main__":
                     for rot in vectorRot:            
             
                         # print("---Precomputing the projections of the reference images---")
-                        if mode == "create_classes" and iter < 7:
+                        if mode == "create_classes" and iter < 6:
                             whit = whitening
                         else: 
                             whit = whitening        
@@ -324,13 +324,13 @@ if __name__=="__main__":
                     
                     if mode == "create_classes":
                         cl, tMatrix, batch_projExp_cpu = bnb.create_classes(
-                            mmap, whitening, tMatrix, iter, subset, expBatchSize, matches, vectorshift, 
+                            mmap, whit, tMatrix, iter, subset, expBatchSize, matches, vectorshift, 
                             classes, final_classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles)
 
                     else:
                         torch.cuda.empty_cache()
                         cl, tMatrix, batch_projExp_cpu = bnb.align_particles_to_classes( 
-                                        expImages, whitening, cl ,tMatrix, iter, subset, matches, vectorshift,
+                                        expImages, whit, cl ,tMatrix, iter, subset, matches, vectorshift,
                                         classes, freqBn, coef, cvecs, mask, sigma, sampling)
     
                     

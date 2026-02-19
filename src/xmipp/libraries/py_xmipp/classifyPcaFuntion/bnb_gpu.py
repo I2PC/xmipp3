@@ -113,6 +113,40 @@ class BnBgpu:
         proj = [torch.matmul(band[n], vecs[n]) for n in range(self.nBand)]
         return proj
         
+    
+    def lowpass_filter_per_class(self, averages, resolutions, pixel_size, soft_edge=0.02):
+
+        device = averages.device
+    
+        nClass, H, W = averages.shape
+    
+        # grid frecuencias físicas
+        fy = torch.fft.fftfreq(H, d=pixel_size, device=device)
+        fx = torch.fft.rfftfreq(W, d=pixel_size, device=device)
+    
+        yy, xx = torch.meshgrid(fy, fx, indexing="ij")
+    
+        freq = torch.sqrt(xx**2 + yy**2)
+    
+        filtered = torch.empty_like(averages)
+    
+        for i in range(nClass):
+    
+            res = resolutions[i]
+    
+            fmax = 1.0 / res
+    
+            # lowpass suave tipo cryoSPARC
+            lowpass = 1.0 / (1.0 + torch.exp((freq - fmax) / soft_edge))
+    
+            fft = torch.fft.rfft2(averages[i], norm="forward")
+    
+            fft *= lowpass
+    
+            filtered[i] = torch.fft.irfft2(fft, s=(H, W), norm="forward")
+    
+        return filtered
+    
        
     #Applying rotation and shift    
     @torch.no_grad()
@@ -120,7 +154,7 @@ class BnBgpu:
         device = self.cuda
         prj = prjTensorCpu.to(device, dtype=torch.float32, non_blocking=True)
         N, H, W = prj.shape
-    
+            
         rot_tensor = torch.as_tensor(rot_tensor, device=device, dtype=torch.float32).flatten()
         num_angles = rot_tensor.numel()
     
@@ -158,58 +192,54 @@ class BnBgpu:
         return projBatch
     
     
-    @torch.no_grad()
-    def create_batchExp(self, Texp, whitening, freqBn, coef, vecs):
-             
-        self.batch_projExp = [torch.zeros((Texp.size(dim=0), vecs[n].size(dim=1)), device = self.cuda) for n in range(self.nBand)]
-        expFFT = torch.fft.rfft2(Texp, norm="forward")
-        del(Texp)
-        #whitening
-        expFFT = expFFT * whitening
-        bandExp = self.selectBandsRefs(expFFT, freqBn, coef)
-        self.batch_projExp = self.phiProjRefs(bandExp, vecs)
-        del(expFFT , bandExp)
-        
-        torch.cuda.empty_cache()
-        return(self.batch_projExp)
     
-    
-    
-    def compute_radial_whitening_filter2(self, images, eps=1e-8):
+    def compute_radial_whitening_filter(self, images, pixel_size, res, eps=1e-6):
         """
-        Calcula filtro de whitening radial a partir de un stack de imágenes.
+        Whitening equivalente al usado en cryoSPARC 2D classification.
+    
+        images: tensor (N,H,W)
+        return: filtro (H,W//2+1)
         """
     
         device = images.device
         N, H, W = images.shape
     
+        # FFT
         fft = torch.fft.rfft2(images, norm="forward")
-        psd2d = torch.mean(torch.abs(fft)**2, dim=0)
     
-        fy = torch.fft.fftfreq(H, d=1.0, device=device)
-        fx = torch.fft.rfftfreq(W, d=1.0, device=device)
+        # amplitude spectrum promedio
+        amp2d = torch.mean(torch.abs(fft), dim=0)
+    
+        # grid frecuencias normalizadas
+        fy = torch.fft.fftfreq(H, device=device)
+        fx = torch.fft.rfftfreq(W, device=device)
+    
         yy, xx = torch.meshgrid(fy, fx, indexing="ij")
     
-        r = torch.sqrt(yy**2 + xx**2)
-        r = r * min(H, W)
-        r = r.round().long()
+        r = torch.sqrt(xx**2 + yy**2)
     
-        max_r = r.max().item()
+        r_idx = torch.round(r * min(H, W)).long()
     
-        # Radial average
-        radial_psd = torch.zeros(max_r + 1, device=device)
-        counts = torch.zeros(max_r + 1, device=device)
+        max_r = r_idx.max() + 1
     
-        radial_psd.scatter_add_(0, r.flatten(), psd2d.flatten())
-        counts.scatter_add_(0, r.flatten(), torch.ones_like(psd2d.flatten()))
+        radial_amp = torch.zeros(max_r, device=device)
+        counts = torch.zeros(max_r, device=device)
     
-        radial_psd /= counts + eps
+        radial_amp.scatter_add_(0, r_idx.flatten(), amp2d.flatten())
+        counts.scatter_add_(0, r_idx.flatten(), torch.ones_like(amp2d.flatten()))
     
-        whitening_filter = 1.0 / torch.sqrt(radial_psd[r] + eps)
+        radial_amp /= counts + eps
     
-        whitening_filter[0, 0] = 1.0
+        # whitening filter
+        whitening = radial_amp.mean() / (radial_amp[r_idx] + eps)
     
-        return whitening_filter
+        # eliminar DC
+        whitening[0, 0] = 0.0
+    
+        # normalizar energía
+        whitening /= whitening.mean()
+    
+        return whitening
     
     def compute_radial_whitening_filter_ok(self, images, eps=1e-6):
         device = images.device
@@ -247,13 +277,12 @@ class BnBgpu:
         return whitening_filter
     
     
-    def compute_radial_whitening_filter(
+    def compute_radial_whitening_filter___confilt(
             self,
             images,
             pixel_size,
             resolution_limit,
-            eps=1e-6,
-            rolloff=0.1):
+            eps=1e-6):
     
         device = images.device
         N, H, W = images.shape
@@ -294,15 +323,13 @@ class BnBgpu:
         # --------------------------------------------------
         # 5. Limitar a resolución máxima
         # --------------------------------------------------
-    
+        
         fmax = 1.0 / resolution_limit
-    
-        sigma = fmax * rolloff
-    
-        lowpass = torch.exp(
-            -(freq**2) / (2 * sigma**2)
-        )
-    
+        temperature = 0.02 # Controla la suavidad de la caída (ajustar si es necesario)
+        
+        # Filtro que es 1 hasta fmax y luego cae
+        lowpass = 1.0 / (1.0 + torch.exp((freq - fmax) / temperature))
+        
         whitening_filter *= lowpass
     
     
@@ -344,6 +371,21 @@ class BnBgpu:
         target[improved, 0] = exp_idx[improved]
     
         return matches
+    
+    @torch.no_grad()
+    def create_batchExp(self, Texp, whitening, freqBn, coef, vecs):
+             
+        self.batch_projExp = [torch.zeros((Texp.size(dim=0), vecs[n].size(dim=1)), device = self.cuda) for n in range(self.nBand)]
+        expFFT = torch.fft.rfft2(Texp, norm="forward")
+        del(Texp)
+        #whitening
+        expFFT = expFFT * whitening
+        bandExp = self.selectBandsRefs(expFFT, freqBn, coef)
+        self.batch_projExp = self.phiProjRefs(bandExp, vecs)
+        del(expFFT , bandExp)
+        
+        torch.cuda.empty_cache()
+        return(self.batch_projExp)
     
     
     @torch.no_grad()
@@ -460,11 +502,8 @@ class BnBgpu:
             else:
                 transforIm = transforIm * self.create_circular_mask(transforIm)
                 
-            if iter < 7:
-                whit = whitening
-            else: 
-                whit = whitening
-            proj_batch = self.batchExpToCpu(transforIm, whit, freqBn, coef, cvecs)
+ 
+            proj_batch = self.batchExpToCpu(transforIm, whitening, freqBn, coef, cvecs)
             batch_projExp_cpu[count] = proj_batch
             count+=1
 
@@ -538,11 +577,11 @@ class BnBgpu:
             # cut_res = 100 if iter < (iterSplit-1) else 50
             cut=50
             cut_res = 50           
-            res_classes = self.frc_resolution_tensor(newCL, sampling, fallback_res=cut_res, rcut=cut)
-            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
+            self.res_classes = self.frc_resolution_tensor(newCL, sampling, fallback_res=cut_res, rcut=cut)
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, self.res_classes, sampling)
             # if iter > 15:
             boost = None
-            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling, factorR = boost)
+            # clk = self.highpass_cosine_sharpen(clk, self.res_classes, sampling, factorR = boost)
             
                 
         if iter < (iterSplit + 1): #order by size
@@ -557,9 +596,9 @@ class BnBgpu:
             
             
 
-        # if iter in [10, 13]:
-        #     clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
-        #                         intensity_percentile=50, smooth_sigma=1.0)
+        if iter in [10, 13]:
+            clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
+                                intensity_percentile=50, smooth_sigma=1.0)
         if 1 < iter < 7 and iter % 2 == 0:
             clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
                                 intensity_percentile=50, smooth_sigma=1.0)
@@ -618,7 +657,7 @@ class BnBgpu:
             
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             
-            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)                       
+            # clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)                       
         
             if not hasattr(self, 'grad_squared'):
                 self.grad_squared = torch.zeros_like(cl)
