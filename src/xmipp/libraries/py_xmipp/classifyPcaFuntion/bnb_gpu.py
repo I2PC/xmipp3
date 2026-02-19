@@ -211,71 +211,48 @@ class BnBgpu:
     
         return whitening_filter
     
-    def compute_radial_whitening_filter(self, images, eps=1e-8, highfreq_cut=0.25, smooth=2):
+    def compute_radial_whitening_filter(self, images, eps=1e-8):
 
     
         device = images.device
-        N, H, W = images.shape
+        N,H,W = images.shape
     
         fft = torch.fft.rfft2(images, norm="forward")
     
-        psd2d = torch.mean(torch.abs(fft)**2, dim=0)
+        psd = torch.mean(torch.abs(fft)**2, dim=0)
+    
+        amp = torch.sqrt(psd)
     
         fy = torch.fft.fftfreq(H, device=device)
         fx = torch.fft.rfftfreq(W, device=device)
     
-        yy, xx = torch.meshgrid(fy, fx, indexing="ij")
+        yy,xx = torch.meshgrid(fy,fx,indexing="ij")
     
         r = torch.sqrt(xx**2 + yy**2)
     
-        rbin = (r * min(H, W)).long()
+        rbin = (r*min(H,W)).long()
     
-        maxbin = rbin.max() + 1
+        maxbin = rbin.max()+1
     
-    
-        radial_psd = torch.zeros(maxbin, device=device)
+        radial_amp = torch.zeros(maxbin, device=device)
         counts = torch.zeros(maxbin, device=device)
     
-        radial_psd.scatter_add_(0, rbin.flatten(), psd2d.flatten())
-        counts.scatter_add_(0, rbin.flatten(), torch.ones_like(psd2d.flatten()))
+        radial_amp.scatter_add_(0,rbin.flatten(),amp.flatten())
+        counts.scatter_add_(0,rbin.flatten(),torch.ones_like(amp.flatten()))
     
-        radial_psd /= counts + eps
-    
-    
-        # NORMALIZACION XMIPP
-        mean_psd = radial_psd.mean()
-    
-        radial_filter = torch.sqrt(mean_psd / (radial_psd + eps))
+        radial_amp /= counts+eps
     
     
-        # SUAVIZADO RADIAL (MUY IMPORTANTE)
-        kernel_size = smooth*2+1
-    
-        x = torch.arange(kernel_size, device=device) - smooth
-    
-        kernel = torch.exp(-(x**2)/(2*smooth**2))
-    
-        kernel /= kernel.sum()
-    
-        radial_filter = torch.conv1d(
-            radial_filter.view(1,1,-1),
-            kernel.view(1,1,-1),
-            padding=smooth
-        )[0,0]
+        # MUCHO más suave que whitening
+        radial_filter = radial_amp.mean() / (radial_amp + eps)
     
     
         whitening = radial_filter[rbin]
     
     
-        # CUTOFF ALTA FRECUENCIA
-        whitening[r > highfreq_cut] = 0
-    
-    
-        whitening[0,0] = 0
-    
-    
         whitening /= whitening.mean()
     
+        whitening[0,0] = 0
     
         return whitening
     
@@ -506,7 +483,7 @@ class BnBgpu:
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             
             boost = None
-            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling, factorR = boost)
+            # clk = self.highpass_cosine_sharpen(clk, res_classes, sampling, factorR = boost)
             
                 
         if iter < (iterSplit + 1): #order by size
@@ -582,7 +559,7 @@ class BnBgpu:
             
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             
-            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)                       
+            # clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)                       
         
             if not hasattr(self, 'grad_squared'):
                 self.grad_squared = torch.zeros_like(cl)
