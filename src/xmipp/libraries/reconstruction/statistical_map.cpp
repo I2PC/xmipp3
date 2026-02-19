@@ -977,91 +977,97 @@ void ProgStatisticalMap::calculateZscoreMADMap()
 }
 
 
+// WEIGHT MAP OCCUPY-LIKE VERSION
 void ProgStatisticalMap::weightMap()
 {
-    std::cout << "    Calculating POF (bootstrap-based)..." << std::endl;
+    std::cout << "    Calculating POF (fixed-percentile, OccuPy-inspired)..." << std::endl;
 
-    // ---------------------------------------------------------------------
-    // 1) Raw POF (reference only)
-    // ---------------------------------------------------------------------
-    double raw_coincident_avg, raw_different_avg, foo;
+    // ---------------------------
+    // Parámetros fijos y estables
+    // ---------------------------
+    const double Q = 0.75;              // percentil fijo (tu sugerencia)
+    const size_t BOOTSTRAP_ITERS = 1000;
+    const size_t N_BOOT_DEFAULT = 2000; // N fijo si es posible
+    const double CI_ALPHA       = 0.05;
 
-    V().computeAvgStdev_within_binary_mask(coincidentMask, raw_coincident_avg, foo);
-    V().computeAvgStdev_within_binary_mask(differentMask,  raw_different_avg,  foo);
+    // 1) Cargar máscara diferente (igual que antes)
+    // Image<int> readMask;
+    // readMask.read("/home/fpdeisidro/testBench/publication_FSCoh+StatMaps/Betagal_PO/StatisticalMaps_POmask/00100_postprocess_rescaled_ali_differentMask.mrc");
+    // differentMask = readMask();
 
-    double rawPOF = raw_different_avg / raw_coincident_avg;
-
-    std::cout << "  raw coincident_avg --------------------> " << raw_coincident_avg << std::endl;
-    std::cout << "  raw different_avg  --------------------> " << raw_different_avg  << std::endl;
-    std::cout << "  raw POF ------------------------------> " << rawPOF << std::endl;
-
-    // ---------------------------------------------------------------------
-    // 2) Collect voxel values for both ROIs
-    // ---------------------------------------------------------------------
-    std::vector<double> valsCoincident;
-    std::vector<double> valsDifferent;
-
+    // 2) Extraer valores de mapa en cada ROI (igual que antes)
+    std::vector<double> valsCoincident, valsDifferent;
     valsCoincident.reserve(4096);
-    valsDifferent.reserve(4096);
+    valsDifferent .reserve(4096);
 
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
         if (DIRECT_MULTIDIM_ELEM(coincidentMask, n) > 0)
             valsCoincident.push_back(DIRECT_MULTIDIM_ELEM(V(), n));
-
         if (DIRECT_MULTIDIM_ELEM(differentMask, n) > 0)
             valsDifferent.push_back(DIRECT_MULTIDIM_ELEM(V(), n));
     }
 
     const size_t nC = valsCoincident.size();
     const size_t nD = valsDifferent.size();
-
     if (nC == 0 || nD == 0) {
         std::cerr << "  [WARN] Empty ROI; skipping correction." << std::endl;
         return;
     }
+    std::cout << "  ROI sizes: coincident=" << nC << " different=" << nD << std::endl;
 
-    std::cout << "  ROI sizes: coincident=" << nC
-              << " different=" << nD << std::endl;
+    // 3) Percentil helper (interpolación lineal)
+    auto percentile_of = [](const std::vector<double>& v, double q) -> double {
+        if (v.empty()) return std::numeric_limits<double>::quiet_NaN();
+        std::vector<double> tmp = v;
+        std::sort(tmp.begin(), tmp.end());
+        const double pos = q * (tmp.size() - 1);
+        const size_t idx = static_cast<size_t>(pos);
+        const double frac = pos - idx;
+        if (idx + 1 < tmp.size())
+            return tmp[idx] * (1.0 - frac) + tmp[idx + 1] * frac;
+        return tmp[idx];
+    };
 
-    // ---------------------------------------------------------------------
-    // 3) Bootstrap parameters
-    // ---------------------------------------------------------------------
-    const size_t BOOTSTRAP_ITERS = 1000;
-    const size_t MIN_SAMPLE     = 100;
-    const double CI_ALPHA       = 0.05;
+    // 4) rawPOF (SIN bootstrap): ratio de percentiles fijos
+    const double S_coinc = percentile_of(valsCoincident, Q);
+    const double S_diff  = percentile_of(valsDifferent , Q);
+    if (S_coinc <= 0.0) {
+        std::cerr << "  [WARN] Reference percentile <= 0; skipping correction." << std::endl;
+        return;
+    }
+    const double rawPOF = S_diff / S_coinc;
 
-    size_t N = std::max(
-        MIN_SAMPLE,
-        std::min(nC, nD)
-    );
+    std::cout << "  p" << int(Q*100) << " coincident --------------------> " << S_coinc << std::endl;
+    std::cout << "  p" << int(Q*100) << " different  --------------------> " << S_diff  << std::endl;
+    std::cout << "  raw POF (fixed-percentile) --------------> " << rawPOF << std::endl;
 
-    std::cout << "  Bootstrap: N=" << N
-              << " iters=" << BOOTSTRAP_ITERS << std::endl;
+    // 5) Bootstrap (mismo reporting, N fijo si es posible)
+    const size_t N_BOOT = std::min({N_BOOT_DEFAULT, nC, nD});
+    std::cout << "  Bootstrap: N=" << N_BOOT << " iters=" << BOOTSTRAP_ITERS << std::endl;
 
-    // Random generator
-    std::mt19937 rng(12345); // fixed seed for reproducibility
+    std::mt19937 rng(12345);
     std::uniform_int_distribution<size_t> uniC(0, nC - 1);
     std::uniform_int_distribution<size_t> uniD(0, nD - 1);
 
-    // ---------------------------------------------------------------------
-    // 4) Bootstrap loop
-    // ---------------------------------------------------------------------
     std::vector<double> pofSamples;
     pofSamples.reserve(BOOTSTRAP_ITERS);
 
+    std::vector<double> sampleC; sampleC.reserve(N_BOOT);
+    std::vector<double> sampleD; sampleD.reserve(N_BOOT);
+
     for (size_t k = 0; k < BOOTSTRAP_ITERS; ++k)
     {
-        double sumC = 0.0, sumD = 0.0;
-
-        for (size_t i = 0; i < N; ++i) {
-            sumC += valsCoincident[uniC(rng)];
-            sumD += valsDifferent [uniD(rng)];
+        sampleC.clear();
+        sampleD.clear();
+        for (size_t i = 0; i < N_BOOT; ++i) {
+            sampleC.push_back(valsCoincident[uniC(rng)]);
+            sampleD.push_back(valsDifferent [uniD(rng)]);
         }
-
-        if (sumC > 0.0) {
-            pofSamples.push_back((sumD / N) / (sumC / N));
-        }
+        const double S_coinc_bs = percentile_of(sampleC, Q);
+        const double S_diff_bs  = percentile_of(sampleD, Q);
+        if (S_coinc_bs > 0.0)
+            pofSamples.push_back(S_diff_bs / S_coinc_bs);
     }
 
     if (pofSamples.empty()) {
@@ -1069,41 +1075,30 @@ void ProgStatisticalMap::weightMap()
         return;
     }
 
-
-    // ---------------------------------------------------------------------
-    // 5) Bootstrap statistics
-    // ---------------------------------------------------------------------
     std::sort(pofSamples.begin(), pofSamples.end());
-
-    auto percentile = [&](double q) {
-        if (pofSamples.empty()) return std::numeric_limits<double>::quiet_NaN();
-        double pos = q * (pofSamples.size() - 1);
-        size_t idx = static_cast<size_t>(pos);
-        double frac = pos - idx;
+    auto p_boot = [&](double q)->double {
+        const double pos = q * (pofSamples.size() - 1);
+        const size_t idx = static_cast<size_t>(pos);
+        const double frac = pos - idx;
         if (idx + 1 < pofSamples.size())
             return pofSamples[idx] * (1.0 - frac) + pofSamples[idx + 1] * frac;
-        else
-            return pofSamples[idx];
+        return pofSamples[idx];
     };
 
-    const double pofMedian = percentile(0.50);
-    const double pofLo     = percentile(CI_ALPHA / 2.0);
-    const double pofHi     = percentile(1.0 - CI_ALPHA / 2.0);
+    const double pofMedian = p_boot(0.50);
+    const double pofLo     = p_boot(CI_ALPHA / 2.0);
+    const double pofHi     = p_boot(1.0 - CI_ALPHA / 2.0);
 
-    std::cout << "  Bootstrap POF median -------------------> " << pofMedian << std::endl;
+    std::cout << "  Bootstrap POF median --------------------> " << pofMedian << std::endl;
     std::cout << "  Bootstrap POF CI [" << pofLo << ", " << pofHi << "]" << std::endl;
 
-    // ---------------------------------------------------------------------
-    // 6) Final POF decision (implicit test)
-    // ---------------------------------------------------------------------
+    // 6) Decisión final (idéntica)
     double finalPOF = 1.0;
-
     if (pofHi < 1.0) {
-        // Evidence of mixture
         finalPOF = pofMedian;
     }
+    std::cout << "  FINAL POF -------------------------------> " << finalPOF << std::endl;
 
-    std::cout << "  FINAL POF ------------------------------> " << finalPOF << std::endl;
 
     // ---------------------------------------------------------------------
     // 7) Apply correction
@@ -1117,6 +1112,297 @@ void ProgStatisticalMap::weightMap()
         }
     }
 }
+
+
+//-------------------------------------------------
+// bootstrap single picks from each region
+//-------------------------------------------------
+// void ProgStatisticalMap::weightMap()
+// {
+//     std::cout << "    Calculating POF (bootstrap-based)..." << std::endl;
+
+//     // ---------------------------------------------------------------------
+//     // 1) Raw POF (reference only)
+//     // ---------------------------------------------------------------------
+//     double raw_coincident_avg, raw_different_avg, foo;
+
+//     Image<int> readMask;
+//     readMask.read("/home/fpdeisidro/testBench/publication_FSCoh+StatMaps/Betagal_PO/StatisticalMaps_POmask/00100_postprocess_rescaled_ali_differentMask.mrc");
+//     differentMask = readMask();
+
+//     V().computeAvgStdev_within_binary_mask(coincidentMask, raw_coincident_avg, foo);
+//     V().computeAvgStdev_within_binary_mask(differentMask,  raw_different_avg,  foo);
+
+//     double rawPOF = raw_different_avg / raw_coincident_avg;
+
+//     std::cout << "  raw coincident_avg --------------------> " << raw_coincident_avg << std::endl;
+//     std::cout << "  raw different_avg  --------------------> " << raw_different_avg  << std::endl;
+//     std::cout << "  raw POF -------------------------------> " << rawPOF << std::endl;
+
+//     // ---------------------------------------------------------------------
+//     // 2) Collect voxel values for both ROIs
+//     // ---------------------------------------------------------------------
+//     std::vector<double> valsCoincident;
+//     std::vector<double> valsDifferent;
+
+//     valsCoincident.reserve(4096);
+//     valsDifferent.reserve(4096);
+
+//     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+//     {
+//         if (DIRECT_MULTIDIM_ELEM(coincidentMask, n) > 0)
+//             valsCoincident.push_back(DIRECT_MULTIDIM_ELEM(V(), n));
+
+//         if (DIRECT_MULTIDIM_ELEM(differentMask, n) > 0)
+//             valsDifferent.push_back(DIRECT_MULTIDIM_ELEM(V(), n));
+//     }
+
+//     const size_t nC = valsCoincident.size();
+//     const size_t nD = valsDifferent.size();
+
+//     if (nC == 0 || nD == 0) {
+//         std::cerr << "  [WARN] Empty ROI; skipping correction." << std::endl;
+//         return;
+//     }
+
+//     std::cout << "  ROI sizes: coincident=" << nC
+//               << " different=" << nD << std::endl;
+
+//     // ---------------------------------------------------------------------
+//     // 3) Bootstrap parameters
+//     // ---------------------------------------------------------------------
+//     // CHANGED: single-point ratio bootstrap, many more iterations
+//     const size_t BOOTSTRAP_ITERS = 1'000'000;   // increased
+//     const double CI_ALPHA        = 0.05;
+
+//     std::cout << "  Bootstrap: single-point ratios; iters=" << BOOTSTRAP_ITERS << std::endl;
+
+//     // Random generator (fixed seed for reproducibility)
+//     std::mt19937 rng(12345);
+//     std::uniform_int_distribution<size_t> uniC(0, nC - 1);
+//     std::uniform_int_distribution<size_t> uniD(0, nD - 1);
+
+//     // ---------------------------------------------------------------------
+//     // 4) Bootstrap loop (single-point ratios)
+//     // ---------------------------------------------------------------------
+//     std::vector<double> pofSamples;
+//     pofSamples.reserve(BOOTSTRAP_ITERS);
+
+//     for (size_t k = 0; k < BOOTSTRAP_ITERS; ++k)
+//     {
+//         // CHANGED: pick one from each group
+//         const double c = valsCoincident[uniC(rng)]; // denominator
+//         const double d = valsDifferent [uniD(rng)]; // numerator
+
+//         // Guard against zero/non-finite denominator (skip this draw)
+//         if (!std::isfinite(c) || c == 0.0) continue;
+//         if (!std::isfinite(d)) continue;
+
+//         // Ratio: different / coincident  (same orientation as original code)
+//         pofSamples.push_back(d / c);
+//     }
+
+//     if (pofSamples.empty()) {
+//         std::cerr << "  [WARN] Bootstrap produced no valid samples; skipping correction." << std::endl;
+//         return;
+//     }
+
+//     // ---------------------------------------------------------------------
+//     // 5) Bootstrap statistics
+//     // ---------------------------------------------------------------------
+//     std::sort(pofSamples.begin(), pofSamples.end());
+
+//     auto percentile = [&](double q) {
+//         if (pofSamples.empty()) return std::numeric_limits<double>::quiet_NaN();
+//         double pos  = q * (pofSamples.size() - 1);
+//         size_t idx  = static_cast<size_t>(pos);
+//         double frac = pos - idx;
+//         if (idx + 1 < pofSamples.size())
+//             return pofSamples[idx] * (1.0 - frac) + pofSamples[idx + 1] * frac;
+//         else
+//             return pofSamples[idx];
+//     };
+
+//     const double pofMedian = percentile(0.50);
+//     const double pofLo     = percentile(CI_ALPHA / 2.0);
+//     const double pofHi     = percentile(1.0 - CI_ALPHA / 2.0);
+
+//     std::cout << "  Bootstrap POF median -------------------> " << pofMedian << std::endl;
+//     std::cout << "  Bootstrap POF CI [" << pofLo << ", " << pofHi << "]" << std::endl;
+
+//     // ---------------------------------------------------------------------
+//     // 6) Final POF decision (implicit test)
+//     // ---------------------------------------------------------------------
+//     double finalPOF = 1.0;
+
+//     if (pofHi < 1.0) {
+//         // Evidence of mixture
+//         finalPOF = pofMedian;
+//     }
+
+//     std::cout << "  FINAL POF ------------------------------> " << finalPOF << std::endl;
+
+//     // ---------------------------------------------------------------------
+//     // 7) Apply correction
+//     // ---------------------------------------------------------------------
+//     if (finalPOF < 1.0)
+//     {
+//         FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+//         {
+//             DIRECT_MULTIDIM_ELEM(V(), n) -=
+//                 DIRECT_MULTIDIM_ELEM(avgVolume(), n) * (1.0 - finalPOF);
+//         }
+//     }
+// }
+
+
+//-------------------------------------------------
+// bootstrap ratios of averages
+//-------------------------------------------------
+// void ProgStatisticalMap::weightMap()
+// {
+//     std::cout << "    Calculating POF (bootstrap-based)..." << std::endl;
+
+//     // ---------------------------------------------------------------------
+//     // 1) Raw POF (reference only)
+//     // ---------------------------------------------------------------------
+//     double raw_coincident_avg, raw_different_avg, foo;
+
+//     // Image<int> readMask;
+//     // readMask.read("/home/fpdeisidro/testBench/publication_FSCoh+StatMaps/Betagal_PO/StatisticalMaps_POmask/00100_postprocess_rescaled_ali_differentMask.mrc");
+//     // differentMask = readMask();
+
+//     V().computeAvgStdev_within_binary_mask(coincidentMask, raw_coincident_avg, foo);
+//     V().computeAvgStdev_within_binary_mask(differentMask,  raw_different_avg,  foo);
+
+//     double rawPOF = raw_different_avg / raw_coincident_avg;
+
+//     std::cout << "  raw coincident_avg --------------------> " << raw_coincident_avg << std::endl;
+//     std::cout << "  raw different_avg  --------------------> " << raw_different_avg  << std::endl;
+//     std::cout << "  raw POF ------------------------------> " << rawPOF << std::endl;
+
+//     // ---------------------------------------------------------------------
+//     // 2) Collect voxel values for both ROIs
+//     // ---------------------------------------------------------------------
+//     std::vector<double> valsCoincident;
+//     std::vector<double> valsDifferent;
+
+//     valsCoincident.reserve(4096);
+//     valsDifferent.reserve(4096);
+
+//     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+//     {
+//         if (DIRECT_MULTIDIM_ELEM(coincidentMask, n) > 0)
+//             valsCoincident.push_back(DIRECT_MULTIDIM_ELEM(V(), n));
+
+//         if (DIRECT_MULTIDIM_ELEM(differentMask, n) > 0)
+//             valsDifferent.push_back(DIRECT_MULTIDIM_ELEM(V(), n));
+//     }
+
+//     const size_t nC = valsCoincident.size();
+//     const size_t nD = valsDifferent.size();
+
+//     if (nC == 0 || nD == 0) {
+//         std::cerr << "  [WARN] Empty ROI; skipping correction." << std::endl;
+//         return;
+//     }
+
+//     std::cout << "  ROI sizes: coincident=" << nC
+//               << " different=" << nD << std::endl;
+
+//     // ---------------------------------------------------------------------
+//     // 3) Bootstrap parameters
+//     // ---------------------------------------------------------------------
+//     const size_t BOOTSTRAP_ITERS = 1000;
+//     const size_t MIN_SAMPLE     = 100;
+//     const double CI_ALPHA       = 0.05;
+
+//     size_t N = std::max(
+//         MIN_SAMPLE,
+//         std::min(nC, nD)
+//     );
+
+//     std::cout << "  Bootstrap: N=" << N
+//               << " iters=" << BOOTSTRAP_ITERS << std::endl;
+
+//     // Random generator
+//     std::mt19937 rng(12345); // fixed seed for reproducibility
+//     std::uniform_int_distribution<size_t> uniC(0, nC - 1);
+//     std::uniform_int_distribution<size_t> uniD(0, nD - 1);
+
+//     // ---------------------------------------------------------------------
+//     // 4) Bootstrap loop
+//     // ---------------------------------------------------------------------
+//     std::vector<double> pofSamples;
+//     pofSamples.reserve(BOOTSTRAP_ITERS);
+
+//     for (size_t k = 0; k < BOOTSTRAP_ITERS; ++k)
+//     {
+//         double sumC = 0.0, sumD = 0.0;
+
+//         for (size_t i = 0; i < N; ++i) {
+//             sumC += valsCoincident[uniC(rng)];
+//             sumD += valsDifferent [uniD(rng)];
+//         }
+
+//         if (sumC > 0.0) {
+//             pofSamples.push_back((sumD / N) / (sumC / N));
+//         }
+//     }
+
+//     if (pofSamples.empty()) {
+//         std::cerr << "  [WARN] Bootstrap failed; skipping correction." << std::endl;
+//         return;
+//     }
+
+
+//     // ---------------------------------------------------------------------
+//     // 5) Bootstrap statistics
+//     // ---------------------------------------------------------------------
+//     std::sort(pofSamples.begin(), pofSamples.end());
+
+//     auto percentile = [&](double q) {
+//         if (pofSamples.empty()) return std::numeric_limits<double>::quiet_NaN();
+//         double pos = q * (pofSamples.size() - 1);
+//         size_t idx = static_cast<size_t>(pos);
+//         double frac = pos - idx;
+//         if (idx + 1 < pofSamples.size())
+//             return pofSamples[idx] * (1.0 - frac) + pofSamples[idx + 1] * frac;
+//         else
+//             return pofSamples[idx];
+//     };
+
+//     const double pofMedian = percentile(0.50);
+//     const double pofLo     = percentile(CI_ALPHA / 2.0);
+//     const double pofHi     = percentile(1.0 - CI_ALPHA / 2.0);
+
+//     std::cout << "  Bootstrap POF median -------------------> " << pofMedian << std::endl;
+//     std::cout << "  Bootstrap POF CI [" << pofLo << ", " << pofHi << "]" << std::endl;
+
+//     // ---------------------------------------------------------------------
+//     // 6) Final POF decision (implicit test)
+//     // ---------------------------------------------------------------------
+//     double finalPOF = 1.0;
+
+//     if (pofHi < 1.0) {
+//         // Evidence of mixture
+//         finalPOF = pofMedian;
+//     }
+
+//     std::cout << "  FINAL POF ------------------------------> " << finalPOF << std::endl;
+
+//     // ---------------------------------------------------------------------
+//     // 7) Apply correction
+//     // ---------------------------------------------------------------------
+//     if (finalPOF < 1.0)
+//     {
+//         FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+//         {
+//             DIRECT_MULTIDIM_ELEM(V(), n) -=
+//                 DIRECT_MULTIDIM_ELEM(avgVolume(), n) * (1.0 - finalPOF);
+//         }
+//     }
+// }
 
 
 // // -----------------------------------------------------------------------------
