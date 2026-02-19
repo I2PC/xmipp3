@@ -211,7 +211,7 @@ class BnBgpu:
     
         return whitening_filter
     
-    def compute_radial_whitening_filter(self, images, eps=1e-6):
+    def compute_radial_whitening_filter_ok(self, images, eps=1e-6):
         device = images.device
         N, H, W = images.shape
     
@@ -243,6 +243,72 @@ class BnBgpu:
         
         # Normalizar el filtro para que no cambie la escala global de la imagen
         whitening_filter /= whitening_filter.mean()
+    
+        return whitening_filter
+    
+    
+    def compute_radial_whitening_filter(
+            self,
+            images,
+            pixel_size,
+            resolution_limit,
+            eps=1e-6,
+            rolloff=0.1):
+    
+        device = images.device
+        N, H, W = images.shape
+    
+        # 1. PSD en Fourier
+        fft = torch.fft.rfft2(images, norm="forward")
+        psd2d = torch.mean(torch.abs(fft)**2, dim=0)
+    
+        # 2. Frecuencias físicas (1/Å)
+        fy = torch.fft.fftfreq(H, d=pixel_size, device=device)
+        fx = torch.fft.rfftfreq(W, d=pixel_size, device=device)
+    
+        yy, xx = torch.meshgrid(fy, fx, indexing="ij")
+    
+        freq = torch.sqrt(yy**2 + xx**2)
+    
+        # índice radial
+        r_idx = (freq * min(H, W)).round().long()
+    
+        # 3. Promedio radial
+        max_r = r_idx.max().item()
+    
+        radial_psd = torch.zeros(max_r + 1, device=device)
+        counts = torch.zeros(max_r + 1, device=device)
+    
+        radial_psd.scatter_add_(0, r_idx.flatten(), psd2d.flatten())
+        counts.scatter_add_(0, r_idx.flatten(), torch.ones_like(psd2d.flatten()))
+    
+        radial_psd /= (counts + 1e-12)
+    
+        # 4. Whitening
+        whitening_filter = 1.0 / torch.sqrt(radial_psd[r_idx] + eps)
+    
+        # eliminar DC
+        whitening_filter[0, 0] = 0.0
+    
+    
+        # --------------------------------------------------
+        # 5. Limitar a resolución máxima
+        # --------------------------------------------------
+    
+        fmax = 1.0 / resolution_limit
+    
+        sigma = fmax * rolloff
+    
+        lowpass = torch.exp(
+            -(freq**2) / (2 * sigma**2)
+        )
+    
+        whitening_filter *= lowpass
+    
+    
+        # 6. Normalizar
+        whitening_filter /= whitening_filter.mean()
+    
     
         return whitening_filter
     
@@ -474,9 +540,9 @@ class BnBgpu:
             cut_res = 50           
             res_classes = self.frc_resolution_tensor(newCL, sampling, fallback_res=cut_res, rcut=cut)
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
-            if iter > 15:
-                boost = None
-                clk = self.highpass_cosine_sharpen(clk, res_classes, sampling, factorR = boost)
+            # if iter > 15:
+            boost = None
+            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling, factorR = boost)
             
                 
         if iter < (iterSplit + 1): #order by size
@@ -494,9 +560,9 @@ class BnBgpu:
         # if iter in [10, 13]:
         #     clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
         #                         intensity_percentile=50, smooth_sigma=1.0)
-        # if 1 < iter < 7 and iter % 2 == 0:
-        #     clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
-        #                         intensity_percentile=50, smooth_sigma=1.0)
+        if 1 < iter < 7 and iter % 2 == 0:
+            clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
+                                intensity_percentile=50, smooth_sigma=1.0)
 
         
         if iter > 2 and iter < 12:
