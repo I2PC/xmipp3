@@ -142,7 +142,7 @@ if __name__=="__main__":
     Im_whitening = mmap.data[:10000].astype(np.float32)
     Texp_whitening = torch.from_numpy(Im_whitening).float().to(cuda)
     Texp_whitening *= bnb.create_circular_mask(Texp_whitening)
-    whitening = bnb.compute_radial_whitening_filter(Texp_whitening, sampling, sampling*2)
+    whitening = bnb.compute_radial_whitening_filter(Texp_whitening, sampling, 8.0)
     del Im_whitening, Texp_whitening
     # whitening = 1
 
@@ -240,14 +240,14 @@ if __name__=="__main__":
             Texp = torch.from_numpy(expImages).float().to(cuda)
                   
             if i < initStep: 
-                whit = whitening         
+                whit = 1         
                 batch_projExp_cpu.append( bnb.batchExpToCpu(Texp, whit, freqBn, coef, cvecs) )           
                 if i == initStep-1:
                     mode = "create_classes"
                     print(f"\nClassification mode", flush=True)
                     print(f"Processing batch 0 - {endBatch}\n", flush=True)
             else: 
-                whit = whitening           
+                whit = 1           
                 batch_projExp_cpu = bnb.create_batchExp(Texp, whit, freqBn, coef, cvecs)
                 mode = "align_classes"
                 if i == initStep:
@@ -281,13 +281,22 @@ if __name__=="__main__":
                     for rot in vectorRot:            
             
                         # print("---Precomputing the projections of the reference images---")
-                        if mode == "create_classes" and iter < 6:
-                            whit = whitening
-                        else: 
-                            whit = whitening        
+                        # if mode == "create_classes" and iter > 14:
+                        #     print("ENTRO WHITENING")
+                        #     whit = whitening
+                        # else: 
+                        #     whit = 1        
                         batch_projRef = bnb.precalculate_projection(cl, whit, freqBn, grid_flat, 
                                                             coef, cvecs, float(rot), vectorshift)
                 
+                        if mode == "create_classes" and iter > 12:
+                            whit = whitening
+                        elif mode == "align_classes":
+                            whit = whitening
+                        else: 
+                            whit = 1  
+                        
+                        
                         count = 0  
                         steps = initStep if mode == "create_classes" else 1 
                                     

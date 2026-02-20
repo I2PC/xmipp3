@@ -193,9 +193,8 @@ class BnBgpu:
     
     
     
-    def compute_radial_whitening_filter(self, images, pixel_size, res, eps=1e-6):
+    def compute_radial_whitening_filter2(self, images, eps=1e-6):
         """
-        Whitening equivalente al usado en cryoSPARC 2D classification.
     
         images: tensor (N,H,W)
         return: filtro (H,W//2+1)
@@ -241,7 +240,7 @@ class BnBgpu:
     
         return whitening
     
-    def compute_radial_whitening_filter_ok(self, images, eps=1e-6):
+    def compute_radial_whitening2(self, images, eps=1e-6):
         device = images.device
         N, H, W = images.shape
     
@@ -277,7 +276,7 @@ class BnBgpu:
         return whitening_filter
     
     
-    def compute_radial_whitening_filter___confilt(
+    def compute_radial_whitening_filter(
             self,
             images,
             pixel_size,
@@ -572,16 +571,25 @@ class BnBgpu:
         
         clk = self.averages_createClasses(mmap, iter, newCL)       
 
-        if iter > 1:
+        if iter > -1:
             # cut = (25 if iter < 5 else 20) if sampling < 3 else (35 if iter < 5 else 30)
             # cut_res = 100 if iter < (iterSplit-1) else 50
             cut=50
             cut_res = 50           
-            self.res_classes = self.frc_resolution_tensor(newCL, sampling, fallback_res=cut_res, rcut=cut)
-            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, self.res_classes, sampling)
-            # if iter > 15:
+            res_classes = self.frc_resolution_tensor(newCL, sampling, fallback_res=cut_res, rcut=cut)
+            if iter < 7:
+                res_classes = torch.max(res_classes, torch.full_like(res_classes, 14.0))
+            elif iter < 10:
+                res_classes = torch.max(res_classes, torch.full_like(res_classes, 12.0))
+            elif iter < 13:
+                res_classes = torch.max(res_classes, torch.full_like(res_classes, 10.0))
+            else:
+                res_classes = torch.max(res_classes, torch.full_like(res_classes, 6.0))
+                
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
+            # if iter > 13:
             boost = None
-            # clk = self.highpass_cosine_sharpen(clk, self.res_classes, sampling, factorR = boost)
+            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling, factorR = boost)
             
                 
         if iter < (iterSplit + 1): #order by size
@@ -596,9 +604,9 @@ class BnBgpu:
             
             
 
-        if iter in [10, 13]:
-            clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
-                                intensity_percentile=50, smooth_sigma=1.0)
+        # if iter in [10, 13]:
+        #     clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
+        #                         intensity_percentile=50, smooth_sigma=1.0)
         if 1 < iter < 7 and iter % 2 == 0:
             clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
                                 intensity_percentile=50, smooth_sigma=1.0)
@@ -654,6 +662,8 @@ class BnBgpu:
 
             
             res_classes = self.frc_resolution_tensor(newCL, sampling)
+            
+            res_classes = torch.max(res_classes, torch.full_like(res_classes, 6.0))
             
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             

@@ -297,13 +297,15 @@ class PCAgpu:
         band = [torch.zeros(Ntrain, coef[n], device = self.cuda) for n in range(nBand)]  
         
                  #Precalculate whitening 
-        Im_whitening = mexp.data[:10000].astype(np.float32)
-        Texp_whitening = torch.from_numpy(Im_whitening).float().to(self.cuda)
-        Texp_whitening*= bnb.create_circular_mask(Texp_whitening)
-        whitening = bnb.compute_radial_whitening_filter(Texp_whitening, sampling, sampling*2)
-        del Im_whitening, Texp_whitening 
-        torch.cuda.empty_cache()
-        # whitening = 1
+        if maxRes < 10:
+            Im_whitening = mexp.data[:10000].astype(np.float32)
+            Texp_whitening = torch.from_numpy(Im_whitening).float().to(self.cuda)
+            Texp_whitening*= bnb.create_circular_mask(Texp_whitening)
+            whitening = bnb.compute_radial_whitening_filter(Texp_whitening, sampling, 8.0)
+            del Im_whitening, Texp_whitening 
+            torch.cuda.empty_cache()
+        else:
+            whitening = 1
            
          
         #print("Select bands of images")            
