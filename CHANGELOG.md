@@ -1,3 +1,15 @@
+## Release 5.0.0 - Beta-gal 
+   ### Xmipp Programs 
+   - New programs
+      - alignPCA_2D: an alignment method applied for 2D classification using PCA and Euclidean distance.‎
+
+   ### Installation and user guide
+   - Redirect all documentation to the official and fancy one: https://i2pc.github.io/docs/
+     
+   ### More Xmipp  
+   - CUDA 13 is now fully compatible with Xmipp, enabling improved GPU acceleration and performance on modern hardware.
+
+
 ## Release 4.0.0 - Apoferritin
    ### Xmipp Programs 
    - Programs updated
