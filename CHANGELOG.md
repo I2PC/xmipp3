@@ -5,7 +5,6 @@
 
    ### Installation and user guide
    - Redirect all documentation to the official and fancy one: https://i2pc.github.io/docs/
-   - ??pyXmipp?
      
    ### More Xmipp  
    - CUDA 13 is now fully compatible with Xmipp, enabling improved GPU acceleration and performance on modern hardware.
