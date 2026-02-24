@@ -78,14 +78,19 @@ private:
     * local resolution in chimera using on the pdb.
     * Also the Normalized local resolution in stored in an output metadata
     */
-    void sweepByResidue(std::vector<double> &residuesToChimera);
+    void sweepByResidue(std::vector<double> &residuesToChimera_aux, 
+									std::vector<double> &resNumberList, 
+									std::vector<double> &resolution_per_residue, 
+									std::vector<double> &bfactor_per_residue);
 
     /**
     * GENERATEOUTPUTPDB: The normalized local resolution per residue is taken, residuesToChimera,
     * and the values are stored in and output pdb file by substituting the bfactor column by the
     * normalized local resolution of each residue. This file has visualization purpose (in Chimera).
     */
-    void generateOutputPDB(const std::vector<double> &residuesToChimera);
+    void generateOutputPDB(const std::vector<double> &residuesToChimera, std::vector<double> &resNumberList, 
+									std::vector<double> &resolution_per_residue, 
+									std::vector<double> &bfactor_per_residue);
 
     /**
     * For each atom position k, i, j, and a radius, totRad, the local resolution values of a local
