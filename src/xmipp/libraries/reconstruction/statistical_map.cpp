@@ -985,9 +985,9 @@ void ProgStatisticalMap::weightMap()
     // ---------------------------
     // Parámetros fijos y estables
     // ---------------------------
-    const double Q = 0.75;              // percentil fijo (tu sugerencia)
+    const double Q = 0.95;
     const size_t BOOTSTRAP_ITERS = 1000;
-    const size_t N_BOOT_DEFAULT = 2000; // N fijo si es posible
+    const size_t N_BOOT_DEFAULT = 2000; 
     const double CI_ALPHA       = 0.05;
 
     // 1) Cargar máscara diferente (igual que antes)
