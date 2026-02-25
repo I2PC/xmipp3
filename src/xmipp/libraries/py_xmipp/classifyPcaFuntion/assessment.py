@@ -18,24 +18,29 @@ class evaluation:
         self.cuda = torch.device('cuda:0')
     
         #for experimental images with starfile module
-    def updateExpStar(self, expStar, refClas, angle, shiftVec, output):
+    def updateExpStar(self, expStar, refClas, angle, shiftVec, output, dist):
         
         star = starfile.read(expStar)
         new = output + "_images.star"  
-    
-        star.loc[:,"ref"] = refClas.int()+1
-        
+            
+        star.loc[:, "ref"] = refClas.int().cpu().numpy() + 1
+        star["ref"] = star["ref"].astype(int)
+                
+        dist_array = dist.detach().cpu().numpy()
+        dist_array = np.nan_to_num(dist_array, nan=0.0, posinf=1e6, neginf=-1e6)
+        star["cost"] = dist_array.astype(np.float64)
+
         columns = ["anglePsi", "angleRot", "angleTilt", "shiftX", "shiftY", "shiftZ"]
         for column in columns:
             # if column not in star.columns:
             star[column] = 0.0
     
-        # Updating columns in the dataframe
-        star.loc[:, "anglePsi"] = angle
-        star.loc[:, "shiftX"] = shiftVec[:,0].cpu().detach().numpy()
-        star.loc[:, "shiftY"] = shiftVec[:,1].cpu().detach().numpy()
+        star.loc[:, "anglePsi"] = angle.astype(float)
+        star.loc[:, "shiftX"] = shiftVec[:, 0].cpu().numpy().astype(float)
+        star.loc[:, "shiftY"] = shiftVec[:, 1].cpu().numpy().astype(float)
     
-        starfile.write(star, new, overwrite=True)
+        # starfile.write(star, new, overwrite=True)
+        starfile.write({"Particles": star}, new, overwrite=True)
         
         
         
@@ -50,11 +55,7 @@ class evaluation:
         newStar = output + "_classes.star" 
         starfile.write(df, newStar, overwrite=True)
         
-        
-
-        
-        
-        
+ 
 
 
  
