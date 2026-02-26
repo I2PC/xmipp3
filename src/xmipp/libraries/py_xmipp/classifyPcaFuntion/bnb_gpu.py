@@ -372,6 +372,42 @@ class BnBgpu:
         return matches
     
     @torch.no_grad()
+    def match_batch_correlation(self, batchExp, batchRef, initBatch, matches, rot, nShift):
+        
+        nExp = batchExp[0].size(dim=0) 
+        nShift = torch.tensor(nShift, device=self.cuda)
+                                  
+        for n in range(self.nBand):
+                      
+            Ref_bar = batchRef[n] - batchRef[n].mean(axis=1).view(batchRef[n].shape[0],1)
+            Exp_bar = batchExp[n] - batchExp[n].mean(axis=1).view(batchExp[n].shape[0],1)
+            N = Ref_bar.shape[1]
+            cov = (Ref_bar @ Exp_bar.t()) / (N - 1)
+            
+            normRef = torch.std(batchRef[n], dim=1).view(batchRef[n].shape[0],1)
+            normExp = torch.std(batchExp[n], dim=1).view(batchExp[n].shape[0],1)
+            den = torch.matmul(normRef,normExp.T)
+        
+            score = cov/den
+           
+        min_score, ref = torch.min(-score, 0)
+        del(score)
+        
+        sel = (torch.floor(ref/nShift)).type(torch.int64)
+        shift_location = (ref - (sel*nShift)).type(torch.int64)
+        rotation = torch.full((nExp,1), rot, device = self.cuda)
+        exp = torch.arange(initBatch, initBatch+nExp, 1, device = self.cuda).view(nExp,1)
+        
+        iter_matches = torch.cat((exp, sel.reshape(nExp,1), min_score.reshape(nExp,1), 
+                                  rotation, shift_location.reshape(nExp,1)), dim=1)  
+
+        cond = iter_matches[:, 2] < matches[initBatch:initBatch + nExp, 2]
+        matches[initBatch:initBatch + nExp] = torch.where(cond.view(nExp, 1), iter_matches, matches[initBatch:initBatch + nExp])
+        
+        # torch.cuda.empty_cache()        
+        return(matches)
+    
+    @torch.no_grad()
     def create_batchExp(self, Texp, whitening, freqBn, coef, vecs):
              
         self.batch_projExp = [torch.zeros((Texp.size(dim=0), vecs[n].size(dim=1)), device = self.cuda) for n in range(self.nBand)]
@@ -647,7 +683,7 @@ class BnBgpu:
         
         batch_projExp_cpu = self.create_batchExp(transforIm, whitening, freqBn, coef, cvecs)
         
-        if iter == 2:
+        if iter == 5:
             newCL = [[] for i in range(classes)]              
             
             for n in range(classes):
@@ -667,7 +703,7 @@ class BnBgpu:
             
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             
-            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)                       
+            # clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)                       
         
             if not hasattr(self, 'grad_squared'):
                 self.grad_squared = torch.zeros_like(cl)
@@ -1335,9 +1371,9 @@ class BnBgpu:
         else:
             max_s10 = math.ceil((dim * 0.10) / s[2]) * s[2]
             schedule = [
-                (1, (-180, 180, 6), (-max_s10, max_s10 + s[2], s[2])),
-                (2, (-180, 180, 4), (-8, 8 + s[3], s[3])),
-                (3, (-90, 92, 2),   (-final, final + s[4], s[4]))
+                (2, (-180, 180, 6), (-max_s10, max_s10 + s[2], s[2])),
+                (4, (-180, 180, 4), (-8, 8 + s[3], s[3])),
+                (6, (-90, 92, 2),   (-final, final + s[4], s[4]))
             ]
             
             ang, shiftMove = schedule[-1][1], schedule[-1][2]
