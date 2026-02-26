@@ -2,9 +2,15 @@
 
 import jax
 import jax.numpy as jnp
+from flax import linen as nn
+from flax import serialization
+import optax
+from flax.training import train_state
+
 import numpy as np
 import os
 import sys
+import time
 import xmippLib
 from xmipp_script import XmippScript
 
@@ -191,13 +197,12 @@ def make_triplet_gen(
 
         yield xa, xp, xn
 
-def show_triplet_batch(train_gen, fnDir, n_examples=5):
+def show_triplet_batch(train_gen, fnDir, n_examples=3):
     """Display n_examples triplets (anchor, positive, negative) from generator."""
     xa, xp, xn = next(train_gen)           # each [B,28,28]
     xa, xp, xn = np.array(xa), np.array(xp), np.array(xn)
 
     I=xmippLib.Image()
-    print("Estoy aqui")
     for i in range(n_examples):
         I.setData(xa[i])
         I.write(os.path.join(fnDir,"anchor%02d.mrc"%i))
@@ -205,7 +210,81 @@ def show_triplet_batch(train_gen, fnDir, n_examples=5):
         I.write(os.path.join(fnDir,"positive%02d.mrc"%i))
         I.setData(xn[i])
         I.write(os.path.join(fnDir,"negative%02d.mrc"%i))
-        print("Saved ",i)
+
+class Encoder(nn.Module):
+    d: int = 128 # Size of the output layer
+    @nn.compact
+    def __call__(self, x):
+        x = x[..., None]
+        x = nn.Conv(32, (5,5), (2,2))(x); x = nn.relu(x)
+        x = nn.Conv(64, (3,3), (2,2))(x); x = nn.relu(x)
+        x = nn.Conv(64, (3,3), (1,1))(x); x = nn.relu(x)
+        x = x.reshape((x.shape[0], -1))
+        x = nn.Dense(256)(x); x = nn.relu(x)
+        return nn.Dense(self.d)(x)
+
+class MLP(nn.Module):
+    h: int; # Size of hidden layer
+    out: int # Size of the embedding
+    @nn.compact
+    def __call__(self, x):
+        x = nn.Dense(self.h)(x); x = nn.relu(x)
+        return nn.Dense(self.out)(x)
+
+class TripletNet(nn.Module):
+    d: int = 128 # Size of the encoding embedding
+    h: int = 256 # Projector of the tripleNet
+    use_projector: bool = True
+    @nn.compact
+    def __call__(self, x):  # x: [B,28,28]
+        z = Encoder(self.d)(norm_per_image(x))
+        if self.use_projector:
+            z = MLP(self.h, self.d)(z)
+        # L2-normalize for cosine distance
+        z = z / (jnp.linalg.norm(z, axis=1, keepdims=True) + 1e-9)
+        return z  # [B,d], unit-norm
+
+def triplet_loss(params, apply_fn, batch, margin=0.2):
+    xa, xp, xn = batch  # [B,28,28] each
+    ea = apply_fn({'params': params}, xa)  # [B,d], unit norm
+    ep = apply_fn({'params': params}, xp)
+    en = apply_fn({'params': params}, xn)
+
+    # cosine distances: d = 1 - dot(u,v)
+    dap = 1.0 - jnp.sum(ea * ep, axis=1)   # [B]
+    dan = 1.0 - jnp.sum(ea * en, axis=1)   # [B]
+
+    # classic margin triplet: max(0, d_ap - d_an + m)
+    losses = jnp.maximum(0.0, dap - dan + margin)
+    loss = jnp.mean(losses)
+
+    # helpful metrics
+    frac_viol = jnp.mean((dap + margin > dan).astype(jnp.float32))
+    metrics = {
+        "loss": loss,
+        "d_ap": jnp.mean(dap),
+        "d_an": jnp.mean(dan),
+        "viol": frac_viol,  # fraction violating the margin
+    }
+    return loss, metrics
+
+def create_train_state(rng, model, lr=3e-4):
+    dummy = jnp.zeros((2,28,28), dtype=jnp.float32)
+    variables = model.init(rng, dummy)
+    params = variables["params"]
+    tx = optax.chain(
+        optax.clip_by_global_norm(1.0),
+        optax.adam(lr),
+    )
+    return train_state.TrainState.create(apply_fn=model.apply, params=params, tx=tx)
+
+@jax.jit
+def train_step(state, batch, margin=0.2):
+    def _loss_only(p):
+        return triplet_loss(p, state.apply_fn, batch, margin=margin)
+    (loss, metrics), grads = jax.value_and_grad(_loss_only, has_aux=True)(state.params)
+    state = state.apply_gradients(grads=grads)
+    return state, metrics
 
 class ScriptDeepEmbedTrain(XmippScript):
     def __init__(self):
@@ -252,7 +331,27 @@ class ScriptDeepEmbedTrain(XmippScript):
         train_gen = make_triplet_gen(rng, train_ds, batch_size, warper, sigma_shift=sigma_shift)
         # show_triplet_batch(train_gen, ".") # Debugging code
 
-        return 0
+        model = TripletNet(d=128, h=256, use_projector=True)
+        state = create_train_state(jax.random.PRNGKey(0), model, lr=learning_rate)
+
+        log_every = 100
+        margin = 0.2
+
+        t0 = time.time()
+        for step in range(1, maxEpochs + 1):
+            xa, xp, xn = next(train_gen)
+            state, metrics = train_step(state, (xa, xp, xn), margin=margin)
+
+            if step % log_every == 0:
+                dt = time.time() - t0
+                print(f"[{step:5d}] loss={metrics['loss']:.8f}  "
+                      f"d_ap={metrics['d_ap']:.8f}  d_an={metrics['d_an']:.8f}  "
+                      f"viol%={100 * metrics['viol']:.1f}  ({dt:.1f}s)")
+                t0 = time.time()
+
+        with open(fnModel, "wb") as f:
+            f.write(serialization.to_bytes(state))
+
 
 if __name__ == '__main__':
     exitCode = ScriptDeepEmbedTrain().tryRun()

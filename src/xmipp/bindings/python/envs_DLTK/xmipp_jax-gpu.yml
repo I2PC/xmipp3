@@ -8,4 +8,6 @@ dependencies:
   - libstdcxx-ng # To be compatible with scipion env
   - pip
   - pip:
-      - jax[cuda12]==0.8
+      - jax[cuda12]
+      - flax
+      - pyxmipp3
