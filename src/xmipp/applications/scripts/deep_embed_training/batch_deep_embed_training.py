@@ -2,11 +2,14 @@
 
 import jax
 import jax.numpy as jnp
+from jax import lax
 from jax.scipy.ndimage import map_coordinates
 from flax import linen as nn
 from flax import serialization
 import optax
 from flax.training import train_state
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 
 import math
 import numpy as np
@@ -38,6 +41,10 @@ def make_centered_warper(coords: jnp.ndarray, cx: float, cy: float):
     x: [B,H,W], M: [B,2,2], t: [B,2]  ->  [B,H,W]
     coords: [H,W,2] in centered coordinates
     """
+    def sample(img, sx, sy):
+        c = jnp.stack([sy, sx], axis=0)
+        return map_coordinates(img, c, order=1, mode="nearest")
+
     def _warp_single(img, M, t):
         t = t.astype(coords.dtype)
         Minv = M.T
@@ -48,32 +55,16 @@ def make_centered_warper(coords: jnp.ndarray, cx: float, cy: float):
         sx = src_c[..., 0] + cx
         sy = src_c[..., 1] + cy
 
-        def sample(img, sx, sy):
-            coords = jnp.stack([sy, sx], axis=0)  # [2,H,W] with (y,x)
-            return map_coordinates(img, coords, order=1, mode="nearest")
-
         return sample(img, sx, sy)
 
-    def warp(x, M, t):
-        return jax.vmap(_warp_single, in_axes=(0, 0, 0))(x, M, t)
+    return jax.vmap(_warp_single, in_axes=(0, 0, 0))
 
-    return warp
 
-def _load_xmipp_images_numpy(fnImgs):
-    """Load all images as float32 numpy arrays (2D)."""
-    imgs = []
-    for fn in fnImgs:
-        im = xmippLib.Image(fn).getData()
-        im = np.asarray(im, dtype=np.float32)
-        # squeeze common singleton dims
-        if im.ndim == 3:
-            if im.shape[-1] == 1:
-                im = im[..., 0]
-            elif im.shape[0] == 1:
-                im = im[0]
-            else:
-                raise ValueError(f"Expected 2D or singleton 3D image, got {im.shape} for {fn}")
-        imgs.append(im)
+def _load_parallel(fnImgs):
+    with ThreadPoolExecutor() as executor:
+        imgs = list(
+            executor.map(lambda f: np.asarray(xmippLib.Image(f).getData()),
+                         fnImgs))
     return imgs
 
 def _per_image_standardize_np(im, eps=1e-6):
@@ -86,7 +77,7 @@ def preload_resize_normalize(fnImgs,
                              dtype=np.float32):
 
     Hout = Wout = out_hw
-    imgs_np = _load_xmipp_images_numpy(fnImgs)
+    imgs_np = _load_parallel(fnImgs)
 
     N = len(imgs_np)
     if N == 0:
@@ -117,6 +108,27 @@ def train_step(state, batch, margin=0.2):
     state = state.apply_gradients(grads=grads)
     return state, metrics
 
+@partial(jax.jit, static_argnums=(0,))
+def run_epoch(step_fn, state, key, steps_per_epoch, margin):
+    def body(i, carry):
+        state, key, loss_sum, dap_sum, dan_sum, viol_sum = carry
+        state, key, metrics = step_fn(state, key, margin)
+        loss_sum = loss_sum + metrics["loss"]
+        dap_sum  = dap_sum  + metrics["d_ap"]
+        dan_sum  = dan_sum  + metrics["d_an"]
+        viol_sum = viol_sum + metrics["viol"]
+        return (state, key, loss_sum, dap_sum, dan_sum, viol_sum)
+
+    carry0 = (
+        state,
+        key,
+        jnp.array(0.0, jnp.float32),
+        jnp.array(0.0, jnp.float32),
+        jnp.array(0.0, jnp.float32),
+        jnp.array(0.0, jnp.float32),
+    )
+    return lax.fori_loop(0, steps_per_epoch, body, carry0)
+
 def make_batcher(pre_dev, warper, batch_size, sigma_shift,
                  a_range=(0.7,1.4), b_range=(-0.2,0.2)):
 
@@ -130,8 +142,10 @@ def make_batcher(pre_dev, warper, batch_size, sigma_shift,
         M = jnp.stack([jnp.stack([cos, -sin], axis=-1),
                        jnp.stack([sin,  cos], axis=-1)], axis=-2)  # [B,2,2]
         t = jax.random.normal(k_sh, (B, 2), dtype=jnp.float32) * sigma_shift
-        a = jax.random.uniform(k_a, (B,), dtype=jnp.float32, minval=a_range[0], maxval=a_range[1])
-        b = jax.random.uniform(k_b, (B,), dtype=jnp.float32, minval=b_range[0], maxval=b_range[1])
+        a = jax.random.uniform(k_a, (B,), dtype=DT_IMAGE,
+                               minval=a_range[0], maxval=a_range[1])
+        b = jax.random.uniform(k_b, (B,), dtype=DT_IMAGE,
+                               minval=b_range[0], maxval=b_range[1])
         return k, M, t, a, b
 
     @jax.jit
@@ -286,20 +300,9 @@ class ScriptDeepEmbedTrain(XmippScript):
 
         t0 = time.time()
         for epoch in range(1, maxEpochs + 1):
-            # running sums for epoch averages
-            loss_sum = jnp.array(0.0, dtype=jnp.float32)
-            dap_sum = jnp.array(0.0, dtype=jnp.float32)
-            dan_sum = jnp.array(0.0, dtype=jnp.float32)
-            viol_sum = jnp.array(0.0, dtype=jnp.float32)
+            state, key, loss_sum, dap_sum, dan_sum, viol_sum = run_epoch(
+                step, state, key, steps_per_epoch, margin)
 
-            for _ in range(steps_per_epoch):
-                state, key, metrics = step(state, key, margin)
-                loss_sum += metrics["loss"]
-                dap_sum += metrics["d_ap"]
-                dan_sum += metrics["d_an"]
-                viol_sum += metrics["viol"]
-
-            # sync ONCE
             loss_avg = float(loss_sum / steps_per_epoch)
             dap_avg = float(dap_sum / steps_per_epoch)
             dan_avg = float(dan_sum / steps_per_epoch)
