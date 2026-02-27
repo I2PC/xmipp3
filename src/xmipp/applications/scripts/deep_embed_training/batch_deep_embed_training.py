@@ -236,7 +236,7 @@ class TripletNet(nn.Module):
     h: int = 256 # Projector of the tripleNet
     use_projector: bool = True
     @nn.compact
-    def __call__(self, x):  # x: [B,28,28]
+    def __call__(self, x):  # x: [B,d,d]
         z = Encoder(self.d)(norm_per_image(x))
         if self.use_projector:
             z = MLP(self.h, self.d)(z)
@@ -245,7 +245,7 @@ class TripletNet(nn.Module):
         return z  # [B,d], unit-norm
 
 def triplet_loss(params, apply_fn, batch, margin=0.2):
-    xa, xp, xn = batch  # [B,28,28] each
+    xa, xp, xn = batch  # [B,d,d] each
     ea = apply_fn({'params': params}, xa)  # [B,d], unit norm
     ep = apply_fn({'params': params}, xp)
     en = apply_fn({'params': params}, xn)
@@ -268,8 +268,8 @@ def triplet_loss(params, apply_fn, batch, margin=0.2):
     }
     return loss, metrics
 
-def create_train_state(rng, model, lr=3e-4):
-    dummy = jnp.zeros((2,28,28), dtype=jnp.float32)
+def create_train_state(rng, model, d=128, lr=3e-4):
+    dummy = jnp.zeros((2,d,d), dtype=jnp.float32)
     variables = model.init(rng, dummy)
     params = variables["params"]
     tx = optax.chain(
@@ -323,8 +323,10 @@ class ScriptDeepEmbedTrain(XmippScript):
         fnImgs = mdExp.getColumnValues(xmippLib.MDL_IMAGE)
 
         coordsResize = precompute_resize_grid(XdimOut, XdimOut, Xdim, Xdim)
-        train_ds = get_xmipp_ds(fnImgs, coordsResize[...,0], coordsResize[...,1])
+        train_ds = get_xmipp_ds(fnImgs,
+                                coordsResize[...,0], coordsResize[ ...,1])
         coords, cx, cy = precompute_original_grid(XdimOut, XdimOut)
+
 
         warper = make_centered_warper(coords, cx, cy)
         rng = jax.random.PRNGKey(42)
@@ -332,9 +334,10 @@ class ScriptDeepEmbedTrain(XmippScript):
         # show_triplet_batch(train_gen, ".") # Debugging code
 
         model = TripletNet(d=128, h=256, use_projector=True)
-        state = create_train_state(jax.random.PRNGKey(0), model, lr=learning_rate)
+        state = create_train_state(jax.random.PRNGKey(0), model, d=XdimOut,
+                                   lr=learning_rate)
 
-        log_every = 100
+        log_every = 10
         margin = 0.2
 
         t0 = time.time()
