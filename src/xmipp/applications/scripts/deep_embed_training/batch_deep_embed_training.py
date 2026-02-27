@@ -7,6 +7,7 @@ from flax import serialization
 import optax
 from flax.training import train_state
 
+import math
 import numpy as np
 from scipy.ndimage import zoom
 import os
@@ -195,8 +196,9 @@ class Encoder(nn.Module):
     def __call__(self, x):
         x = x[..., None]
         x = nn.Conv(32, (5,5), (2,2))(x); x = nn.relu(x)
-        x = nn.Conv(64, (3,3), (2,2))(x); x = nn.relu(x)
-        x = nn.Conv(64, (3,3), (1,1))(x); x = nn.relu(x)
+        x = nn.Conv(64, (5,5), (2,2))(x); x = nn.relu(x)
+        x = nn.Conv(64, (5,5), (2,2))(x); x = nn.relu(x)
+        x = nn.Conv(128, (5,5), (1,1))(x); x = nn.relu(x)
         x = x.reshape((x.shape[0], -1))
         x = nn.Dense(256)(x); x = nn.relu(x)
         return nn.Dense(self.d)(x)
@@ -298,7 +300,6 @@ class ScriptDeepEmbedTrain(XmippScript):
         key = jax.random.PRNGKey(42)
         next_triplet = make_batcher(pre_dev, warper, batch_size, sigma_shift)
 
-        log_every = 10
         margin = 0.2
 
         # Warmup (optional): trigger compilation before timing
@@ -306,22 +307,43 @@ class ScriptDeepEmbedTrain(XmippScript):
         state, _ = train_step(state, batch, margin=margin)
         jax.block_until_ready(state.params)
 
-        t0 = time.time()
-        for step in range(1, maxEpochs + 1):
-            key, batch = next_triplet(key)
-            state, metrics = train_step(state, batch, margin=margin)
+        N = int(pre_dev.shape[0])  # number of images
+        steps_per_epoch = math.ceil(
+            N / batch_size)  # define one epoch as ~one pass worth of batches
+        global_step = 0
 
-            if step % log_every == 0:
-                # metrics are device arrays; formatting forces sync (fine every 10 steps)
-                dt = time.time() - t0
-                print(f"[{step:5d}] loss={float(metrics['loss']):.8f}  "
-                      f"d_ap={float(metrics['d_ap']):.8f}  d_an={float(metrics['d_an']):.8f}  "
-                      f"viol%={100 * float(metrics['viol']):.1f}  ({dt:.1f}s)")
-                t0 = time.time()
-        
+        t0 = time.time()
+        for epoch in range(1, maxEpochs + 1):
+            # running sums for epoch averages
+            loss_sum = 0.0
+            dap_sum = 0.0
+            dan_sum = 0.0
+            viol_sum = 0.0
+
+            for _ in range(steps_per_epoch):
+                key, batch = next_triplet(key)
+                state, metrics = train_step(state, batch, margin=margin)
+                global_step += 1
+
+                loss_sum += float(metrics["loss"])
+                dap_sum += float(metrics["d_ap"])
+                dan_sum += float(metrics["d_an"])
+                viol_sum += float(metrics["viol"])
+
+            # epoch summary
+            loss_avg = loss_sum / steps_per_epoch
+            dap_avg = dap_sum / steps_per_epoch
+            dan_avg = dan_sum / steps_per_epoch
+            viol_avg = viol_sum / steps_per_epoch
+
+            dt = time.time() - t0
+            print(f"[epoch {epoch:4d}/{maxEpochs}] loss={loss_avg:.8f}  "
+                  f"d_ap={dap_avg:.8f}  d_an={dan_avg:.8f}  "
+                  f"viol%={100 * viol_avg:.1f}  ({dt:.1f}s/epoch)")
+            t0 = time.time()
+
         with open(fnModel, "wb") as f:
             f.write(serialization.to_bytes(state))
-
 
 if __name__ == '__main__':
     exitCode = ScriptDeepEmbedTrain().tryRun()
