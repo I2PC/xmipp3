@@ -34,29 +34,45 @@ def precompute_original_grid(H: int, W: int):
     coords = jnp.stack([grid_x - cx, grid_y - cy], axis=-1)  # [H,W,2]
     return coords, cx, cy
 
-def make_centered_warper(coords: jnp.ndarray, cx: float, cy: float):
-    """
-    Build warp(x, M, t) applying an inverse affine warp around the image center.
 
-    x: [B,H,W], M: [B,2,2], t: [B,2]  ->  [B,H,W]
-    coords: [H,W,2] in centered coordinates
+def make_centered_warper_multichan(coords: jnp.ndarray, cx: float, cy: float):
     """
-    def sample(img, sx, sy):
-        c = jnp.stack([sy, sx], axis=0)
-        return map_coordinates(img, c, order=1, mode="nearest")
+    Centered inverse-affine warper for multi-channel images.
 
+    Inputs
+    ------
+    x: [B, H, W, K]
+    M: [B, 2, 2]    (rotation / linear transform; assumed orthonormal if you use M.T as inverse)
+    t: [B, 2]       (shift in centered coordinates, in pixels)
+
+    Returns
+    -------
+    warped: [B, H, W, K]
+    """
+    # sample a single channel image [H,W]
+    def _sample_2d(img2d, sx, sy):
+        c = jnp.stack([sy, sx], axis=0)          # [2, H, W] (y,x)
+        return map_coordinates(img2d, c, order=1, mode="nearest")  # [H,W]
+
+    # warp one image with K channels: img [H,W,K]
     def _warp_single(img, M, t):
         t = t.astype(coords.dtype)
-        Minv = M.T
+        Minv = M.T  # for pure rotation matrices; if you later allow scaling/shear, use jnp.linalg.inv(M)
 
         # inverse map in centered coords: src_c = (coords - t) @ Minv^T
         src_c = (coords - t[None, None, :]) @ Minv.T
-
         sx = src_c[..., 0] + cx
         sy = src_c[..., 1] + cy
 
-        return sample(img, sx, sy)
+        # Apply to each channel independently (K times) keeping sx,sy fixed
+        # img: [H,W,K] -> [K,H,W]
+        img_khw = jnp.moveaxis(img, -1, 0)
 
+        warped_khw = jax.vmap(_sample_2d, in_axes=(0, None, None))(img_khw, sx, sy)  # [K,H,W]
+        warped_hwk = jnp.moveaxis(warped_khw, 0, -1)  # [H,W,K]
+        return warped_hwk
+
+    # vmap over batch
     return jax.vmap(_warp_single, in_axes=(0, 0, 0))
 
 
@@ -72,11 +88,46 @@ def _per_image_standardize_np(im, eps=1e-6):
     s = float(im.std())
     return (im - m) / (s + eps)
 
+
+def _gaussian_mask_2d(H, W, sigma):
+    cy = (H - 1) * 0.5
+    cx = (W - 1) * 0.5
+    yy, xx = np.ogrid[:H, :W]
+    r2 = (yy - cy) ** 2 + (xx - cx) ** 2
+    return np.exp(-0.5 * r2 / (sigma * sigma)).astype(np.float32)
+
+
+def _radial_freq_grid(H, W):
+    # cycles/pixel in [-0.5, 0.5)
+    fy = np.fft.fftfreq(H, d=1.0)
+    fx = np.fft.fftfreq(W, d=1.0)
+    FY, FX = np.meshgrid(fy, fx, indexing="ij")
+    return np.sqrt(FX * FX + FY * FY).astype(np.float32)  # [H,W]
+
+
+def _make_filter_bank_masks(H, W, K=5, fmin=0.0, fmax=0.5):
+    R = _radial_freq_grid(H, W)  # [H,W]
+    edges = np.linspace(fmin, fmax, K + 1, dtype=np.float32)
+    masks = []
+    for k in range(K):
+        lo, hi = float(edges[k]), float(edges[k + 1])
+        if k == K - 1:
+            m = (R >= lo) & (R <= hi)  # include Nyquist edge in last bin
+        else:
+            m = (R >= lo) & (R < hi)
+        masks.append(m.astype(np.float32))
+    # [K,H,W]
+    return np.stack(masks, axis=0), edges
+
 def preload_resize_normalize(fnImgs,
                              out_hw,
-                             dtype=np.float32):
-
-    Hout = Wout = out_hw
+                             dtype=np.float32,
+                             K=5):
+    """
+    Returns:
+      Y: [N, Hout, Wout, K]  (K band-filtered images, Gaussian-masked in real space)
+    """
+    Hout = Wout = int(out_hw)
     imgs_np = _load_parallel(fnImgs)
 
     N = len(imgs_np)
@@ -88,15 +139,31 @@ def preload_resize_normalize(fnImgs,
     zoom_y = Hout / Hin
     zoom_x = Wout / Win
 
-    Y = np.empty((N, Hout, Wout), dtype=dtype)
+    # Precompute masks (shared across all images)
+    sigma = Hout / 6.0
+    gmask = _gaussian_mask_2d(Hout, Wout, sigma=sigma)          # [H,W]
+    fb_masks, fb_edges = _make_filter_bank_masks(Hout, Wout, K=K, fmin=0.0, fmax=0.5)  # [K,H,W]
+
+    # Output: [N,H,W,K]
+    Y = np.empty((N, Hout, Wout, K), dtype=dtype)
+
     for i, im in enumerate(imgs_np):
-        im = _per_image_standardize_np(im)
-        im_resized = zoom(im, (zoom_y, zoom_x), order=1)
-        Y[i] = im_resized.astype(dtype)
+        im = _per_image_standardize_np(im)  # float32
+        im_resized = zoom(im, (zoom_y, zoom_x), order=1).astype(np.float32)  # [H,W]
+
+        F = np.fft.fft2(im_resized)  # complex64/128 depending on numpy build
+
+        # Apply each band mask, iFFT back, then apply real-space Gaussian mask
+        for k in range(K):
+            Fb = F * fb_masks[k]                  # band-limited spectrum
+            band = np.fft.ifft2(Fb).real          # [H,W] float
+            band = band * gmask                   # real-space Gaussian mask
+            Y[i, :, :, k] = band.astype(dtype)
+
     return Y
 
-def get_xmipp_preloaded_array(fnImgs, XdimOut):
-    pre = preload_resize_normalize(fnImgs, XdimOut, dtype=np.float32)  # numpy [N,H,W]
+def get_xmipp_preloaded_array(fnImgs, XdimOut, K=5):
+    pre = preload_resize_normalize(fnImgs, XdimOut, K=K, dtype=np.float32)
     pre = jax.device_put(pre)  # explicit device transfer once
     return pre.astype(DT_IMAGE)
 
@@ -161,9 +228,12 @@ def make_batcher(pre_dev, warper, batch_size, sigma_shift,
         kP, MP, tP, aP, bP = sample_T(kP, batch_size)
         kN, MN, tN, aN, bN = sample_T(kN, batch_size)
 
-        xa = aA[:, None, None] * warper(base_ap, MA, tA) + bA[:, None, None]
-        xp = aP[:, None, None] * warper(base_ap, MP, tP) + bP[:, None, None]
-        xn = aN[:, None, None] * warper(base_n,  MN, tN) + bN[:, None, None]
+        xa = aA[:, None, None, None] * warper(base_ap, MA, tA) + \
+             bA[:, None, None, None]
+        xp = aP[:, None, None, None] * warper(base_ap, MP, tP) + \
+             bP[:, None, None, None]
+        xn = aN[:, None, None, None] * warper(base_n, MN, tN) + \
+             bN[:, None, None, None]
 
         xa = xa.astype(DT_IMAGE); xp = xp.astype(DT_IMAGE); xn = xn.astype(DT_IMAGE)
         return key, (xa, xp, xn)
@@ -182,8 +252,8 @@ class TripletNet(nn.Module):
     param_dtype: any = jnp.float32
 
     @nn.compact
-    def __call__(self, x):  # x: [B,H,W]
-        x = x[..., None].astype(self.compute_dtype)  # -> [B,H,W,1]
+    def __call__(self, x):  # x: [B,H,W,K]
+        x = x.astype(self.compute_dtype)
 
         x = nn.Conv(32, (5,5), (2,2), dtype=self.compute_dtype,
                     param_dtype=self.param_dtype)(x); x = nn.relu(x)
@@ -203,7 +273,7 @@ class TripletNet(nn.Module):
 
         # L2-normalize for cosine distance (unit sphere)
         z = z.astype(jnp.float32)  # normalize in fp32
-        z = z / (jnp.linalg.norm(z, axis=1, keepdims=True) + 1e-9)
+        z = z / (jnp.linalg.norm(z, axis=-1, keepdims=True) + 1e-9)
         return z
 
 def triplet_loss(params, apply_fn, batch, margin=0.2):
@@ -230,8 +300,8 @@ def triplet_loss(params, apply_fn, batch, margin=0.2):
     }
     return loss, metrics
 
-def create_train_state(rng, model, XdimOut, lr=3e-4):
-    dummy = jnp.zeros((2,XdimOut,XdimOut), dtype=jnp.float32)
+def create_train_state(rng, model, XdimOut, K=5, lr=3e-4):
+    dummy = jnp.zeros((2,XdimOut,XdimOut, K), dtype=jnp.float32)
     variables = model.init(rng, dummy)
     params = variables["params"]
     tx = optax.chain(
@@ -278,11 +348,11 @@ class ScriptDeepEmbedTrain(XmippScript):
 
         model = TripletNet(d=128)
         state = create_train_state(jax.random.PRNGKey(0), model, XdimOut,
-                                   learning_rate)
+                                   5, learning_rate)
 
         pre_dev = get_xmipp_preloaded_array(fnImgs, XdimOut)  # GPU once
         coords, cx, cy = precompute_original_grid(XdimOut, XdimOut)
-        warper = make_centered_warper(coords, cx, cy)
+        warper = make_centered_warper_multichan(coords, cx, cy)
 
         key = jax.random.PRNGKey(42)
         next_triplet, step = make_batcher(pre_dev, warper, batch_size,
