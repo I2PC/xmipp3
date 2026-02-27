@@ -8,11 +8,14 @@ import optax
 from flax.training import train_state
 
 import numpy as np
+from scipy.ndimage import zoom
 import os
 import sys
 import time
 import xmippLib
 from xmipp_script import XmippScript
+
+DT_IMAGE = jnp.bfloat16
 
 def bilinear_sample_2d(img: jnp.ndarray, x: jnp.ndarray, y: jnp.ndarray) -> jnp.ndarray:
     """
@@ -38,8 +41,8 @@ def bilinear_sample_2d(img: jnp.ndarray, x: jnp.ndarray, y: jnp.ndarray) -> jnp.
     x1 = jnp.clip(x0 + 1, 0, W - 1)
     y1 = jnp.clip(y0 + 1, 0, H - 1)
 
-    wx = x - x0.astype(jnp.float32)
-    wy = y - y0.astype(jnp.float32)
+    wx = x - x0.astype(DT_IMAGE)
+    wy = y - y0.astype(DT_IMAGE)
 
     # gather with linear indices (fast + vmap/jit friendly)
     flat = img.reshape(-1)
@@ -70,15 +73,6 @@ def precompute_original_grid(H: int, W: int):
     coords = jnp.stack([grid_x - cx, grid_y - cy], axis=-1)  # [H,W,2]
     return coords, cx, cy
 
-def precompute_resize_grid(Hout: int, Wout: int,
-                           Hin: int, Win: int,
-                           dtype=jnp.float32):
-    ys = jnp.linspace(0.0, Hin - 1.0, Hout, dtype=dtype)
-    xs = jnp.linspace(0.0, Win - 1.0, Wout, dtype=dtype)
-    grid_y, grid_x = jnp.meshgrid(ys, xs, indexing="ij")
-    coords = jnp.stack([grid_x, grid_y], axis=-1)  # [H,W,2]
-    return coords
-
 def make_centered_warper(coords: jnp.ndarray, cx: float, cy: float):
     """
     Build warp(x, M, t) applying an inverse affine warp around the image center.
@@ -102,29 +96,6 @@ def make_centered_warper(coords: jnp.ndarray, cx: float, cy: float):
 
     return warp
 
-def _iter_xmipp_images(fnImgs):
-    for fn in fnImgs:
-        img = xmippLib.Image(fn).getData()
-        img = jnp.asarray(img)
-        yield img.astype(jnp.float32)
-
-def get_xmipp_ds(fnImgs,
-                 x: jnp.ndarray,
-                 y: jnp.ndarray,
-                 seed: int = 0):
-    imgs = list(_iter_xmipp_images(fnImgs))
-
-    rng = np.random.default_rng(seed)
-    idx = np.arange(len(imgs))
-
-    while True:
-        rng.shuffle(idx)
-
-        for k in idx:
-            im = bilinear_sample_2d(imgs[k], x, y)
-
-            yield {"image": im}
-
 def norm_per_image(x: jnp.ndarray, eps: float = 1e-6) -> jnp.ndarray:
     """
     Per-image standardization (zero mean, unit std) for gray-level invariance.
@@ -133,6 +104,65 @@ def norm_per_image(x: jnp.ndarray, eps: float = 1e-6) -> jnp.ndarray:
     m = x.mean(axis=(1, 2), keepdims=True)
     v = jnp.var(x, axis=(1, 2), keepdims=True)
     return (x - m) / jnp.sqrt(v + eps)
+
+def _load_xmipp_images_numpy(fnImgs):
+    """Load all images as float32 numpy arrays (2D)."""
+    imgs = []
+    for fn in fnImgs:
+        im = xmippLib.Image(fn).getData()
+        im = np.asarray(im, dtype=np.float32)
+        # squeeze common singleton dims
+        if im.ndim == 3:
+            if im.shape[-1] == 1:
+                im = im[..., 0]
+            elif im.shape[0] == 1:
+                im = im[0]
+            else:
+                raise ValueError(f"Expected 2D or singleton 3D image, got {im.shape} for {fn}")
+        imgs.append(im)
+    return imgs
+
+def _per_image_standardize_np(im, eps=1e-6):
+    m = float(im.mean())
+    s = float(im.std())
+    return (im - m) / (s + eps)
+
+def preload_resize_normalize(fnImgs,
+                             out_hw,
+                             dtype=np.float32):
+
+    Hout = Wout = out_hw
+    imgs_np = _load_xmipp_images_numpy(fnImgs)
+
+    N = len(imgs_np)
+    if N == 0:
+        raise ValueError("No images provided")
+
+    # infer input size from first image
+    Hin, Win = imgs_np[0].shape
+    zoom_y = Hout / Hin
+    zoom_x = Wout / Win
+
+    Y = np.empty((N, Hout, Wout), dtype=dtype)
+    for i, im in enumerate(imgs_np):
+        im = _per_image_standardize_np(im)
+        im_resized = zoom(im, (zoom_y, zoom_x), order=1)
+        Y[i] = im_resized.astype(dtype)
+    return Y
+
+def get_xmipp_ds(fnImgs, XdimOut, seed: int = 0):
+    """
+    Preload + resize once, then yield dicts {"image": ...} quickly.
+    """
+    pre = preload_resize_normalize(fnImgs, XdimOut)
+
+    rng = np.random.default_rng(seed)
+    idx = np.arange(pre.shape[0])
+
+    while True:
+        rng.shuffle(idx)
+        for k in idx:
+            yield {"image": pre[k]}
 
 def make_triplet_gen(
     rng,
@@ -173,7 +203,7 @@ def make_triplet_gen(
     while True:
         # 2B bases: first B for (anchor,positive), second B for negatives
         imgs = [next(ds_iter)["image"] for _ in range(2 * batch_size)]
-        base = jnp.stack(imgs, 0).astype(jnp.float32)
+        base = jnp.stack(imgs, 0).astype(DT_IMAGE)
         base_ap = base[:batch_size]
         base_n  = base[batch_size:]
 
@@ -189,11 +219,6 @@ def make_triplet_gen(
         xa = aA[:, None, None] * warper(base_ap, MA, tA) + bA[:, None, None]
         xp = aP[:, None, None] * warper(base_ap, MP, tP) + bP[:, None, None]
         xn = aN[:, None, None] * warper(base_n,  MN, tN) + bN[:, None, None]
-
-        # Normalize values
-        xa = norm_per_image(xa)
-        xp = norm_per_image(xp)
-        xn = norm_per_image(xn)
 
         yield xa, xp, xn
 
@@ -237,7 +262,7 @@ class TripletNet(nn.Module):
     use_projector: bool = True
     @nn.compact
     def __call__(self, x):  # x: [B,d,d]
-        z = Encoder(self.d)(norm_per_image(x))
+        z = Encoder(self.d)(x)
         if self.use_projector:
             z = MLP(self.h, self.d)(z)
         # L2-normalize for cosine distance
@@ -268,8 +293,8 @@ def triplet_loss(params, apply_fn, batch, margin=0.2):
     }
     return loss, metrics
 
-def create_train_state(rng, model, d=128, lr=3e-4):
-    dummy = jnp.zeros((2,d,d), dtype=jnp.float32)
+def create_train_state(rng, model, XdimOut, lr=3e-4):
+    dummy = jnp.zeros((2,XdimOut,XdimOut), dtype=jnp.float32)
     variables = model.init(rng, dummy)
     params = variables["params"]
     tx = optax.chain(
@@ -322,20 +347,16 @@ class ScriptDeepEmbedTrain(XmippScript):
         mdExp = xmippLib.MetaData(fnXmd)
         fnImgs = mdExp.getColumnValues(xmippLib.MDL_IMAGE)
 
-        coordsResize = precompute_resize_grid(XdimOut, XdimOut, Xdim, Xdim)
-        train_ds = get_xmipp_ds(fnImgs,
-                                coordsResize[...,0], coordsResize[ ...,1])
+        train_ds = get_xmipp_ds(fnImgs, XdimOut)
         coords, cx, cy = precompute_original_grid(XdimOut, XdimOut)
-
-
         warper = make_centered_warper(coords, cx, cy)
         rng = jax.random.PRNGKey(42)
         train_gen = make_triplet_gen(rng, train_ds, batch_size, warper, sigma_shift=sigma_shift)
         # show_triplet_batch(train_gen, ".") # Debugging code
 
         model = TripletNet(d=128, h=256, use_projector=True)
-        state = create_train_state(jax.random.PRNGKey(0), model, d=XdimOut,
-                                   lr=learning_rate)
+        state = create_train_state(jax.random.PRNGKey(0), model, XdimOut,
+                                   learning_rate)
 
         log_every = 10
         margin = 0.2
