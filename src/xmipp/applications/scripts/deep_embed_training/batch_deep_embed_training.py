@@ -2,6 +2,7 @@
 
 import jax
 import jax.numpy as jnp
+from jax.scipy.ndimage import map_coordinates
 from flax import linen as nn
 from flax import serialization
 import optax
@@ -17,38 +18,6 @@ import xmippLib
 from xmipp_script import XmippScript
 
 DT_IMAGE = jnp.bfloat16
-
-def bilinear_sample_2d(img: jnp.ndarray, x: jnp.ndarray, y: jnp.ndarray) -> jnp.ndarray:
-    H, W = img.shape
-
-    x = jnp.clip(x, 0.0, W - 1.0001)
-    y = jnp.clip(y, 0.0, H - 1.0001)
-
-    x0 = jnp.floor(x).astype(jnp.int32)
-    y0 = jnp.floor(y).astype(jnp.int32)
-    x1 = jnp.clip(x0 + 1, 0, W - 1)
-    y1 = jnp.clip(y0 + 1, 0, H - 1)
-
-    # weights MUST be float32 for stable geometry
-    wx = x - x0.astype(jnp.float32)
-    wy = y - y0.astype(jnp.float32)
-
-    flat = img.reshape(-1)
-
-    def gather(ix, iy):
-        idx = (iy * W + ix).reshape(-1)
-        return jnp.take(flat, idx).reshape(x.shape)
-
-    I00 = gather(x0, y0)
-    I10 = gather(x1, y0)
-    I01 = gather(x0, y1)
-    I11 = gather(x1, y1)
-
-    # result dtype follows img dtype; that’s fine (bf16) but you can cast if needed
-    return ((1 - wx) * (1 - wy) * I00 +
-            wx * (1 - wy) * I10 +
-            (1 - wx) * wy * I01 +
-            wx * wy * I11)
 
 def precompute_original_grid(H: int, W: int):
     ys = jnp.arange(H, dtype=jnp.float32)
@@ -78,7 +47,12 @@ def make_centered_warper(coords: jnp.ndarray, cx: float, cy: float):
 
         sx = src_c[..., 0] + cx
         sy = src_c[..., 1] + cy
-        return bilinear_sample_2d(img, sx, sy)
+
+        def sample(img, sx, sy):
+            coords = jnp.stack([sy, sx], axis=0)  # [2,H,W] with (y,x)
+            return map_coordinates(img, coords, order=1, mode="nearest")
+
+        return sample(img, sx, sy)
 
     def warp(x, M, t):
         return jax.vmap(_warp_single, in_axes=(0, 0, 0))(x, M, t)
@@ -135,19 +109,13 @@ def get_xmipp_preloaded_array(fnImgs, XdimOut):
     pre = jax.device_put(pre)  # explicit device transfer once
     return pre.astype(DT_IMAGE)
 
-def get_xmipp_ds(fnImgs, XdimOut, seed: int = 0):
-    """
-    Preload + resize once, then yield dicts {"image": ...} quickly.
-    """
-    pre = preload_resize_normalize(fnImgs, XdimOut)
-
-    rng = np.random.default_rng(seed)
-    idx = np.arange(pre.shape[0])
-
-    while True:
-        rng.shuffle(idx)
-        for k in idx:
-            yield {"image": pre[k]}
+@jax.jit
+def train_step(state, batch, margin=0.2):
+    def _loss_only(p):
+        return triplet_loss(p, state.apply_fn, batch, margin=margin)
+    (loss, metrics), grads = jax.value_and_grad(_loss_only, has_aux=True)(state.params)
+    state = state.apply_gradients(grads=grads)
+    return state, metrics
 
 def make_batcher(pre_dev, warper, batch_size, sigma_shift,
                  a_range=(0.7,1.4), b_range=(-0.2,0.2)):
@@ -179,37 +147,50 @@ def make_batcher(pre_dev, warper, batch_size, sigma_shift,
         kP, MP, tP, aP, bP = sample_T(kP, batch_size)
         kN, MN, tN, aN, bN = sample_T(kN, batch_size)
 
-        # warper uses bf16 images but float32 coords; fine
         xa = aA[:, None, None] * warper(base_ap, MA, tA) + bA[:, None, None]
         xp = aP[:, None, None] * warper(base_ap, MP, tP) + bP[:, None, None]
         xn = aN[:, None, None] * warper(base_n,  MN, tN) + bN[:, None, None]
 
-        # Optional: cast to bf16 after augmentation to keep the model input bf16
         xa = xa.astype(DT_IMAGE); xp = xp.astype(DT_IMAGE); xn = xn.astype(DT_IMAGE)
         return key, (xa, xp, xn)
 
-    return next_triplet
+    @jax.jit
+    def step(state, key, margin):
+        key, batch = next_triplet(key)
+        state, metrics = train_step(state, batch, margin=margin)
+        return state, key, metrics
 
-class Encoder(nn.Module):
-    d: int = 128 # Size of the output layer
-    @nn.compact
-    def __call__(self, x):
-        x = x[..., None]
-        x = nn.Conv(32, (5,5), (2,2))(x); x = nn.relu(x)
-        x = nn.Conv(64, (5,5), (2,2))(x); x = nn.relu(x)
-        x = nn.Conv(64, (5,5), (2,2))(x); x = nn.relu(x)
-        x = nn.Conv(128, (5,5), (1,1))(x); x = nn.relu(x)
-        x = x.reshape((x.shape[0], -1))
-        x = nn.Dense(256)(x); x = nn.relu(x)
-        return nn.Dense(self.d)(x)
+    return next_triplet, step
 
 class TripletNet(nn.Module):
-    d: int = 128 # Size of the encoding embedding
+    d: int = 128  # embedding dimension
+    compute_dtype: any = jnp.bfloat16
+    param_dtype: any = jnp.float32
+
     @nn.compact
-    def __call__(self, x):  # x: [B,d,d]
-        z = Encoder(self.d)(x)
+    def __call__(self, x):  # x: [B,H,W]
+        x = x[..., None].astype(self.compute_dtype)  # -> [B,H,W,1]
+
+        x = nn.Conv(32, (5,5), (2,2), dtype=self.compute_dtype,
+                    param_dtype=self.param_dtype)(x); x = nn.relu(x)
+        x = nn.Conv(64, (5,5), (2,2), dtype=self.compute_dtype,
+                    param_dtype=self.param_dtype)(x); x = nn.relu(x)
+        x = nn.Conv(64, (5,5), (2,2), dtype=self.compute_dtype,
+                    param_dtype=self.param_dtype)(x); x = nn.relu(x)
+        x = nn.Conv(128, (5,5), (1,1), dtype=self.compute_dtype,
+                    param_dtype=self.param_dtype)(x); x = nn.relu(x)
+
+        x = jnp.mean(x, axis=(1, 2))  # [B,C]
+        x = nn.Dense(256, dtype=self.compute_dtype,
+                     param_dtype=self.param_dtype)(x);
+        x = nn.relu(x)
+        z = nn.Dense(self.d, dtype=self.compute_dtype,
+                     param_dtype=self.param_dtype)(x)
+
+        # L2-normalize for cosine distance (unit sphere)
+        z = z.astype(jnp.float32)  # normalize in fp32
         z = z / (jnp.linalg.norm(z, axis=1, keepdims=True) + 1e-9)
-        return z  # [B,d], unit-norm
+        return z
 
 def triplet_loss(params, apply_fn, batch, margin=0.2):
     xa, xp, xn = batch  # [B,d,d] each
@@ -244,14 +225,6 @@ def create_train_state(rng, model, XdimOut, lr=3e-4):
         optax.adam(lr),
     )
     return train_state.TrainState.create(apply_fn=model.apply, params=params, tx=tx)
-
-@jax.jit
-def train_step(state, batch, margin=0.2):
-    def _loss_only(p):
-        return triplet_loss(p, state.apply_fn, batch, margin=margin)
-    (loss, metrics), grads = jax.value_and_grad(_loss_only, has_aux=True)(state.params)
-    state = state.apply_gradients(grads=grads)
-    return state, metrics
 
 class ScriptDeepEmbedTrain(XmippScript):
     def __init__(self):
@@ -298,8 +271,8 @@ class ScriptDeepEmbedTrain(XmippScript):
         warper = make_centered_warper(coords, cx, cy)
 
         key = jax.random.PRNGKey(42)
-        next_triplet = make_batcher(pre_dev, warper, batch_size, sigma_shift)
-
+        next_triplet, step = make_batcher(pre_dev, warper, batch_size,
+                                          sigma_shift)
         margin = 0.2
 
         # Warmup (optional): trigger compilation before timing
@@ -310,31 +283,27 @@ class ScriptDeepEmbedTrain(XmippScript):
         N = int(pre_dev.shape[0])  # number of images
         steps_per_epoch = math.ceil(
             N / batch_size)  # define one epoch as ~one pass worth of batches
-        global_step = 0
 
         t0 = time.time()
         for epoch in range(1, maxEpochs + 1):
             # running sums for epoch averages
-            loss_sum = 0.0
-            dap_sum = 0.0
-            dan_sum = 0.0
-            viol_sum = 0.0
+            loss_sum = jnp.array(0.0, dtype=jnp.float32)
+            dap_sum = jnp.array(0.0, dtype=jnp.float32)
+            dan_sum = jnp.array(0.0, dtype=jnp.float32)
+            viol_sum = jnp.array(0.0, dtype=jnp.float32)
 
             for _ in range(steps_per_epoch):
-                key, batch = next_triplet(key)
-                state, metrics = train_step(state, batch, margin=margin)
-                global_step += 1
+                state, key, metrics = step(state, key, margin)
+                loss_sum += metrics["loss"]
+                dap_sum += metrics["d_ap"]
+                dan_sum += metrics["d_an"]
+                viol_sum += metrics["viol"]
 
-                loss_sum += float(metrics["loss"])
-                dap_sum += float(metrics["d_ap"])
-                dan_sum += float(metrics["d_an"])
-                viol_sum += float(metrics["viol"])
-
-            # epoch summary
-            loss_avg = loss_sum / steps_per_epoch
-            dap_avg = dap_sum / steps_per_epoch
-            dan_avg = dan_sum / steps_per_epoch
-            viol_avg = viol_sum / steps_per_epoch
+            # sync ONCE
+            loss_avg = float(loss_sum / steps_per_epoch)
+            dap_avg = float(dap_sum / steps_per_epoch)
+            dan_avg = float(dan_sum / steps_per_epoch)
+            viol_avg = float(viol_sum / steps_per_epoch)
 
             dt = time.time() - t0
             print(f"[epoch {epoch:4d}/{maxEpochs}] loss={loss_avg:.8f}  "
