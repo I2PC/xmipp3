@@ -18,21 +18,8 @@ from xmipp_script import XmippScript
 DT_IMAGE = jnp.bfloat16
 
 def bilinear_sample_2d(img: jnp.ndarray, x: jnp.ndarray, y: jnp.ndarray) -> jnp.ndarray:
-    """
-    Bilinear sample a single 2D image.
-
-    Parameters
-    ----------
-    img : [H,W]
-    x,y : [Hout,Wout] float coordinates in source image space
-
-    Returns
-    -------
-    out : [Hout,Wout]
-    """
     H, W = img.shape
 
-    # Keep inside valid range; -1.0001 trick avoids x1==W at the right border
     x = jnp.clip(x, 0.0, W - 1.0001)
     y = jnp.clip(y, 0.0, H - 1.0001)
 
@@ -41,10 +28,10 @@ def bilinear_sample_2d(img: jnp.ndarray, x: jnp.ndarray, y: jnp.ndarray) -> jnp.
     x1 = jnp.clip(x0 + 1, 0, W - 1)
     y1 = jnp.clip(y0 + 1, 0, H - 1)
 
-    wx = x - x0.astype(DT_IMAGE)
-    wy = y - y0.astype(DT_IMAGE)
+    # weights MUST be float32 for stable geometry
+    wx = x - x0.astype(jnp.float32)
+    wy = y - y0.astype(jnp.float32)
 
-    # gather with linear indices (fast + vmap/jit friendly)
     flat = img.reshape(-1)
 
     def gather(ix, iy):
@@ -56,6 +43,7 @@ def bilinear_sample_2d(img: jnp.ndarray, x: jnp.ndarray, y: jnp.ndarray) -> jnp.
     I01 = gather(x0, y1)
     I11 = gather(x1, y1)
 
+    # result dtype follows img dtype; that’s fine (bf16) but you can cast if needed
     return ((1 - wx) * (1 - wy) * I00 +
             wx * (1 - wy) * I10 +
             (1 - wx) * wy * I01 +
@@ -95,15 +83,6 @@ def make_centered_warper(coords: jnp.ndarray, cx: float, cy: float):
         return jax.vmap(_warp_single, in_axes=(0, 0, 0))(x, M, t)
 
     return warp
-
-def norm_per_image(x: jnp.ndarray, eps: float = 1e-6) -> jnp.ndarray:
-    """
-    Per-image standardization (zero mean, unit std) for gray-level invariance.
-    x: [B,H,W] in [0,1] -> standardized [B,H,W]
-    """
-    m = x.mean(axis=(1, 2), keepdims=True)
-    v = jnp.var(x, axis=(1, 2), keepdims=True)
-    return (x - m) / jnp.sqrt(v + eps)
 
 def _load_xmipp_images_numpy(fnImgs):
     """Load all images as float32 numpy arrays (2D)."""
@@ -150,6 +129,11 @@ def preload_resize_normalize(fnImgs,
         Y[i] = im_resized.astype(dtype)
     return Y
 
+def get_xmipp_preloaded_array(fnImgs, XdimOut):
+    pre = preload_resize_normalize(fnImgs, XdimOut, dtype=np.float32)  # numpy [N,H,W]
+    pre = jax.device_put(pre)  # explicit device transfer once
+    return pre.astype(DT_IMAGE)
+
 def get_xmipp_ds(fnImgs, XdimOut, seed: int = 0):
     """
     Preload + resize once, then yield dicts {"image": ...} quickly.
@@ -164,77 +148,46 @@ def get_xmipp_ds(fnImgs, XdimOut, seed: int = 0):
         for k in idx:
             yield {"image": pre[k]}
 
-def make_triplet_gen(
-    rng,
-    ds,
-    batch_size,
-    warper,
-    a_range=(0.7, 1.4),
-    b_range=(-0.2, 0.2),
-    sigma_shift=1.0,
-):
-    """
-    Yields (xa, xp, xn) where xa & xp are two aug views of the SAME base image,
-    and xn is an aug view of a DIFFERENT base image. Shapes: [B,64, 64], normalized values
-    """
-    ds_iter = iter(ds)
-    key = rng
+def make_batcher(pre_dev, warper, batch_size, sigma_shift,
+                 a_range=(0.7,1.4), b_range=(-0.2,0.2)):
+
+    N = pre_dev.shape[0]
 
     def sample_T(k, B):
-        """
-        Returns:
-          k : updated PRNGKey
-          M : [B,2,2] rotation matrices (no mirror)
-          t : [B,2] pixel shifts ~ N(0, sigma_shift^2) per axis
-          a : [B] gray gain
-          b : [B] gray bias
-        """
         k, k_th, k_sh, k_a, k_b = jax.random.split(k, 5)
         theta = jax.random.uniform(k_th, (B,), dtype=jnp.float32,
                                    minval=-jnp.pi, maxval=jnp.pi)
         cos, sin = jnp.cos(theta), jnp.sin(theta)
         M = jnp.stack([jnp.stack([cos, -sin], axis=-1),
                        jnp.stack([sin,  cos], axis=-1)], axis=-2)  # [B,2,2]
-        t = jax.random.normal(k_sh, (B, 2), dtype=jnp.float32) * float(sigma_shift)
+        t = jax.random.normal(k_sh, (B, 2), dtype=jnp.float32) * sigma_shift
         a = jax.random.uniform(k_a, (B,), dtype=jnp.float32, minval=a_range[0], maxval=a_range[1])
         b = jax.random.uniform(k_b, (B,), dtype=jnp.float32, minval=b_range[0], maxval=b_range[1])
         return k, M, t, a, b
 
-    while True:
-        # 2B bases: first B for (anchor,positive), second B for negatives
-        imgs = [next(ds_iter)["image"] for _ in range(2 * batch_size)]
-        base = jnp.stack(imgs, 0).astype(DT_IMAGE)
+    @jax.jit
+    def next_triplet(key):
+        key, k_idx, kA, kP, kN = jax.random.split(key, 5)
+        idx = jax.random.randint(k_idx, (2 * batch_size,), 0, N)
+
+        base = pre_dev[idx]              # [2B,H,W] bf16 on device
         base_ap = base[:batch_size]
         base_n  = base[batch_size:]
 
-        # keys
-        key, kA, kP, kN = jax.random.split(key, 4)
-
-        # sample transforms
         kA, MA, tA, aA, bA = sample_T(kA, batch_size)
         kP, MP, tP, aP, bP = sample_T(kP, batch_size)
         kN, MN, tN, aN, bN = sample_T(kN, batch_size)
 
-        # apply transforms + gray
+        # warper uses bf16 images but float32 coords; fine
         xa = aA[:, None, None] * warper(base_ap, MA, tA) + bA[:, None, None]
         xp = aP[:, None, None] * warper(base_ap, MP, tP) + bP[:, None, None]
         xn = aN[:, None, None] * warper(base_n,  MN, tN) + bN[:, None, None]
 
-        yield xa, xp, xn
+        # Optional: cast to bf16 after augmentation to keep the model input bf16
+        xa = xa.astype(DT_IMAGE); xp = xp.astype(DT_IMAGE); xn = xn.astype(DT_IMAGE)
+        return key, (xa, xp, xn)
 
-def show_triplet_batch(train_gen, fnDir, n_examples=3):
-    """Display n_examples triplets (anchor, positive, negative) from generator."""
-    xa, xp, xn = next(train_gen)           # each [B,28,28]
-    xa, xp, xn = np.array(xa), np.array(xp), np.array(xn)
-
-    I=xmippLib.Image()
-    for i in range(n_examples):
-        I.setData(xa[i])
-        I.write(os.path.join(fnDir,"anchor%02d.mrc"%i))
-        I.setData(xp[i])
-        I.write(os.path.join(fnDir,"positive%02d.mrc"%i))
-        I.setData(xn[i])
-        I.write(os.path.join(fnDir,"negative%02d.mrc"%i))
+    return next_triplet
 
 class Encoder(nn.Module):
     d: int = 128 # Size of the output layer
@@ -248,24 +201,11 @@ class Encoder(nn.Module):
         x = nn.Dense(256)(x); x = nn.relu(x)
         return nn.Dense(self.d)(x)
 
-class MLP(nn.Module):
-    h: int; # Size of hidden layer
-    out: int # Size of the embedding
-    @nn.compact
-    def __call__(self, x):
-        x = nn.Dense(self.h)(x); x = nn.relu(x)
-        return nn.Dense(self.out)(x)
-
 class TripletNet(nn.Module):
     d: int = 128 # Size of the encoding embedding
-    h: int = 256 # Projector of the tripleNet
-    use_projector: bool = True
     @nn.compact
     def __call__(self, x):  # x: [B,d,d]
         z = Encoder(self.d)(x)
-        if self.use_projector:
-            z = MLP(self.h, self.d)(z)
-        # L2-normalize for cosine distance
         z = z / (jnp.linalg.norm(z, axis=1, keepdims=True) + 1e-9)
         return z  # [B,d], unit-norm
 
@@ -347,32 +287,38 @@ class ScriptDeepEmbedTrain(XmippScript):
         mdExp = xmippLib.MetaData(fnXmd)
         fnImgs = mdExp.getColumnValues(xmippLib.MDL_IMAGE)
 
-        train_ds = get_xmipp_ds(fnImgs, XdimOut)
-        coords, cx, cy = precompute_original_grid(XdimOut, XdimOut)
-        warper = make_centered_warper(coords, cx, cy)
-        rng = jax.random.PRNGKey(42)
-        train_gen = make_triplet_gen(rng, train_ds, batch_size, warper, sigma_shift=sigma_shift)
-        # show_triplet_batch(train_gen, ".") # Debugging code
-
-        model = TripletNet(d=128, h=256, use_projector=True)
+        model = TripletNet(d=128)
         state = create_train_state(jax.random.PRNGKey(0), model, XdimOut,
                                    learning_rate)
+
+        pre_dev = get_xmipp_preloaded_array(fnImgs, XdimOut)  # GPU once
+        coords, cx, cy = precompute_original_grid(XdimOut, XdimOut)
+        warper = make_centered_warper(coords, cx, cy)
+
+        key = jax.random.PRNGKey(42)
+        next_triplet = make_batcher(pre_dev, warper, batch_size, sigma_shift)
 
         log_every = 10
         margin = 0.2
 
+        # Warmup (optional): trigger compilation before timing
+        key, batch = next_triplet(key)
+        state, _ = train_step(state, batch, margin=margin)
+        jax.block_until_ready(state.params)
+
         t0 = time.time()
         for step in range(1, maxEpochs + 1):
-            xa, xp, xn = next(train_gen)
-            state, metrics = train_step(state, (xa, xp, xn), margin=margin)
+            key, batch = next_triplet(key)
+            state, metrics = train_step(state, batch, margin=margin)
 
             if step % log_every == 0:
+                # metrics are device arrays; formatting forces sync (fine every 10 steps)
                 dt = time.time() - t0
-                print(f"[{step:5d}] loss={metrics['loss']:.8f}  "
-                      f"d_ap={metrics['d_ap']:.8f}  d_an={metrics['d_an']:.8f}  "
-                      f"viol%={100 * metrics['viol']:.1f}  ({dt:.1f}s)")
+                print(f"[{step:5d}] loss={float(metrics['loss']):.8f}  "
+                      f"d_ap={float(metrics['d_ap']):.8f}  d_an={float(metrics['d_an']):.8f}  "
+                      f"viol%={100 * float(metrics['viol']):.1f}  ({dt:.1f}s)")
                 t0 = time.time()
-
+        
         with open(fnModel, "wb") as f:
             f.write(serialization.to_bytes(state))
 
