@@ -299,7 +299,8 @@ class DeepTFSupervised(object):
     '''
     K.clear_session()
     
-  def trainNet(self, nEpochs, dataManagerTrain, learningRate, l2RegStrength=1e-5, auto_stop=False):
+  def trainNet(self, nEpochs, dataManagerTrain, learningRate, l2RegStrength=1e-5, auto_stop=False,
+               lr_auto_scale=False, lr_base_batch_size=None, batch_log_every_n=10):
     '''
       @param nEpochs: int. The number of epochs that will be used for training
       @param dataManagerTrain: DataManager. Object that will provide training batches (Xs and labels)
@@ -310,9 +311,18 @@ class DeepTFSupervised(object):
     print("auto_stop:", auto_stop)
     sys.stdout.flush()
     
-    n_batches_per_epoch_train, n_batches_per_epoch_val= dataManagerTrain.getNBatchesPerEpoch()
-    nEpochs__= nEpochs
-    nEpochs= int(max(1, nEpochs*float(n_batches_per_epoch_train)/CHECK_POINT_AT))
+    n_batches_per_epoch_train, n_batches_per_epoch_val = dataManagerTrain.getNBatchesPerEpoch()
+    # Keep a copy of the user-provided epoch count
+    nEpochs__ = nEpochs
+
+    # Determine steps_per_epoch autoscaled inversely with batch size: don't exceed available
+    # batches and prefer CHECK_POINT_AT as an upper bound for reporting cadence.
+    steps_per_epoch = int(min(CHECK_POINT_AT, max(1, n_batches_per_epoch_train)))
+
+    # Adjust number of epochs to keep the total number of optimizer steps roughly
+    # constant across changes in steps_per_epoch: total_steps = nEpochs__ * n_batches_per_epoch_train
+    # so new_nEpochs = total_steps / steps_per_epoch
+    nEpochs = int(max(1, int(round((nEpochs__ * float(n_batches_per_epoch_train)) / float(steps_per_epoch)))))
     for modelNum in range(self.numberOfModels):
       self.startSessionAndInitialize()
       print("Training model %d/%d"%((modelNum+1), self.numberOfModels))  
@@ -320,28 +330,73 @@ class DeepTFSupervised(object):
       print("current checkpoint name %s"%(currentCheckPointName))
       if os.path.isfile( currentCheckPointName ):
         print("loading previosly saved model %s"%(currentCheckPointName))
-        self.loadNNet( currentCheckPointName, keepTraining=True, learningRate= learningRate, l2RegStrength=1e-5)
+        # Optionally autoscale learning rate with batch size (linear scaling rule)
+        batch_size = dataManagerTrain.getBatchSize()
+        if lr_auto_scale:
+          base_bs = lr_base_batch_size if lr_base_batch_size is not None else BATCH_SIZE
+          scaled_lr = float(learningRate) * (float(batch_size) / float(base_bs))
+          print('Auto-scaled learning rate %.3e -> %.3e (batch %d -> base %d)' % (learningRate, scaled_lr, batch_size, base_bs))
+        else:
+          scaled_lr = learningRate
+        self.loadNNet( currentCheckPointName, keepTraining=True, learningRate= scaled_lr, l2RegStrength=1e-5)
       else:
         effective_data_size= self.effective_data_size if self.effective_data_size>0 else dataManagerTrain.nTrue
+        batch_size = dataManagerTrain.getBatchSize()
+        if lr_auto_scale:
+          base_bs = lr_base_batch_size if lr_base_batch_size is not None else BATCH_SIZE
+          scaled_lr = float(learningRate) * (float(batch_size) / float(base_bs))
+          print('Auto-scaled learning rate %.3e -> %.3e (batch %d -> base %d)' % (learningRate, scaled_lr, batch_size, base_bs))
+        else:
+          scaled_lr = learningRate
         self.createNet(dataManagerTrain.shape[0], dataManagerTrain.shape[1], dataManagerTrain.shape[2], effective_data_size,
-                       learningRate, l2RegStrength)
+                       scaled_lr, l2RegStrength)
 #      print(self.nNetModel.summary())
       print("nEpochs : %.1f --> Epochs: %d.\nTraining begins: Epoch 0/%d"%(nEpochs__, nEpochs, nEpochs))
       sys.stdout.flush()
       cBacks= [ keras.callbacks.ModelCheckpoint((currentCheckPointName) , monitor='val_accuracy', verbose=1,
-                save_best_only=True, save_weights_only=False, save_freq='epoch') ]
+            save_best_only=True, save_weights_only=False, save_freq='epoch') ]
       if auto_stop:
         cBacks+= [ keras.callbacks.EarlyStopping(monitor='val_accuracy', min_delta=0.001, patience=10, verbose=1) ]
 
       cBacks+= [ keras.callbacks.ReduceLROnPlateau(monitor='val_accuracy', factor=0.1, patience=3, cooldown=1,
                  min_lr= learningRate*1e-3, verbose=1) ]
 
+      # Batch-level logging callback to provide more frequent progress when steps_per_epoch is small
+      class BatchLoggingCallback(keras.callbacks.Callback):
+        def __init__(self, every_n=10):
+          super(BatchLoggingCallback, self).__init__()
+          self.every_n = max(1, int(every_n))
+          self.batch_count = 0
+
+        def on_train_batch_end(self, batch, logs=None):
+          self.batch_count += 1
+          if (self.batch_count % self.every_n) == 0:
+            logs = logs or {}
+            loss = logs.get('loss')
+            acc = logs.get('accuracy') or logs.get('acc')
+            msg = 'batch %d: loss=%.4g' % (self.batch_count, loss if loss is not None else float('nan'))
+            if acc is not None:
+              msg += ', acc=%.4g' % acc
+            print(msg)
+            try:
+              sys.stdout.flush(); sys.stderr.flush()
+              for h in list(logging.root.handlers):
+                try:
+                  h.flush()
+                except Exception:
+                  pass
+            except Exception:
+              pass
+
+      import logging
+      cBacks += [ BatchLoggingCallback(every_n=batch_log_every_n) ]
+
       # Use tf.data.Dataset for training to leverage TF2 performance
       train_ds = dataManagerTrain.getTrainDataset()
       val_ds = dataManagerTrain.getValidationDataset(batchesPerEpoch=n_batches_per_epoch_val)
-      history = self.nNetModel.fit(x=train_ds, steps_per_epoch= CHECK_POINT_AT,
-                 validation_data=val_ds, validation_steps=n_batches_per_epoch_val,
-                 callbacks=cBacks, epochs=nEpochs, verbose=2)
+      history = self.nNetModel.fit(x=train_ds, steps_per_epoch= steps_per_epoch,
+             validation_data=val_ds, validation_steps=n_batches_per_epoch_val,
+             callbacks=cBacks, epochs=nEpochs, verbose=2)
 
       # history key in TF2 is 'val_accuracy'
       last_val_acc = history.history.get('val_accuracy', history.history.get('val_acc'))[-1]

@@ -207,7 +207,7 @@ class ScriptDeepScreeningTrain(XmippScript):
             nnet = DeepTFSupervised(numberOfThreads= numberOfThreads, rootPath= netDataPath,
                                     numberOfModels=numModels, effective_data_size=effective_data_size, use_mixed_precision=True)
             nnet.trainNet(nEpochs, trainDataManager, learningRate,
-                          l2RegStrength, auto_stop)
+                          l2RegStrength, auto_stop, lr_auto_scale=True)
         except tf_intarnalError as e:
             if e._error_code == 13:
                 raise Exception("Out of gpu Memory. gpu # %d"%(gpuToUse))
