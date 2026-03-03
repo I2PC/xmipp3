@@ -184,7 +184,7 @@ def loadANDwriteNetAccuracy(netDataPath, nModels):
     f.write("mean_val_acc: %f" % mean_acc)
         
 class DeepTFSupervised(object):
-  def __init__(self, numberOfThreads, rootPath, numberOfModels=1, effective_data_size=-1):
+  def __init__(self, numberOfThreads, rootPath, numberOfModels=1, effective_data_size=-1, use_mixed_precision=False):
     '''
       @param numberOfThreads: int or None if use gpu
       @param rootPath: str. Root directory where neural net data will be saved.
@@ -199,6 +199,12 @@ class DeepTFSupervised(object):
     self.rootPath= rootPath
     self.numberOfModels= numberOfModels
     self.effective_data_size= effective_data_size
+    self.use_mixed_precision = use_mixed_precision
+    if self.use_mixed_precision:
+      try:
+        tf.keras.mixed_precision.set_global_policy('mixed_float16')
+      except Exception:
+        pass
     
     checkPointsName= os.path.join(rootPath,"tfchkpoints_%d")
     for modelNum in range(self.numberOfModels): 
@@ -220,23 +226,33 @@ class DeepTFSupervised(object):
     print ("Creating net.")
     self.nNetModel, self.optimizerFunLambda = main_network( (xdim, ydim, num_chan),  nData= nData, l2RegStrength= l2RegStrength)
     self.optimizer= self.optimizerFunLambda(learningRate)
+    # If mixed precision is enabled, wrap optimizer with LossScaleOptimizer
+    if self.use_mixed_precision:
+      try:
+        self.optimizer = tf.keras.mixed_precision.LossScaleOptimizer(self.optimizer)
+      except Exception:
+        pass
     self.nNetModel.compile( self.optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
 
   def loadNNet(self, kerasModelFname, keepTraining=True, learningRate=1e-4, l2RegStrength=1e-5):
     self.nNetModel= keras.models.load_model( kerasModelFname , custom_objects={"DESIRED_INPUT_SIZE":DESIRED_INPUT_SIZE})
     self.optimizer= self.nNetModel.optimizer
     if keepTraining:
-      # TF2: optimizer uses `learning_rate` attribute
+      # TF2: optimizer uses `learning_rate` attribute. If optimizer is a LossScaleOptimizer,
+      # access the underlying optimizer via `.optimizer`.
       try:
-        K.set_value(self.nNetModel.optimizer.learning_rate, learningRate)
+        opt = getattr(self.nNetModel.optimizer, 'optimizer', self.nNetModel.optimizer)
+        try:
+          K.set_value(opt.learning_rate, learningRate)
+        except Exception:
+          opt.learning_rate = learningRate
       except Exception:
-        # fallback if learning_rate is not a variable
-        self.nNetModel.optimizer.learning_rate = learningRate
-        for layer in self.nNetModel.layers:
-            if hasattr(layer, "kernel_regularizer"):
-                if hasattr(layer.kernel_regularizer, "l2"):
-                    layer.kernel_regularizer.l2= l2RegStrength
-        self.nNetModel.compile( self.nNetModel.optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
+        pass
+      for layer in self.nNetModel.layers:
+        if hasattr(layer, "kernel_regularizer"):
+          if hasattr(layer.kernel_regularizer, "l2"):
+            layer.kernel_regularizer.l2= l2RegStrength
+      self.nNetModel.compile( self.nNetModel.optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
     
   def startSessionAndInitialize(self):
     '''

@@ -205,7 +205,7 @@ class ScriptDeepScreeningTrain(XmippScript):
         assert numModels >=1, "Error, nModels<1"
         try:
             nnet = DeepTFSupervised(numberOfThreads= numberOfThreads, rootPath= netDataPath,
-                                    numberOfModels=numModels, effective_data_size=effective_data_size)
+                                    numberOfModels=numModels, effective_data_size=effective_data_size, use_mixed_precision=True)
             nnet.trainNet(nEpochs, trainDataManager, learningRate,
                           l2RegStrength, auto_stop)
         except tf_intarnalError as e:

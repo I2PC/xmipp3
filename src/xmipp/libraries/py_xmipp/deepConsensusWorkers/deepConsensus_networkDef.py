@@ -73,7 +73,8 @@ def main_network(input_shape, nData, l2RegStrength=1e-5, num_labels=2):
   network= keras.layers.Dense(2**9, activation='relu',
                                 kernel_regularizer= keras.regularizers.l2(l2RegStrength))(network)
   network= keras.layers.Dropout(1-DROPOUT_KEEP_PROB)(network)
-  y_pred= keras.layers.Dense(num_labels, activation='softmax')(network)
+  # Ensure final logits are computed in float32 for numerical stability when using mixed precision
+  y_pred= keras.layers.Dense(num_labels, activation='softmax', dtype='float32')(network)
   
   model = keras.models.Model(inputs=network_input, outputs=y_pred)
   
