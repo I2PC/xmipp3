@@ -36,6 +36,7 @@ import random
 
 from sklearn.metrics import accuracy_score, roc_auc_score, precision_score, recall_score, matthews_corrcoef
 import xmippLib
+import subprocess
 
 from tensorflow import keras
 import tensorflow as tf
@@ -51,6 +52,79 @@ BATCH_SIZE= 32
 CHECK_POINT_AT= 50 #In batches
 
 WRITE_TEST_SCORES= True
+
+def _query_gpu_memory_nvidia_smi(gpu_index=0):
+  """Return (total_mb, free_mb) for the selected GPU using nvidia-smi, or None on failure."""
+  try:
+    out = subprocess.check_output([
+      'nvidia-smi',
+      '--query-gpu=memory.total,memory.free',
+      '--format=csv,nounits,noheader'
+    ], encoding='utf-8')
+    lines = [l.strip() for l in out.strip().splitlines() if l.strip()]
+    if len(lines) == 0:
+      return None
+    if gpu_index < 0 or gpu_index >= len(lines):
+      return None
+    parts = [p.strip() for p in lines[gpu_index].split(',')]
+    total_mb = int(parts[0])
+    free_mb = int(parts[1])
+    return total_mb, free_mb
+  except Exception:
+    return None
+
+def estimate_batch_size_for_image(image_shape, gpu_index=0, bytes_per_element=4,
+                                  reserved_memory_mb=512, overhead_ratio=0.9, max_batch=None):
+  """Estimate a reasonable batch size for GPU training given an image shape.
+
+  Parameters:
+    image_shape: tuple (H, W, C)
+    gpu_index: GPU index to query
+    bytes_per_element: bytes per image element (float32=4)
+    reserved_memory_mb: memory to reserve for model weights/other usage
+    overhead_ratio: fraction of available memory to use for activations
+    max_batch: optional upper cap for batch size
+
+  Returns: dict with keys: estimated_batch, free_mb, total_mb, image_bytes
+  Returns None if GPU memory cannot be queried.
+  """
+  try:
+    H, W, C = map(int, image_shape)
+  except Exception:
+    raise ValueError('image_shape must be (H,W,C) with integer values')
+
+  image_bytes = H * W * C * int(bytes_per_element)
+
+  info = _query_gpu_memory_nvidia_smi(gpu_index)
+  total_mb = free_mb = None
+  if info is None:
+    # Try TF query as a fallback
+    try:
+      mem_info = tf.config.experimental.get_memory_info(f'GPU:{gpu_index}')
+      limit = mem_info.get('limit', None)
+      current = mem_info.get('current', 0)
+      if limit is None:
+        return None
+      total_mb = int(limit // (1024 * 1024))
+      free_mb = int((limit - current) // (1024 * 1024))
+    except Exception:
+      return None
+  else:
+    total_mb, free_mb = info
+
+  available_mb = max(0, int(free_mb) - int(reserved_memory_mb))
+  available_bytes = available_mb * 1024 * 1024
+  use_bytes = int(available_bytes * float(overhead_ratio))
+  estimated = max(1, int(use_bytes // image_bytes))
+  if max_batch is not None:
+    estimated = min(estimated, int(max_batch))
+
+  return {
+    'estimated_batch': estimated,
+    'free_mb': int(free_mb),
+    'total_mb': int(total_mb),
+    'image_bytes': int(image_bytes)
+  }
 
 
 def loadNetShape(netDataPath):
