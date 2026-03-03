@@ -54,6 +54,8 @@ class ScriptDeepScreeningTrain(XmippScript):
                            
         self.addParamsLine(' --mode <mode> : "training"|"scoring". Select training or scoring mode')
 
+        self.addParamsLine(' --resize <size> : 64. Resize inputs to this size')
+
         self.addParamsLine('[ -g <gpuId>  ]               : GPU Id. By default no gpu will be used')   
         self.addParamsLine('[ -t <numThreads>  <N=2>  ]   : Number of threads')
         
@@ -114,6 +116,8 @@ class ScriptDeepScreeningTrain(XmippScript):
         trainKeyWords=["train", "training"]
         predictKeyWords=["predict", "score", "scoring"]
 
+        resizeSize= self.getIntParam('--resize')
+
         if mode in trainKeyWords:
           print("mode 1: training")
           trueDataPaths= self.getParam('-p').split(":")
@@ -144,7 +148,7 @@ class ScriptDeepScreeningTrain(XmippScript):
           trainArgs={"netDataPath":netDataPath, "posTrainDict":posTrainDict, "negTrainDict":negTrainDict, 
                      "nEpochs":nEpochs, "learningRate":learningRate, "l2RegStrength":l2RegStrength,
                      "auto_stop":auto_stop, "numModels":numModels , "effective_data_size":effective_data_size,
-                     "gpuToUse": gpuToUse, "numberOfThreads":numberOfThreads}
+                     "gpuToUse": gpuToUse, "numberOfThreads":numberOfThreads, "resizeSize": resizeSize}
           print("TRAIN ARGS: %s"%(trainArgs) )
           ScriptDeepScreeningTrain.trainWorker(**trainArgs)
         elif mode in predictKeyWords:
@@ -158,7 +162,7 @@ class ScriptDeepScreeningTrain(XmippScript):
                   
           scoringArgs={"netDataPath":netDataPath, "predictDict":predictDict, "outParticlesPath":outParticlesPath, 
                      "posTestDict":posTestDict, "negTestDict":negTestDict,
-                     "gpuToUse": gpuToUse, "numberOfThreads":numberOfThreads}
+                     "gpuToUse": gpuToUse, "numberOfThreads":numberOfThreads, "resizeSize": resizeSize}
           print("SCORING ARGS: %s"%(scoringArgs) )
           ScriptDeepScreeningTrain.predictWorker(**scoringArgs)
         else:
@@ -167,7 +171,7 @@ class ScriptDeepScreeningTrain(XmippScript):
     @staticmethod
     def trainWorker(netDataPath, posTrainDict, negTrainDict, nEpochs, learningRate,
                     l2RegStrength, auto_stop, numModels, effective_data_size, gpuToUse,
-                    numberOfThreads):
+                    numberOfThreads, resizeSize=None):
         '''
             netDataPath=self._getExtraPath("nnetData")
             posTrainDict, negTrainDict: { fnameToMetadata:  weight:int }
@@ -187,7 +191,8 @@ class ScriptDeepScreeningTrain(XmippScript):
         updateEnviron(gpuToUse)
 
         trainDataManager = DataManager(posSetDict=posTrainDict,
-                                       negSetDict=negTrainDict)
+                     negSetDict=negTrainDict,
+                     resizeSize=resizeSize)
                                        
         dataShape_nTrue_numModels= loadNetShape(netDataPath)
         if dataShape_nTrue_numModels:
@@ -205,7 +210,7 @@ class ScriptDeepScreeningTrain(XmippScript):
         assert numModels >=1, "Error, nModels<1"
         try:
             nnet = DeepTFSupervised(numberOfThreads= numberOfThreads, rootPath= netDataPath,
-                                    numberOfModels=numModels, effective_data_size=effective_data_size, use_mixed_precision=True)
+                                    numberOfModels=numModels, effective_data_size=effective_data_size, use_mixed_precision=True, resizeSize=resizeSize)
             nnet.trainNet(nEpochs, trainDataManager, learningRate,
                           l2RegStrength, auto_stop, lr_auto_scale=True)
         except tf_intarnalError as e:
@@ -217,7 +222,7 @@ class ScriptDeepScreeningTrain(XmippScript):
 
     @staticmethod
     def predictWorker(netDataPath, posTestDict, negTestDict, predictDict,
-                      outParticlesPath, gpuToUse, numberOfThreads):
+                      outParticlesPath, gpuToUse, numberOfThreads, resizeSize=None):
         '''
             outParticlesPath= self._getPath("particles.xmd")
             posTestDict, negTestDict, predictDict: { fnameToMetadata:  weight:int }
@@ -232,7 +237,7 @@ class ScriptDeepScreeningTrain(XmippScript):
 
         updateEnviron(gpuToUse)
 
-        predictDataManager = DataManager(posSetDict=predictDict, negSetDict=None)
+        predictDataManager = DataManager(posSetDict=predictDict, negSetDict=None, resizeSize=resizeSize)
         dataShape_nTrue_numModels = loadNetShape(netDataPath)
         if dataShape_nTrue_numModels:
           numModels= dataShape_nTrue_numModels[-1]
@@ -264,7 +269,8 @@ class ScriptDeepScreeningTrain(XmippScript):
         if posTestDict and negTestDict:
             testDataManager = DataManager(posSetDict=posTestDict,
                                           negSetDict=negTestDict,
-                                          validationFraction=0)
+                                          validationFraction=0,
+                                          resizeSize=resizeSize)
             print("Evaluating test set")
             global_auc, global_acc, y_labels, y_pred_all = nnet.evaluateNet(testDataManager)
             if WRITE_TEST_SCORES:

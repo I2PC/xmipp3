@@ -202,7 +202,7 @@ def loadANDwriteNetAccuracy(netDataPath, nModels):
     f.write("mean_val_acc: %f" % mean_acc)
         
 class DeepTFSupervised(object):
-  def __init__(self, numberOfThreads, rootPath, numberOfModels=1, effective_data_size=-1, use_mixed_precision=False):
+  def __init__(self, numberOfThreads, rootPath, numberOfModels=1, effective_data_size=-1, use_mixed_precision=False, resizeSize=None):
     '''
       @param numberOfThreads: int or None if use gpu
       @param rootPath: str. Root directory where neural net data will be saved.
@@ -218,6 +218,7 @@ class DeepTFSupervised(object):
     self.numberOfModels= numberOfModels
     self.effective_data_size= effective_data_size
     self.use_mixed_precision = use_mixed_precision
+    self.resizeSize = resizeSize if resizeSize is not None else DESIRED_INPUT_SIZE
     if self.use_mixed_precision:
       try:
         tf.keras.mixed_precision.set_global_policy('mixed_float16')
@@ -242,7 +243,7 @@ class DeepTFSupervised(object):
       @param nData: number of positive cases expected in data. Not needed
     '''
     print ("Creating net.")
-    self.nNetModel, self.optimizerFunLambda = main_network( (xdim, ydim, num_chan),  nData= nData, l2RegStrength= l2RegStrength)
+    self.nNetModel, self.optimizerFunLambda = main_network( (xdim, ydim, num_chan),  nData= nData, l2RegStrength= l2RegStrength, resizeSize=self.resizeSize)
     self.optimizer= self.optimizerFunLambda(learningRate)
     # If mixed precision is enabled, wrap optimizer with LossScaleOptimizer
     if self.use_mixed_precision:
@@ -458,7 +459,8 @@ class DeepTFSupervised(object):
       currentCheckPointName= self.checkPointsNameTemplate%modelNum
       if os.path.isfile( currentCheckPointName ):
         print("loading model %s"%(currentCheckPointName))
-        self.nNetModel= keras.models.load_model( currentCheckPointName )
+        # Use the same loader as elsewhere to preserve custom_objects and optimizer wrappers
+        self.loadNNet(currentCheckPointName, keepTraining=False)
       else:
         raise ValueError("Neural net must be trained before prediction")
       sys.stdout.flush()
@@ -486,33 +488,35 @@ class DeepTFSupervised(object):
 
 class DataManager(object):
 
-  def __init__(self, posSetDict, negSetDict=None, validationFraction=0.1, batch_size=None, prefetch_to_device=True):
+  def __init__(self, posSetDict, negSetDict=None, validationFraction=0.1, batch_size=None, prefetch_to_device=True, resizeSize=None):
     '''
         posSetDict, negSetDict: { fnameToMetadata:  weight:int ]
     '''
     assert validationFraction <= 0.4, "Error, validationFraction must  <= 0.4"
     if negSetDict is None: validationFraction= -1
-    self.mdListFalse=None
-    self.nFalse=0 #Number of negative particles in dataManager
+    self.mdListFalse = None
+    self.nFalse = 0 #Number of negative particles in dataManager
+    # defaults for negative dataset attributes so callers don't hit AttributeError
+    self.fnMergedListFalse = None
+    self.weightListFalse = None
+    self.trainingIdsNeg = []
+    self.validationIdsNeg = None
+    # store user-provided resize size (falls back to DESIRED_INPUT_SIZE)
+    self.resizeSize = (resizeSize, resizeSize, 1) if resizeSize is not None else (DESIRED_INPUT_SIZE, DESIRED_INPUT_SIZE, 1)
 
     self.mdListTrue, self.fnMergedListTrue, self.weightListTrue, self.nTrue, self.shape= self.colectMetadata(posSetDict)
-    # allow overriding batch size for better GPU tuning
-    if batch_size is not None:
-      self.batchSize = batch_size
+
+    info = estimate_batch_size_for_image(self.resizeSize, gpu_index=0, reserved_memory_mb=768, overhead_ratio=0.92, max_batch=1024)
+
+    if info and info.get('estimated_batch'):
+      est = int(info['estimated_batch'])
+      # ensure batch is at least 1 and not absurdly small
+      self.batchSize = max(1, est)
+      print('Auto-selected batch size %d from GPU free %dMB (image bytes %d) using shape %s'
+            % (self.batchSize, info.get('free_mb', 0), info.get('image_bytes', 0), str(self.resizeSize)))
     else:
-      # try to auto-estimate a good batch size based on available GPU memory
-      try:
-        info = estimate_batch_size_for_image(self.shape, gpu_index=0, reserved_memory_mb=512, overhead_ratio=0.92, max_batch=1024)
-        if info and info.get('estimated_batch'):
-          est = int(info['estimated_batch'])
-          # ensure batch is at least 1 and not absurdly small
-          self.batchSize = max(1, est)
-          print('Auto-selected batch size %d from GPU free %dMB (image bytes %d)'
-                % (self.batchSize, info.get('free_mb', 0), info.get('image_bytes', 0)))
-        else:
-          self.batchSize = BATCH_SIZE
-      except Exception:
-        self.batchSize = BATCH_SIZE
+      self.batchSize = BATCH_SIZE
+      
     self.prefetch_to_device = prefetch_to_device
     self.splitPoint= self.batchSize//2
     self.validationFraction= validationFraction
@@ -750,30 +754,45 @@ class DataManager(object):
     else:
       raise ValueError("isTrain_or_validation must be either train or validation")
 
-    fnMergedListTrue=   ( self.fnMergedListTrue[i] for i in idxListTrue )
-    fnMergedListFalse=  ( self.fnMergedListFalse[i] for i in idxListFalse )
+    fnMergedListTrue = (self.fnMergedListTrue[i] for i in idxListTrue)
+    # fnMergedListFalse may be None or empty when no negative dataset was provided
+    if (self.fnMergedListFalse is not None) and (len(ids_false if 'ids_false' in locals() else idxListFalse) > 0):
+      fnMergedListFalse = (self.fnMergedListFalse[i] for i in idxListFalse)
+    else:
+      fnMergedListFalse = None
 
-
-    for fnImageTrue, fnImageFalse in zip(fnMergedListTrue, fnMergedListFalse):
-      I.read(fnImageTrue)
-      batchStack[n,...]= np.expand_dims(I.getData(),-1)
-      batchLabels[n, 1]= 1
-      n+=1
-      if n>=batchSize:
-        yield augmentBatch(batchStack), batchLabels
-        n=0
-        batchLabels  = np.zeros((batchSize, 2))
-        currNBatches+=1
-        if nBatches and currNBatches>=nBatches:
-          break
-      I.read(fnImageFalse)
-      batchStack[n,...]= np.expand_dims(I.getData(),-1)
-      batchLabels[n, 0]= 1
-      n+=1
-      if n>=batchSize:
-        yield augmentBatch(batchStack), batchLabels
-        n=0
-        batchLabels  = np.zeros((batchSize, 2))
+    if fnMergedListFalse is not None:
+      for fnImageTrue, fnImageFalse in zip(fnMergedListTrue, fnMergedListFalse):
+        I.read(fnImageTrue)
+        batchStack[n,...]= np.expand_dims(I.getData(),-1)
+        batchLabels[n, 1]= 1
+        n+=1
+        if n>=batchSize:
+          yield augmentBatch(batchStack), batchLabels
+          n=0
+          batchLabels  = np.zeros((batchSize, 2))
+          currNBatches+=1
+          if nBatches and currNBatches>=nBatches:
+            break
+        I.read(fnImageFalse)
+        batchStack[n,...]= np.expand_dims(I.getData(),-1)
+        batchLabels[n, 0]= 1
+        n+=1
+        if n>=batchSize:
+          yield augmentBatch(batchStack), batchLabels
+          n=0
+          batchLabels  = np.zeros((batchSize, 2))
+    else:
+      # No negative examples: yield batches composed only of positive examples
+      for fnImageTrue in fnMergedListTrue:
+        I.read(fnImageTrue)
+        batchStack[n,...]= np.expand_dims(I.getData(),-1)
+        batchLabels[n, 1]= 1
+        n+=1
+        if n>=batchSize:
+          yield augmentBatch(batchStack), batchLabels
+          n=0
+          batchLabels  = np.zeros((batchSize, 2))
         currNBatches+=1
         if nBatches and currNBatches>=nBatches:
           break

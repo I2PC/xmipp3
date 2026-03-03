@@ -28,10 +28,10 @@ from tensorflow import keras
 from tensorflow.keras import backend as K
 import tensorflow as tf
 
-MODEL_DEPTH= 4
-DROPOUT_KEEP_PROB= 0.5
-DESIRED_INPUT_SIZE=256
-def main_network(input_shape, nData, l2RegStrength=1e-5, num_labels=2):
+MODEL_DEPTH = 4
+DROPOUT_KEEP_PROB = 0.5
+DESIRED_INPUT_SIZE = 64
+def main_network(input_shape, nData, l2RegStrength=1e-5, num_labels=2, resizeSize=None):
   '''
     input_shape: tuple:int,  ( height, width, nChanns )
     num_labels: int. Generally 2
@@ -45,17 +45,19 @@ def main_network(input_shape, nData, l2RegStrength=1e-5, num_labels=2):
     nFiltersInit=1
   else:
     nFiltersInit=2
+
+  input_size = resizeSize if resizeSize is not None else DESIRED_INPUT_SIZE
     
   print("Model depth: %d"%MODEL_DEPTH)
-  if input_shape!=(DESIRED_INPUT_SIZE,DESIRED_INPUT_SIZE, 1):
-    network_input= keras.layers.Input(shape= (None, None, input_shape[-1]))
+  if input_shape!=(input_size, input_size, 1):
+    network_input= keras.layers.Input(shape = (None, None, 1))
     assert K.backend() == 'tensorflow', 'Resize_bicubic_layer is compatible only with tensorflow'
     # tf.image.resize_images was removed in TF 2.x; use tf.image.resize instead
-    network= keras.layers.Lambda(lambda x: tf.image.resize(x, (DESIRED_INPUT_SIZE, DESIRED_INPUT_SIZE), method='bicubic'),
+    network= keras.layers.Lambda(lambda x: tf.image.resize(x, (input_size, input_size), method='bicubic'),
                                  name="resize_tf")(network_input)
   else:
-    network_input= keras.layers.Input(shape= input_shape) 
-    network= network_input
+    network_input = keras.layers.Input(shape = input_shape) 
+    network = network_input
 
   for i in range(1, MODEL_DEPTH+1):
     network= keras.layers.Conv2D(2**(nFiltersInit+i), max(3, 30//2**i), activation='relu',  padding='same',
