@@ -30,7 +30,7 @@ import tensorflow as tf
 
 MODEL_DEPTH= 4
 DROPOUT_KEEP_PROB= 0.5
-DESIRED_INPUT_SIZE=128
+DESIRED_INPUT_SIZE=256
 def main_network(input_shape, nData, l2RegStrength=1e-5, num_labels=2):
   '''
     input_shape: tuple:int,  ( height, width, nChanns )
