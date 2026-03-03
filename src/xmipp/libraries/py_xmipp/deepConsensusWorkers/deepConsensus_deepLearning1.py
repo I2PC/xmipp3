@@ -323,7 +323,7 @@ class DeepTFSupervised(object):
 
 class DataManager(object):
 
-  def __init__(self, posSetDict, negSetDict=None, validationFraction=0.1):
+  def __init__(self, posSetDict, negSetDict=None, validationFraction=0.1, batch_size=None, prefetch_to_device=True):
     '''
         posSetDict, negSetDict: { fnameToMetadata:  weight:int ]
     '''
@@ -333,7 +333,9 @@ class DataManager(object):
     self.nFalse=0 #Number of negative particles in dataManager
 
     self.mdListTrue, self.fnMergedListTrue, self.weightListTrue, self.nTrue, self.shape= self.colectMetadata(posSetDict)
-    self.batchSize= BATCH_SIZE
+    # allow overriding batch size for better GPU tuning
+    self.batchSize= batch_size if batch_size is not None else BATCH_SIZE
+    self.prefetch_to_device = prefetch_to_device
     self.splitPoint= self.batchSize//2
     self.validationFraction= validationFraction
     
@@ -719,6 +721,91 @@ class DataManager(object):
     image = tf.cond(do_blur, lambda: _apply_gaussian_blur(image), lambda: image)
     return image
 
+  def _augment_batch_tf(self, images):
+    """Apply augmentation on a batch tensor `images` with shape [B,H,W,C].
+
+    Vectorized where possible; for small-angle rotation and gaussian blur we use
+    TF ops per-example via `tf.map_fn` when `tensorflow_addons` is available,
+    otherwise fall back to a single `tf.numpy_function` operating on the whole batch.
+    """
+    # images: [B,H,W,C]
+    B = tf.shape(images)[0]
+    # Random per-example left-right flip
+    mask_lr = tf.random.uniform([B], 0.0, 1.0) < 0.5
+    flipped_lr = tf.image.flip_left_right(images)
+    images = tf.where(tf.reshape(mask_lr, [B, 1, 1, 1]), flipped_lr, images)
+
+    # Random per-example up-down flip
+    mask_ud = tf.random.uniform([B], 0.0, 1.0) < 0.5
+    flipped_ud = tf.image.flip_up_down(images)
+    images = tf.where(tf.reshape(mask_ud, [B, 1, 1, 1]), flipped_ud, images)
+
+    # Random 90-degree rotations per-example: use tfa if available for batch angles
+    k = tf.random.uniform([B], 0, 4, dtype=tf.int32)
+    if tfa is not None:
+      angles = tf.cast(k, tf.float32) * (3.14159265 / 2.0)
+      images = tfa.image.rotate(images, angles=angles, interpolation='nearest')
+    else:
+      # fallback to map_fn with tf.image.rot90 per example
+      def _rot90_one(x_k):
+        img, kk = x_k[0], tf.cast(x_k[1], tf.int32)
+        return tf.image.rot90(img, kk)
+      images = tf.map_fn(_rot90_one, (images, k), fn_output_signature=tf.float32)
+
+    # Small-angle rotation and gaussian blur: prefer TF ops; use map_fn per-example
+    def _augment_one(img):
+      # small rotation
+      if tfa is not None:
+        angle_deg = tf.random.uniform([], -10.0, 10.0)
+        angle = angle_deg * (3.14159265 / 180.0)
+        img = tfa.image.rotate(img, angles=angle, interpolation='bilinear', fill_mode='reflect')
+      else:
+        # if no tfa, leave rotation to numpy fallback later
+        pass
+
+      # gaussian blur per-example using depthwise conv
+      sigma = tf.random.uniform([], 0.0, 1.0)
+      def _no_blur():
+        return img
+      def _do_blur():
+        radius = tf.cast(tf.math.ceil(3.0 * sigma), tf.int32)
+        ksize = tf.maximum(1, radius * 2 + 1)
+        coords = tf.cast(tf.range(-radius, radius + 1), tf.float32)
+        sigma_safe = tf.maximum(sigma, 1e-6)
+        g = tf.exp(- (coords ** 2) / (2.0 * sigma_safe ** 2))
+        g = g / tf.reduce_sum(g)
+        kernel2d = tf.tensordot(g, g, axes=0)  # shape [ksize, ksize]
+        kernel2d = kernel2d[:, :, tf.newaxis, tf.newaxis]
+        kernel2d = tf.cast(kernel2d, tf.float32)
+        img_batch = tf.expand_dims(img, 0)
+        blurred = tf.nn.depthwise_conv2d(img_batch, kernel2d, strides=[1, 1, 1, 1], padding='SAME')
+        return tf.squeeze(blurred, 0)
+      img = tf.cond(tf.less(sigma, 1e-6), _no_blur, _do_blur)
+      return img
+
+    if tfa is not None:
+      images = tf.map_fn(lambda x: _augment_one(x), images, fn_output_signature=tf.float32)
+    else:
+      # Fallback: call a numpy-based batch augmentor once per batch (cheaper than per-example pyfuncs)
+      def _py_batch_augment(batch_np):
+        out = []
+        for i in range(batch_np.shape[0]):
+          img = batch_np[i]
+          if bool(random.getrandbits(1)):
+            angle = random.uniform(-10.0, 10.0)
+            img = scipy.ndimage.interpolation.rotate(img.squeeze(), angle, reshape=False, mode='reflect')
+            img = np.expand_dims(img, -1)
+          if bool(random.getrandbits(1)):
+            sigma = random.uniform(0., 1.0)
+            img = scipy.ndimage.filters.gaussian_filter(img, sigma)
+          out.append(img.astype(np.float32))
+        return np.stack(out, axis=0)
+      images = tf.numpy_function(func=_py_batch_augment, inp=[images], Tout=tf.float32)
+      # restore shape hints
+      images.set_shape([None, self.shape[0], self.shape[1], self.shape[2]])
+
+    return images
+
   def _get_dataset(self, isTrain_or_validation="train", nBatches=None):
     """Construct a per-example tf.data.Dataset for train/validation/predict."""
     # Build lists of filenames and labels depending on mode
@@ -763,5 +850,21 @@ class DataManager(object):
     if isTrain_or_validation == "train":
       ds = ds.map(lambda x, y: (self._augment_tf(x), y), num_parallel_calls=tf.data.AUTOTUNE)
     ds = ds.batch(self.batchSize)
-    ds = ds.prefetch(tf.data.AUTOTUNE)
+    # For training, repeat indefinitely so `fit(..., steps_per_epoch=...)` drives epochs
+    if isTrain_or_validation == "train":
+      ds = ds.repeat()
+
+    # Optionally prefetch full batches to the GPU device to hide host->device copies
+    if self.prefetch_to_device:
+      gpus = tf.config.list_logical_devices('GPU')
+      if gpus:
+        try:
+          device = gpus[0].name
+          ds = ds.apply(tf.data.experimental.prefetch_to_device(device))
+        except Exception:
+          ds = ds.prefetch(tf.data.AUTOTUNE)
+      else:
+        ds = ds.prefetch(tf.data.AUTOTUNE)
+    else:
+      ds = ds.prefetch(tf.data.AUTOTUNE)
     return ds
