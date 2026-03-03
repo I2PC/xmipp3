@@ -74,7 +74,8 @@ def _query_gpu_memory_nvidia_smi(gpu_index=0):
     return None
 
 def estimate_batch_size_for_image(image_shape, gpu_index=0, bytes_per_element=4,
-                                  reserved_memory_mb=512, overhead_ratio=0.9, max_batch=None):
+                                  reserved_memory_mb=512, overhead_ratio=0.9, max_batch=None,
+                                  use_fp16=None):
   """Estimate a reasonable batch size for GPU training given an image shape.
 
   Parameters:
@@ -93,7 +94,20 @@ def estimate_batch_size_for_image(image_shape, gpu_index=0, bytes_per_element=4,
   except Exception:
     raise ValueError('image_shape must be (H,W,C) with integer values')
 
-  image_bytes = H * W * C * int(bytes_per_element)
+  # If use_fp16 is not supplied, try to detect current global policy
+  if use_fp16 is None:
+    try:
+      policy = tf.keras.mixed_precision.global_policy()
+      use_fp16 = (getattr(policy, 'compute_dtype', '') == 'float16' or getattr(policy, 'name', '').startswith('mixed_float16'))
+    except Exception:
+      use_fp16 = False
+
+  # adjust bytes_per_element when using FP16 / mixed precision
+  bpe = int(bytes_per_element)
+  if use_fp16 and bpe == 4:
+    bpe = 2
+
+  image_bytes = H * W * C * bpe
 
   info = _query_gpu_memory_nvidia_smi(gpu_index)
   total_mb = free_mb = None
@@ -111,6 +125,10 @@ def estimate_batch_size_for_image(image_shape, gpu_index=0, bytes_per_element=4,
       return None
   else:
     total_mb, free_mb = info
+
+  # If using mixed precision, reserve some extra memory for master weights in fp32 and loss-scaling overhead
+  if use_fp16:
+    reserved_memory_mb = int(reserved_memory_mb + 256)
 
   available_mb = max(0, int(free_mb) - int(reserved_memory_mb))
   available_bytes = available_mb * 1024 * 1024
@@ -424,7 +442,22 @@ class DataManager(object):
 
     self.mdListTrue, self.fnMergedListTrue, self.weightListTrue, self.nTrue, self.shape= self.colectMetadata(posSetDict)
     # allow overriding batch size for better GPU tuning
-    self.batchSize= batch_size if batch_size is not None else BATCH_SIZE
+    if batch_size is not None:
+      self.batchSize = batch_size
+    else:
+      # try to auto-estimate a good batch size based on available GPU memory
+      try:
+        info = estimate_batch_size_for_image(self.shape, gpu_index=0, reserved_memory_mb=512, overhead_ratio=0.92, max_batch=1024)
+        if info and info.get('estimated_batch'):
+          est = int(info['estimated_batch'])
+          # ensure batch is at least 1 and not absurdly small
+          self.batchSize = max(1, est)
+          print('Auto-selected batch size %d from GPU free %dMB (image bytes %d)'
+                % (self.batchSize, info.get('free_mb', 0), info.get('image_bytes', 0)))
+        else:
+          self.batchSize = BATCH_SIZE
+      except Exception:
+        self.batchSize = BATCH_SIZE
     self.prefetch_to_device = prefetch_to_device
     self.splitPoint= self.batchSize//2
     self.validationFraction= validationFraction
