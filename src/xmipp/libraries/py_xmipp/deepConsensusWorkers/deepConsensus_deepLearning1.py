@@ -1,6 +1,7 @@
 # **************************************************************************
 # *
 # * Authors:  Ruben Sanchez (rsanchez@cnb.csic.es), April 2017
+# * Authors:  Mikel Iceta (miceta@cnb.csic.es), March 2026
 # *
 # * Unidad de  Bioinformatica of Centro Nacional de Biotecnologia , CSIC
 # *
@@ -36,13 +37,17 @@ import random
 from sklearn.metrics import accuracy_score, roc_auc_score, precision_score, recall_score, matthews_corrcoef
 import xmippLib
 
-import keras
+from tensorflow import keras
 import tensorflow as tf
-from keras import backend as K
+from tensorflow.keras import backend as K
+try:
+  import tensorflow_addons as tfa
+except Exception:
+  tfa = None
 from .deepConsensus_networkDef import main_network, DESIRED_INPUT_SIZE
 tf_intarnalError= tf.errors.InternalError
 
-BATCH_SIZE= 64
+BATCH_SIZE= 32
 CHECK_POINT_AT= 50 #In batches
 
 WRITE_TEST_SCORES= True
@@ -147,7 +152,12 @@ class DeepTFSupervised(object):
     self.nNetModel= keras.models.load_model( kerasModelFname , custom_objects={"DESIRED_INPUT_SIZE":DESIRED_INPUT_SIZE})
     self.optimizer= self.nNetModel.optimizer
     if keepTraining:
-        K.set_value(self.nNetModel.optimizer.lr, learningRate)    
+      # TF2: optimizer uses `learning_rate` attribute
+      try:
+        K.set_value(self.nNetModel.optimizer.learning_rate, learningRate)
+      except Exception:
+        # fallback if learning_rate is not a variable
+        self.nNetModel.optimizer.learning_rate = learningRate
         for layer in self.nNetModel.layers:
             if hasattr(layer, "kernel_regularizer"):
                 if hasattr(layer.kernel_regularizer, "l2"):
@@ -157,17 +167,22 @@ class DeepTFSupervised(object):
   def startSessionAndInitialize(self):
     '''
     '''
-    if self.numberOfThreads is None:
-      physical_devices = tf.config.experimental.list_physical_devices('GPU')
-      assert len(physical_devices) > 0, "Not enough GPU hardware devices available"
-      config = tf.config.experimental.set_memory_growth(physical_devices[0], True)
-      self.session = tf.Session(config=config)
-    else:
-      self.session= tf.Session(config=tf.ConfigProto(intra_op_parallelism_threads=self.numberOfThreads,
-                                                     gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.7),
-                                                     allow_soft_placement = True))
-    K.set_session(self.session)
-    return self.session
+    # TF2 runs in eager mode; configure threading and GPU memory growth instead of sessions
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    if gpus:
+      try:
+        for gpu in gpus:
+          tf.config.experimental.set_memory_growth(gpu, True)
+      except Exception:
+        pass
+    # Configure threading when numberOfThreads specified
+    if self.numberOfThreads is not None:
+      try:
+        tf.config.threading.set_intra_op_parallelism_threads(self.numberOfThreads)
+        tf.config.threading.set_inter_op_parallelism_threads(self.numberOfThreads)
+      except Exception:
+        pass
+    return None
 
   def closeSession(self):
     '''
@@ -189,7 +204,7 @@ class DeepTFSupervised(object):
     
     n_batches_per_epoch_train, n_batches_per_epoch_val= dataManagerTrain.getNBatchesPerEpoch()
     nEpochs__= nEpochs
-    nEpochs= max(1, nEpochs*float(n_batches_per_epoch_train)/CHECK_POINT_AT)
+    nEpochs= int(max(1, nEpochs*float(n_batches_per_epoch_train)/CHECK_POINT_AT))
     for modelNum in range(self.numberOfModels):
       self.startSessionAndInitialize()
       print("Training model %d/%d"%((modelNum+1), self.numberOfModels))  
@@ -205,20 +220,23 @@ class DeepTFSupervised(object):
 #      print(self.nNetModel.summary())
       print("nEpochs : %.1f --> Epochs: %d.\nTraining begins: Epoch 0/%d"%(nEpochs__, nEpochs, nEpochs))
       sys.stdout.flush()
-      cBacks= [ keras.callbacks.ModelCheckpoint((currentCheckPointName) , monitor='val_acc', verbose=1,
-                save_best_only=True, save_weights_only=False, period=1) ]
+      cBacks= [ keras.callbacks.ModelCheckpoint((currentCheckPointName) , monitor='val_accuracy', verbose=1,
+                save_best_only=True, save_weights_only=False, save_freq='epoch') ]
       if auto_stop:
-        cBacks+= [ keras.callbacks.EarlyStopping(monitor='val_acc', min_delta=0.001, patience=10, verbose=1) ]
+        cBacks+= [ keras.callbacks.EarlyStopping(monitor='val_accuracy', min_delta=0.001, patience=10, verbose=1) ]
 
-      cBacks+= [ keras.callbacks.ReduceLROnPlateau(monitor='val_acc', factor=0.1, patience=3, cooldown=1,
+      cBacks+= [ keras.callbacks.ReduceLROnPlateau(monitor='val_accuracy', factor=0.1, patience=3, cooldown=1,
                  min_lr= learningRate*1e-3, verbose=1) ]
 
-      history = self.nNetModel.fit_generator(dataManagerTrain.getTrainIterator(),steps_per_epoch= CHECK_POINT_AT,
-                                 validation_data=dataManagerTrain.getValidationIterator( batchesPerEpoch= n_batches_per_epoch_val), 
-                                 validation_steps=n_batches_per_epoch_val, callbacks=cBacks, epochs=nEpochs,
-                                 use_multiprocessing=True, verbose=2)
+      # Use tf.data.Dataset for training to leverage TF2 performance
+      train_ds = dataManagerTrain.getTrainDataset()
+      val_ds = dataManagerTrain.getValidationDataset(batchesPerEpoch=n_batches_per_epoch_val)
+      history = self.nNetModel.fit(x=train_ds, steps_per_epoch= CHECK_POINT_AT,
+                 validation_data=val_ds, validation_steps=n_batches_per_epoch_val,
+                 callbacks=cBacks, epochs=nEpochs, verbose=2)
 
-      last_val_acc = history.history['val_acc'][-1]
+      # history key in TF2 is 'val_accuracy'
+      last_val_acc = history.history.get('val_accuracy', history.history.get('val_acc'))[-1]
       writeNetAccuracy(currentCheckPointName, last_val_acc)
       self.closeSession()
 
@@ -239,8 +257,8 @@ class DeepTFSupervised(object):
 
       sys.stdout.flush()
       print("predicting with model %d/%d"%((modelNum+1), self.numberOfModels)); sys.stdout.flush()
-      y_pred_all+= self.nNetModel.predict_generator( (data for data,label in dataManger.getIteratorPredictBatch() ),
-                                                steps= n_batches, use_multiprocessing=True, verbose=0)[:,1]
+      preds = self.nNetModel.predict(dataManger.getPredictDataset(), steps=n_batches, verbose=0)
+      y_pred_all+= preds[:,1]
       print("prediction done"); sys.stdout.flush()
       self.closeSession()
     y_pred_all= y_pred_all/ self.numberOfModels
@@ -282,9 +300,8 @@ class DeepTFSupervised(object):
         raise ValueError("Neural net must be trained before prediction")
       sys.stdout.flush()
 
-      y_pred_all[modelNum,:]= self.nNetModel.predict_generator( ( (data, label) for data,label in 
-                                                      dataManger.getIteratorPredictBatch() ),steps= n_batches, 
-                                                      use_multiprocessing=True, verbose=0)[:,1]
+      preds = self.nNetModel.predict(dataManger.getPredictDataset(), steps=n_batches, verbose=0)
+      y_pred_all[modelNum,:]= preds[:,1]
 
       curr_auc= roc_auc_score(y_labels, y_pred_all[modelNum,:] )
       curr_acc= accuracy_score(y_labels, [1 if y>=0.5 else 0 for y in  y_pred_all[modelNum,:]])
@@ -583,4 +600,168 @@ class DataManager(object):
     if n>0:
       yield augmentBatch(batchStack[:n,...]), batchLabels[:n,...]
 
+  def getTrainDataset(self):
+    """Return a tf.data.Dataset that yields (batch_images, batch_labels) for training.
 
+    This dataset yields per-example tensors and performs augmentation with TF ops
+    so shuffling, batching and prefetching are effective on the pipeline.
+    """
+    return self._get_dataset(isTrain_or_validation="train")
+
+  def getValidationDataset(self, batchesPerEpoch=None):
+    """Return a tf.data.Dataset that yields (batch_images, batch_labels) for validation."""
+    return self._get_dataset(isTrain_or_validation="validation", nBatches=batchesPerEpoch)
+
+  def getPredictDataset(self):
+    """Return a tf.data.Dataset that yields (batch_images, batch_labels) for prediction/evaluation."""
+    return self._get_dataset(isTrain_or_validation="predict")
+
+  def _load_image_py(self, fname):
+    """Load image from disk using xmippLib.Image and return numpy float32 array with channel dim."""
+    I = xmippLib.Image()
+    I.read(fname)
+    arr = np.expand_dims(I.getData().astype(np.float32), -1)
+    return arr
+
+  def _py_load_image(self, fname):
+    # wrapper for tf.numpy_function: receives a numpy bytes/string and returns a numpy float32 array
+    # Handle different possible input types (bytes, numpy.bytes_, or 0-d array)
+    if isinstance(fname, (bytes, bytearray)):
+      fname_str = fname.decode('utf-8')
+    elif hasattr(fname, 'item'):
+      v = fname.item()
+      if isinstance(v, (bytes, bytearray)):
+        fname_str = v.decode('utf-8')
+      else:
+        fname_str = str(v)
+    else:
+      fname_str = str(fname)
+    arr = self._load_image_py(fname_str)
+    return arr
+
+  def _tf_load_image(self, fname):
+    img = tf.numpy_function(func=self._py_load_image, inp=[fname], Tout=tf.float32)
+    # set static shape if available
+    xdim, ydim, nChann = self.shape
+    img.set_shape([xdim, ydim, nChann])
+    return img
+
+  def _augment_tf(self, image):
+    """Apply augmentation with TF ops where possible (flips, 90deg rotations, small gaussian blur)."""
+    # image: tf.Tensor [H,W,1], dtype float32
+    # random flips
+    image = tf.image.random_flip_left_right(image)
+    image = tf.image.random_flip_up_down(image)
+    # random 90-degree rotation
+    k = tf.random.uniform([], 0, 4, dtype=tf.int32)
+    image = tf.image.rot90(image, k)
+    # small random rotation (angle in degrees) using tensorflow_addons when available
+    def _apply_small_rotation(img):
+      if tfa is not None:
+        angle_deg = tf.random.uniform([], -10.0, 10.0)
+        angle = angle_deg * (3.14159265 / 180.0)
+        # tfa.image.rotate expects shape [H,W, C]
+        return tfa.image.rotate(img, angles=angle, interpolation='bilinear', fill_mode='reflect')
+      else:
+        # fallback to py_function using scipy (CPU)
+        def _py_rotate(img_np):
+          # img_np is a numpy array when called via tf.numpy_function
+          if bool(random.getrandbits(1)):
+            angle = random.uniform(-10.0, 10.0)
+            img_np = scipy.ndimage.interpolation.rotate(img_np.squeeze(), angle, reshape=False, mode='reflect')
+            img_np = np.expand_dims(img_np, -1)
+          return img_np.astype(np.float32)
+        out = tf.numpy_function(func=_py_rotate, inp=[img], Tout=tf.float32)
+        out.set_shape(img.shape)
+        return out
+
+    do_rotate = tf.less(tf.random.uniform([], 0.0, 1.0), 0.5)
+    image = tf.cond(do_rotate, lambda: _apply_small_rotation(image), lambda: image)
+
+    # Gaussian blur via depthwise conv2d (TF op) for GPU; fallback to py_function if kernel degenerate
+    def _apply_gaussian_blur(img):
+      # sigma random in [0, 1.0)
+      sigma = tf.random.uniform([], 0.0, 1.0)
+      # if sigma is very small, skip
+      def _no_blur():
+        return img
+
+      def _blur():
+        # kernel size: odd, proportional to sigma (3*sigma rule)
+        radius = tf.cast(tf.math.ceil(3.0 * sigma), tf.int32)
+        ksize = tf.maximum(1, radius * 2 + 1)
+        # if ksize==1 no blur
+        def _no_blur_inner():
+          return img
+
+        def _do_blur():
+          # create 1D gaussian
+          coords = tf.cast(tf.range(-radius, radius + 1), tf.float32)
+          sigma_safe = tf.maximum(sigma, 1e-6)
+          g = tf.exp(- (coords ** 2) / (2.0 * sigma_safe ** 2))
+          g = g / tf.reduce_sum(g)
+          kernel2d = tf.tensordot(g, g, axes=0)  # shape [ksize, ksize]
+          kernel2d = kernel2d[:, :, tf.newaxis, tf.newaxis]
+          # cast to float32
+          kernel2d = tf.cast(kernel2d, tf.float32)
+          # img shape [H,W,1], add batch dim
+          img_batch = tf.expand_dims(img, 0)
+          # pad to preserve size
+          # perform depthwise conv
+          blurred = tf.nn.depthwise_conv2d(img_batch, kernel2d, strides=[1, 1, 1, 1], padding='SAME')
+          return tf.squeeze(blurred, 0)
+
+        return tf.cond(tf.equal(ksize, 1), _no_blur_inner, _do_blur)
+
+      return tf.cond(tf.less(sigma, 1e-6), _no_blur, _blur)
+
+    do_blur = tf.less(tf.random.uniform([], 0.0, 1.0), 0.5)
+    image = tf.cond(do_blur, lambda: _apply_gaussian_blur(image), lambda: image)
+    return image
+
+  def _get_dataset(self, isTrain_or_validation="train", nBatches=None):
+    """Construct a per-example tf.data.Dataset for train/validation/predict."""
+    # Build lists of filenames and labels depending on mode
+    fn_list = []
+    label_list = []
+    if isTrain_or_validation == "train":
+      ids_true = list(self.trainingIdsPos)
+      ids_false = list(self.trainingIdsNeg) if self.mdListFalse is not None else []
+    elif isTrain_or_validation == "validation":
+      ids_true = list(self.validationIdsPos) if self.validationIdsPos is not None else []
+      ids_false = list(self.validationIdsNeg) if self.validationIdsNeg is not None else []
+    elif isTrain_or_validation == "predict":
+      # include all datasets
+      for fn in self.fnMergedListTrue:
+        fn_list.append(fn)
+        label_list.append([0.0, 1.0])
+      if self.fnMergedListFalse is not None:
+        for fn in self.fnMergedListFalse:
+          fn_list.append(fn)
+          label_list.append([1.0, 0.0])
+      ds = tf.data.Dataset.from_tensor_slices((fn_list, label_list))
+      ds = ds.map(lambda f, l: (self._tf_load_image(f), tf.cast(l, tf.float32)), num_parallel_calls=tf.data.AUTOTUNE)
+      ds = ds.batch(self.batchSize)
+      ds = ds.prefetch(tf.data.AUTOTUNE)
+      return ds
+    else:
+      raise ValueError("Unknown mode %s" % isTrain_or_validation)
+
+    # build filename and label lists interleaving true/false if both present
+    # Use provided id lists to select filenames
+    for idx in ids_true:
+      fn_list.append(self.fnMergedListTrue[idx])
+      label_list.append([0.0, 1.0])
+    for idx in ids_false:
+      fn_list.append(self.fnMergedListFalse[idx])
+      label_list.append([1.0, 0.0])
+
+    ds = tf.data.Dataset.from_tensor_slices((fn_list, label_list))
+    if isTrain_or_validation == "train":
+      ds = ds.shuffle(buffer_size=len(fn_list))
+    ds = ds.map(lambda f, l: (self._tf_load_image(f), tf.cast(l, tf.float32)), num_parallel_calls=tf.data.AUTOTUNE)
+    if isTrain_or_validation == "train":
+      ds = ds.map(lambda x, y: (self._augment_tf(x), y), num_parallel_calls=tf.data.AUTOTUNE)
+    ds = ds.batch(self.batchSize)
+    ds = ds.prefetch(tf.data.AUTOTUNE)
+    return ds
