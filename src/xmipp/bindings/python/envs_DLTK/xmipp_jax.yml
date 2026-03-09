@@ -11,3 +11,4 @@ dependencies:
       - jax
       - flax
       - pyxmipp3
+      - scikit-learn

@@ -11,3 +11,4 @@ dependencies:
       - jax[cuda12]
       - flax
       - pyxmipp3
+      - scikit-learn
