@@ -26,7 +26,6 @@
   ***************************************************************************/
 """
 
-
 import jax
 import jax.numpy as jnp
 from jax import lax
@@ -41,6 +40,7 @@ from functools import partial
 import math
 import numpy as np
 from scipy.ndimage import zoom
+from sklearn.cluster import KMeans
 import os
 import sys
 import time
@@ -337,6 +337,37 @@ def create_train_state(rng, model, XdimOut, K=5, lr=3e-4):
     )
     return train_state.TrainState.create(apply_fn=model.apply, params=params, tx=tx)
 
+def embed_batch(state, x):
+    return state.apply_fn({'params': state.params}, x)
+
+def sample_embeddings(state, next_triplet, key, embedding_points, batch_size):
+    """
+    Generate synthetic examples with the trained generator, embed them,
+    and return a NumPy array [embedding_points, embedding_dim].
+    """
+    out = []
+    n_done = 0
+
+    while n_done < embedding_points:
+        key, batch = next_triplet(key)
+        xa, xp, xn = batch
+
+        # use anchors only
+        emb = embed_batch(state, xa)
+        emb = np.asarray(jax.device_get(emb), dtype=np.float32)
+
+        remaining = embedding_points - n_done
+        if emb.shape[0] > remaining:
+            emb = emb[:remaining]
+
+        out.append(emb)
+        n_done += emb.shape[0]
+
+        if n_done % max(batch_size, 1000) == 0 or n_done == embedding_points:
+            print(f"[embed] collected {n_done}/{embedding_points}")
+
+    return np.concatenate(out, axis=0)
+
 class ScriptDeepEmbedTrain(XmippScript):
     def __init__(self):
         XmippScript.__init__(self)
@@ -352,6 +383,10 @@ class ScriptDeepEmbedTrain(XmippScript):
         self.addParamsLine('[--learningRate <lr=0.0001>]  : Learning rate')
         self.addParamsLine('[--maxEpochs <N=100>]         : Max. Epochs')
         self.addParamsLine('[--sigmaShift <s=10>]         : Std.Dev. of the simulated shifts')
+        self.addParamsLine('[--embeddingDim <s=128>]      : Embedding dimension')
+        self.addParamsLine('[--embeddingPoints <N=100000>]: Embedding points')
+        self.addParamsLine('[--embeddingK <K=100>]        : Embedding clusters')
+        self.addParamsLine('--ocentroids <fn>             : Output file for centroids (.npy or .npz)')
 
     def run(self):
         fnXmd = self.getParam("-i")
@@ -362,6 +397,10 @@ class ScriptDeepEmbedTrain(XmippScript):
         gpuId = self.getParam("--gpu")
         learning_rate = float(self.getParam("--learningRate"))
         sigma_shift = float(self.getParam("--sigmaShift"))
+        embeddingDim = int(self.getParam("--embeddingDim"))
+        embeddingPoints = int(self.getParam("--embeddingPoints"))
+        embeddingK = int(self.getParam("--embeddingK"))
+        fnCentroids = self.getParam("--ocentroids")
 
         if not gpuId.startswith('-1'):
             os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
@@ -373,7 +412,7 @@ class ScriptDeepEmbedTrain(XmippScript):
         mdExp = xmippLib.MetaData(fnXmd)
         fnImgs = mdExp.getColumnValues(xmippLib.MDL_IMAGE)
 
-        model = TripletNet(d=128)
+        model = TripletNet(d=embeddingDim)
         state = create_train_state(jax.random.PRNGKey(0), model, XdimOut,
                                    5, learning_rate)
 
@@ -413,6 +452,26 @@ class ScriptDeepEmbedTrain(XmippScript):
 
         with open(fnModel, "wb") as f:
             f.write(serialization.to_bytes(state))
+
+        print("Generating synthetic embeddings for centroid estimation...")
+        emb_key = jax.random.PRNGKey(12345)
+        Xemb = sample_embeddings(state, next_triplet, emb_key,
+                                 embeddingPoints, batch_size)
+
+        print(f"Running K-means with K={embeddingK} on {Xemb.shape[0]} "
+              f"points...")
+        kmeans = KMeans(
+            n_clusters=embeddingK,
+            init="k-means++",
+            n_init=10,
+            max_iter=100,
+            random_state=0,
+        )
+        kmeans.fit(Xemb)
+        centroids = kmeans.cluster_centers_
+
+        # Save only centroids as .npy
+        np.save(fnCentroids, centroids)
 
 if __name__ == '__main__':
     exitCode = ScriptDeepEmbedTrain().tryRun()
