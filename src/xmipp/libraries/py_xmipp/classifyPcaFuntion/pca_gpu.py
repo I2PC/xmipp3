@@ -290,7 +290,7 @@ class PCAgpu:
     
         coef = torch.zeros(nBand, dtype=int)
         for n in range(nBand):
-            coef[n] = 2*torch.sum(freq_band==n)  
+            coef[n] = 2*torch.sum(freq_band==n) 
            
         bnb = BnBgpu(nBand)    
         expBatchSize = 5000  

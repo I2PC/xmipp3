@@ -267,7 +267,7 @@ if __name__=="__main__":
                 tMatrix = torch.eye(2, 3, device = cuda).repeat(subset, 1, 1)
                 
                 if mode == "align_classes":
-                    niter = 6
+                    niter = 3
                     
                 for iter in range(niter):
                     if mode == "create_classes":
@@ -371,7 +371,7 @@ if __name__=="__main__":
                         angles_rad = torch.atan2(rotation_matrix[:, 1, 0], rotation_matrix[:, 0, 0])
                         angles_deg[:endBatch] = np.degrees(angles_rad.cpu().numpy())
                         
-                    elif mode == "align_classes" and iter == 5:
+                    elif mode == "align_classes" and iter == 2:
                         
                         refClas[initBatch:endBatch] = matches[:, 1]
                         dist[initBatch:endBatch] = matches[:, 2].cpu()

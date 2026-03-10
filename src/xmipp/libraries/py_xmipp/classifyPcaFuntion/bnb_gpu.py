@@ -613,14 +613,14 @@ class BnBgpu:
             cut=50
             cut_res = 50           
             res_classes = self.frc_resolution_tensor(newCL, sampling, fallback_res=cut_res, rcut=cut)
-            if iter < 7:
-                res_classes = torch.max(res_classes, torch.full_like(res_classes, 14.0))
-            elif iter < 10:
-                res_classes = torch.max(res_classes, torch.full_like(res_classes, 12.0))
-            elif iter < 13:
-                res_classes = torch.max(res_classes, torch.full_like(res_classes, 10.0))
-            else:
-                res_classes = torch.max(res_classes, torch.full_like(res_classes, 6.0))
+            # if iter < 7:
+            #     res_classes = torch.max(res_classes, torch.full_like(res_classes, 14.0))
+            # elif iter < 10:
+            #     res_classes = torch.max(res_classes, torch.full_like(res_classes, 12.0))
+            # elif iter < 13:
+            #     res_classes = torch.max(res_classes, torch.full_like(res_classes, 10.0))
+            # else:
+            #     res_classes = torch.max(res_classes, torch.full_like(res_classes, 6.0))
                 
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # if iter > 13:
@@ -683,7 +683,7 @@ class BnBgpu:
         
         batch_projExp_cpu = self.create_batchExp(transforIm, whitening, freqBn, coef, cvecs)
         
-        if iter == 5:
+        if iter == 2:
             newCL = [[] for i in range(classes)]              
             
             for n in range(classes):
@@ -703,7 +703,7 @@ class BnBgpu:
             
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             
-            # clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)                       
+            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)                       
         
             if not hasattr(self, 'grad_squared'):
                 self.grad_squared = torch.zeros_like(cl)
@@ -1371,9 +1371,9 @@ class BnBgpu:
         else:
             max_s10 = math.ceil((dim * 0.10) / s[2]) * s[2]
             schedule = [
-                (2, (-180, 180, 6), (-max_s10, max_s10 + s[2], s[2])),
-                (4, (-180, 180, 4), (-8, 8 + s[3], s[3])),
-                (6, (-90, 92, 2),   (-final, final + s[4], s[4]))
+                (1, (-180, 180, 6), (-max_s10, max_s10 + s[2], s[2])),
+                (2, (-180, 180, 4), (-8, 8 + s[3], s[3])),
+                (3, (-90, 92, 2),   (-final, final + s[4], s[4]))
             ]
             
             ang, shiftMove = schedule[-1][1], schedule[-1][2]
