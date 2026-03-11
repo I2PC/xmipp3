@@ -247,7 +247,8 @@ class CondaEnvManager(object):
         env.update({"PATH": envBin+':'+env["PATH"]})  # <- PATH
 
         sitePackages = os.path.join("lib", "python*", "site-packages")
-        newPythonPath= os.path.join(environDir, sitePackages)
+        newPythonPath = os.path.join(environDir, sitePackages)
+        newPythonPath += ":"+os.path.join(env["XMIPP_HOME"],"pylib")
         if CondaEnvManager.XMIPP_CONDA_ENVS[condaEnv]["xmippEnviron"]:
             newPythonPath += ":"+env["PYTHONPATH"]
         env.update({"PYTHONPATH": newPythonPath})  # <- PYTHONPATH
