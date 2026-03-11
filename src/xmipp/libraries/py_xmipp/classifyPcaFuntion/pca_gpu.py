@@ -169,7 +169,7 @@ class PCAgpu:
             accum = torch.cumsum(vals, dim=1) / sum_var
             
             accum_np = accum.squeeze(0).cpu().numpy()
-            for i in range(0, len(accum_np), 20):
+            for i in range(0, len(accum_np), 100):
                 print(f"{i+1:<15} | {accum_np[i]:.4f}")
 
             # if per_eig >= 1:
