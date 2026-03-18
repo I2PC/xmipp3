@@ -128,7 +128,7 @@ if __name__=="__main__":
         maxRes = 16.0   
 
     freqBn, cvecs, coef = pca.calculatePCAbasis(mmap, Ntrain, nBand, dim, sampling, maxRes, 
-                                                minRes=530, per_eig=per_eig_value, batchPCA=True)
+                                                minRes=530, per_eig=0.5, batchPCA=True)
 
     grid_flat = flatGrid(freqBn, nBand)
 
@@ -215,6 +215,11 @@ if __name__=="__main__":
     
     
     ### Start initial cycles
+    freqBn, cvecs, coef = pca.calculatePCAbasis(mmap, Ntrain, nBand, dim, sampling, maxRes, 
+                                            minRes=530, per_eig=per_eig_value, batchPCA=True)
+
+    grid_flat = flatGrid(freqBn, nBand)
+    
     num_cycles = 1 
     for cycles in range (num_cycles):
         batch_projExp_cpu = []

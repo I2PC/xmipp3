@@ -1216,10 +1216,6 @@ class BnBgpu:
                     resolutions < 10,  torch.tensor(0.1, device=resolutions.device),
                     torch.where(resolutions < 14, torch.tensor(0.08, device=resolutions.device),
                                                torch.tensor(0.06, device=resolutions.device))
-                # factorR = torch.where(
-                #     resolutions < 10,  torch.tensor(0.06, device=resolutions.device),
-                #     torch.where(resolutions < 14, torch.tensor(0.04, device=resolutions.device),
-                #                                torch.tensor(0.02, device=resolutions.device))
                 )
             else:
                 factorR = torch.as_tensor(factorR, device=resolutions.device, dtype=resolutions.dtype)
