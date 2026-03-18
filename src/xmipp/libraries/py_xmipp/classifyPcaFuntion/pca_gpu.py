@@ -169,8 +169,8 @@ class PCAgpu:
             accum = torch.cumsum(vals, dim=1) / sum_var
             
             accum_np = accum.squeeze(0).cpu().numpy()
-            for i in range(0, len(accum_np), 100):
-                print(f"{i+1:<15} | {accum_np[i]:.4f}")
+            # for i in range(0, len(accum_np), 100):
+            #     print(f"{i+1:<15} | {accum_np[i]:.4f}")
 
             # if per_eig >= 1:
             #     k = N - 1
@@ -183,7 +183,7 @@ class PCAgpu:
             self.error[n] = accum[0, k] 
             
         k_final = self.eigs[n].item()
-        print(f"PUNTO DE CORTE (K={k_final+1}): {accum_np[k_final]:.4f}")  
+        # print(f"PUNTO DE CORTE (K={k_final+1}): {accum_np[k_final]:.4f}")  
             
         return self.eigs, self.perc, self.error
                   

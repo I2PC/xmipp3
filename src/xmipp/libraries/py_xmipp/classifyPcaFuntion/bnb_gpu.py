@@ -613,15 +613,20 @@ class BnBgpu:
             cut=50
             cut_res = 50           
             res_classes = self.frc_resolution_tensor(newCL, sampling, fallback_res=cut_res, rcut=cut)
-            # if iter < 7:
-            #     res_classes = torch.max(res_classes, torch.full_like(res_classes, 14.0))
-            # elif iter < 10:
-            #     res_classes = torch.max(res_classes, torch.full_like(res_classes, 12.0))
-            # elif iter < 13:
-            #     res_classes = torch.max(res_classes, torch.full_like(res_classes, 10.0))
-            # else:
-            #     res_classes = torch.max(res_classes, torch.full_like(res_classes, 6.0))
-                
+            print(res_classes)
+            
+            if iter < 7:
+                res_classes = torch.max(res_classes, torch.full_like(res_classes, 14.0))
+            elif iter < 10:
+                res_classes = torch.max(res_classes, torch.full_like(res_classes, 12.0))
+            elif iter < 13:
+                res_classes = torch.max(res_classes, torch.full_like(res_classes, 10.0))
+            else:
+                res_classes = torch.max(res_classes, torch.full_like(res_classes, 8.0))
+            print("------------")
+            print(res_classes)
+            print("------------")
+            print("------------")   
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             # if iter > 13:
             boost = None
@@ -1051,6 +1056,121 @@ class BnBgpu:
         del r_bin, freq_bins
         
         return res_out#, frc_curves, freq_bins
+    
+    def frc_resolution_tensor_2(
+        self,
+        newCL,                       # [N_i,H,W]
+        pixel_size: float,           # Å/px
+        frc_threshold: float = 0.143,
+        fallback_res: float = 100.0,
+        rcut: float = 100,
+        apply_window: bool = True,
+        smooth: bool = True          
+        ) -> torch.Tensor:
+
+        import torch
+        import torch.nn.functional as F
+    
+        n_classes = len(newCL)
+        h, w = next((imgs.shape[-2], imgs.shape[-1]) for imgs in newCL if imgs.numel() > 0)
+        device = newCL[0].device
+        Rmax = min(h, w) // 2
+    
+        res_out = torch.full((n_classes,), float('nan'), device=device)
+    
+        # --- frecuencias físicas ---
+        fy = torch.fft.fftfreq(h, d=pixel_size, device=device)
+        fx = torch.fft.rfftfreq(w, d=pixel_size, device=device)
+        gy, gx = torch.meshgrid(fy, fx, indexing="ij")
+        r = torch.sqrt(gx**2 + gy**2)
+    
+        # bins consistentes con r
+        freq_bins = torch.linspace(0, r.max(), Rmax, device=device)
+        r_bin = torch.bucketize(r.flatten(), freq_bins) - 1
+        r_bin = r_bin.clamp(0, Rmax - 1)
+    
+        del fy, fx, gy, gx, r
+    
+        # --- ventana Hann ---
+        if apply_window:
+            wy = torch.hann_window(h, periodic=False, device=device)
+            wx = torch.hann_window(w, periodic=False, device=device)
+            window = wy[:, None] * wx[None, :]
+            window = window / window.norm() * (h * w) ** 0.5
+    
+        for c, imgs in enumerate(newCL):
+            n = imgs.shape[0]
+    
+            # mínimo más realista
+            if n < 16:
+                res_out[c] = 40.0
+                continue
+    
+            # --- half maps ---
+            perm = torch.randperm(n, device=device)
+            half1, half2 = torch.chunk(imgs[perm], 2, dim=0)
+    
+            avg1 = half1.mean(0)
+            avg2 = half2.mean(0)
+    
+            # --- centrar ---
+            avg1 = avg1 - avg1.mean()
+            avg2 = avg2 - avg2.mean()
+    
+            # --- ventana ---
+            if apply_window:
+                avg1 = avg1 * window
+                avg2 = avg2 * window
+    
+            # --- FFT ---
+            fft1 = torch.fft.rfft2(avg1, norm="forward")
+            fft2 = torch.fft.rfft2(avg2, norm="forward")
+    
+            p1 = (fft1.real**2 + fft1.imag**2)
+            p2 = (fft2.real**2 + fft2.imag**2)
+            prod = (fft1 * fft2.conj()).real
+    
+            # --- FRC radial ---
+            frc_num = torch.zeros(Rmax, device=device).scatter_add_(0, r_bin, prod.flatten())
+            frc_d1  = torch.zeros(Rmax, device=device).scatter_add_(0, r_bin, p1.flatten())
+            frc_d2  = torch.zeros(Rmax, device=device).scatter_add_(0, r_bin, p2.flatten())
+    
+            frc = frc_num / (torch.sqrt(frc_d1 * frc_d2) + 1e-12)
+    
+            # ignorar DC
+            frc[0] = 1.0
+    
+            # --- suavizado ---
+            if smooth:
+                kernel = torch.tensor([0.25, 0.5, 0.25], device=device).view(1, 1, -1)
+                frc = F.conv1d(frc.view(1, 1, -1), kernel, padding=1).view(-1)
+    
+            # --- cruce con interpolación ---
+            idx = torch.where(frc < frc_threshold)[0]
+    
+            if len(idx) and idx[0] > 1:
+                i = idx[0]
+    
+                f1, f2 = frc[i - 1], frc[i]
+                x1, x2 = freq_bins[i - 1], freq_bins[i]
+    
+                alpha = (frc_threshold - f1) / (f2 - f1 + 1e-12)
+                freq_cross = x1 + alpha * (x2 - x1)
+    
+                res_out[c] = 1.0 / (freq_cross + 1e-12)
+    
+        # --- fallback físico razonable ---
+        nq_limit = 2 * pixel_size
+        res_out = torch.nan_to_num(res_out, nan=nq_limit, posinf=nq_limit, neginf=nq_limit)
+    
+        # --- corte máximo ---
+        res_out = torch.where(
+            res_out > rcut,
+            torch.tensor(fallback_res, device=device),
+            res_out
+        )
+    
+        return res_out
 
     
     @torch.no_grad()
@@ -1096,6 +1216,10 @@ class BnBgpu:
                     resolutions < 10,  torch.tensor(0.1, device=resolutions.device),
                     torch.where(resolutions < 14, torch.tensor(0.08, device=resolutions.device),
                                                torch.tensor(0.06, device=resolutions.device))
+                # factorR = torch.where(
+                #     resolutions < 10,  torch.tensor(0.06, device=resolutions.device),
+                #     torch.where(resolutions < 14, torch.tensor(0.04, device=resolutions.device),
+                #                                torch.tensor(0.02, device=resolutions.device))
                 )
             else:
                 factorR = torch.as_tensor(factorR, device=resolutions.device, dtype=resolutions.dtype)
@@ -1353,11 +1477,16 @@ class BnBgpu:
             max_iter = 18
             
             schedule = [
-                (4,  (-180, 180, 10), (-max_s10, max_s10 + s[0], s[0])),
-                (7,  (-180, 180, 8),  (-max_s10_f2, max_s10_f2 + s[1], s[1])), 
-                (10, (-180, 180, 6),  (-limit_f3, limit_f3 + s[2], s[2])),
-                (13, (-90, 94, 4),    (-8, 8 + s[3], s[3])),
-                (18, (-90, 92, 2),    (-final, final + s[4], s[4]))
+                # (4,  (-180, 180, 10), (-max_s10, max_s10 + s[0], s[0])),
+                # (7,  (-180, 180, 8),  (-max_s10_f2, max_s10_f2 + s[1], s[1])), 
+                # (10, (-180, 180, 6),  (-limit_f3, limit_f3 + s[2], s[2])),
+                # (13, (-90, 94, 4),    (-8, 8 + s[3], s[3])),
+                # (18, (-90, 92, 2),    (-final, final + s[4], s[4]))
+                (4,  (-180, 180, 6), (-max_s10, max_s10 + s[0], s[0])),
+                (7,  (-180, 180, 6),  (-max_s10_f2, max_s10_f2 + s[1], s[1])), 
+                (10, (-180, 180, 4),  (-limit_f3, limit_f3 + s[2], s[2])),
+                (13, (-180, 180, 4),    (-8, 8 + s[3], s[3])),
+                (18, (-180, 180, 2),    (-final, final + s[4], s[4]))
             ]
             
             res_ang, res_shift = schedule[-1][1], schedule[-1][2]
