@@ -128,7 +128,7 @@ if __name__=="__main__":
         maxRes = 16.0   
 
     freqBn, cvecs, coef = pca.calculatePCAbasis(mmap, Ntrain, nBand, dim, sampling, maxRes, 
-                                                minRes=530, per_eig=0.5, batchPCA=True)
+                                                minRes=530, per_eig=0.25, batchPCA=True)
 
     grid_flat = flatGrid(freqBn, nBand)
 
