@@ -563,7 +563,7 @@ void ProgStatisticalMap::preprocessMap(FileName fnIn)
 
         FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
         {
-            if (DIRECT_MULTIDIM_ELEM(V(), n) > std && DIRECT_MULTIDIM_ELEM(ROI_mask, n) > 0)
+            if (DIRECT_MULTIDIM_ELEM(V(), n) > 1 * std && DIRECT_MULTIDIM_ELEM(ROI_mask, n) > 0)
             {
                 DIRECT_MULTIDIM_ELEM(positiveMask, n) = 1;
             }
@@ -712,10 +712,57 @@ void ProgStatisticalMap::computeStatisticalMaps()
         }
     }
 
+    // Dilate positive mask for posterior background sampling in map weighting
+    double epsilon = 1e-5;
+    MultidimArray<double> positiveMask_double;
+    positiveMask_double.initZeros(Zdim, Ydim, Xdim);
+
+    MultidimArray<double> positiveMask_dilated_double;
+    positiveMask_dilated.initZeros(Zdim, Ydim, Xdim);
+    positiveMask_dilated_double.initZeros(Zdim, Ydim, Xdim);
+
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(positiveMask)
+    {
+        DIRECT_MULTIDIM_ELEM(positiveMask_double, n) = 1.0 * DIRECT_MULTIDIM_ELEM(positiveMask, n);
+    }
+
+    int neig = 6;  // Neighbourhood
+    int count = 3;  // Min number of empty elements in neighbourhood
+    int size = 1;   // Number of iterations or erosion 
+
+    dilate3D(positiveMask_double, positiveMask_dilated_double, neig, count, size);
+
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(positiveMask_dilated_double)
+    {
+        if (DIRECT_MULTIDIM_ELEM(positiveMask_dilated_double, n) > epsilon)
+        {
+            DIRECT_MULTIDIM_ELEM(positiveMask_dilated, n) = 1;
+        }
+        else
+        {
+            DIRECT_MULTIDIM_ELEM(positiveMask_dilated, n) = 0;
+        }
+    }
+    
     #ifdef DEBUG_OUTPUT_FILES
+    Image<double> si;
+    std::string foo = fn_oroot + "positiveMask_double.mrc";
+    si = positiveMask_double;
+    si.write(foo);
+
+    foo = fn_oroot + "positiveMask_double_dilate.mrc";
+    si = positiveMask_dilated_double;
+    si.write(foo);  
+
     Image<int> saveImage;
-    std::string debugFileFn = fn_oroot + "positiveMask.mrc";
+    std::string debugFileFn;
+
+    debugFileFn = fn_oroot + "positiveMask.mrc";
     saveImage() = positiveMask;
+    saveImage.write(debugFileFn);
+
+    debugFileFn = fn_oroot + "positiveMask_dilated.mrc";
+    saveImage() = positiveMask_dilated;
     saveImage.write(debugFileFn);
     #endif   
 }
@@ -871,7 +918,7 @@ void ProgStatisticalMap::calculateZscoreMADMap()
     // int neig = 18;   // Neighbourhood
     // int count = 0;  // Min number of empty elements in neighbourhood
     // int size = 5;   // Number of iterations or erosion 
-    // closing3D(differentMask_double_tmp, differentMask_double, neig, count, size);
+    //  closing3D(differentMask_double_tmp, differentMask_double, neig, count, size);
 
     // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(differentMask_double)
     // {
@@ -996,25 +1043,36 @@ void ProgStatisticalMap::weightMap()
     // differentMask = readMask();
 
     // 2) Extraer valores de mapa en cada ROI (igual que antes)
-    std::vector<double> valsCoincident, valsDifferent;
+    std::vector<double> valsCoincident, valsDifferent, valsBackground;
     valsCoincident.reserve(4096);
-    valsDifferent .reserve(4096);
+    valsDifferent.reserve(4096);
+    valsBackground.reserve(4096);
+
+    // Capture values from coincident, different and background ROIs
+    double epsilon = 1e-5;
 
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
         if (DIRECT_MULTIDIM_ELEM(coincidentMask, n) > 0)
             valsCoincident.push_back(DIRECT_MULTIDIM_ELEM(V(), n));
+        
         if (DIRECT_MULTIDIM_ELEM(differentMask, n) > 0)
             valsDifferent.push_back(DIRECT_MULTIDIM_ELEM(V(), n));
+        
+        if ((DIRECT_MULTIDIM_ELEM(positiveMask_dilated, n) > epsilon) && !(DIRECT_MULTIDIM_ELEM(differentMask, n) > epsilon) && !(DIRECT_MULTIDIM_ELEM(coincidentMask, n) > epsilon))
+            valsBackground.push_back(DIRECT_MULTIDIM_ELEM(V(), n));
     }
 
     const size_t nC = valsCoincident.size();
     const size_t nD = valsDifferent.size();
-    if (nC == 0 || nD == 0) {
+    const size_t nB = valsBackground.size();
+    
+    if (nC == 0 || nD == 0 || nB == 0) {
         std::cerr << "  [WARN] Empty ROI; skipping correction." << std::endl;
         return;
     }
-    std::cout << "  ROI sizes: coincident=" << nC << " different=" << nD << std::endl;
+
+    std::cout << "  ROI sizes: coincident=" << nC << ", different=" << nD << ", background=" << nB << std::endl;
 
     // 3) Percentil helper (interpolación lineal)
     auto percentile_of = [](const std::vector<double>& v, double q) -> double {
@@ -1029,45 +1087,52 @@ void ProgStatisticalMap::weightMap()
         return tmp[idx];
     };
 
-    // 4) rawPOF (SIN bootstrap): ratio de percentiles fijos
+    // 4) rawPOF (no bootstrap) for reference
     const double S_coinc = percentile_of(valsCoincident, Q);
-    const double S_diff  = percentile_of(valsDifferent , Q);
+    const double S_diff  = percentile_of(valsDifferent, Q);
+    const double S_background  = percentile_of(valsBackground, Q);
     if (S_coinc <= 0.0) {
         std::cerr << "  [WARN] Reference percentile <= 0; skipping correction." << std::endl;
         return;
     }
-    const double rawPOF = S_diff / S_coinc;
+    const double rawPOF = (S_diff-S_background) / (S_coinc-S_background);
 
     std::cout << "  p" << int(Q*100) << " coincident --------------------> " << S_coinc << std::endl;
     std::cout << "  p" << int(Q*100) << " different  --------------------> " << S_diff  << std::endl;
+    std::cout << "  p" << int(Q*100) << " background --------------------> " << S_background  << std::endl;
     std::cout << "  raw POF (fixed-percentile) --------------> " << rawPOF << std::endl;
 
     // 5) Bootstrap (mismo reporting, N fijo si es posible)
-    const size_t N_BOOT = std::min({N_BOOT_DEFAULT, nC, nD});
+    const size_t N_BOOT = std::min({N_BOOT_DEFAULT, nC, nD, nB});
     std::cout << "  Bootstrap: N=" << N_BOOT << " iters=" << BOOTSTRAP_ITERS << std::endl;
 
     std::mt19937 rng(12345);
     std::uniform_int_distribution<size_t> uniC(0, nC - 1);
     std::uniform_int_distribution<size_t> uniD(0, nD - 1);
+    std::uniform_int_distribution<size_t> uniB(0, nD - 1);
 
     std::vector<double> pofSamples;
     pofSamples.reserve(BOOTSTRAP_ITERS);
 
     std::vector<double> sampleC; sampleC.reserve(N_BOOT);
     std::vector<double> sampleD; sampleD.reserve(N_BOOT);
+    std::vector<double> sampleB; sampleB.reserve(N_BOOT);
 
     for (size_t k = 0; k < BOOTSTRAP_ITERS; ++k)
     {
         sampleC.clear();
         sampleD.clear();
+        sampleB.clear();
         for (size_t i = 0; i < N_BOOT; ++i) {
             sampleC.push_back(valsCoincident[uniC(rng)]);
-            sampleD.push_back(valsDifferent [uniD(rng)]);
+            sampleD.push_back(valsDifferent[uniD(rng)]);
+            sampleB.push_back(valsBackground[uniB(rng)]);
         }
-        const double S_coinc_bs = percentile_of(sampleC, Q);
-        const double S_diff_bs  = percentile_of(sampleD, Q);
+        const double S_coinc_bs      = percentile_of(sampleC, Q);
+        const double S_diff_bs       = percentile_of(sampleD, Q);
+        const double S_background_bs = percentile_of(sampleB, Q);
         if (S_coinc_bs > 0.0)
-            pofSamples.push_back(S_diff_bs / S_coinc_bs);
+            pofSamples.push_back((S_diff_bs - S_background_bs) / (S_coinc_bs - S_background_bs));
     }
 
     if (pofSamples.empty()) {
@@ -1094,23 +1159,47 @@ void ProgStatisticalMap::weightMap()
 
     // 6) Decisión final (idéntica)
     double finalPOF = 1.0;
-    if (pofHi < 1.0) {
+    if (pofMedian < 1.0) {
         finalPOF = pofMedian;
     }
     std::cout << "  FINAL POF -------------------------------> " << finalPOF << std::endl;
-
 
     // ---------------------------------------------------------------------
     // 7) Apply correction
     // ---------------------------------------------------------------------
     if (finalPOF < 1.0)
     {
+        std::cout << "  Significant difference detected; applying correction..." << std::endl;
+        double correctionFactor = 1 - finalPOF;
+        std::cout << "  Applying correction with factor: " << correctionFactor << std::endl;
         FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
         {
-            DIRECT_MULTIDIM_ELEM(V(), n) -=
-                DIRECT_MULTIDIM_ELEM(avgVolume(), n) * (1.0 - finalPOF);
+            DIRECT_MULTIDIM_ELEM(V(), n) = DIRECT_MULTIDIM_ELEM(V(), n) - DIRECT_MULTIDIM_ELEM(avgVolume(), n) * correctionFactor ;
         }
     }
+    else
+    {
+        std::cout << "  No significant difference detected; skipping correction." << std::endl;
+    }
+
+    // // ---------------------------------------------------------------------
+    // // 7) Apply correction
+    // // ---------------------------------------------------------------------
+    // if (finalPOF > (0.0 + MINDOUBLE))
+    // {
+    //     std::cout << "  Significant difference detected; applying correction..." << std::endl;
+    //     std::cout << MINDOUBLE << std::endl;
+    //     double correctionFactor = 1.0 / finalPOF;
+    //     std::cout << "  Applying correction with factor: " << correctionFactor << std::endl;
+    //     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+    //     {
+    //         DIRECT_MULTIDIM_ELEM(V(), n) = DIRECT_MULTIDIM_ELEM(V(), n) * correctionFactor - DIRECT_MULTIDIM_ELEM(avgVolume(), n);
+    //     }
+    // }
+    // else
+    // {
+    //     std::cout << "  No significant difference detected; skipping correction." << std::endl;
+    // }
 }
 
 
