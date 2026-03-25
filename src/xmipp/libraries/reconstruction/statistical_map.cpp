@@ -713,7 +713,7 @@ void ProgStatisticalMap::computeStatisticalMaps()
     }
 
     // Dilate positive mask for posterior background sampling in map weighting
-    double epsilon = 1e-5;
+    double epsilon = 1e-6;
     MultidimArray<double> positiveMask_double;
     positiveMask_double.initZeros(Zdim, Ydim, Xdim);
 
@@ -726,13 +726,13 @@ void ProgStatisticalMap::computeStatisticalMaps()
         DIRECT_MULTIDIM_ELEM(positiveMask_double, n) = 1.0 * DIRECT_MULTIDIM_ELEM(positiveMask, n);
     }
 
-    int neig = 6;  // Neighbourhood
-    int count = 3;  // Min number of empty elements in neighbourhood
-    int size = 1;   // Number of iterations or erosion 
+    int neig = 18;  // Neighbourhood
+    int count = 1;  // Min number of empty elements in neighbourhood
+    int size = 1;   // Number of iterations
 
     dilate3D(positiveMask_double, positiveMask_dilated_double, neig, count, size);
 
-    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(positiveMask_dilated_double)
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(positiveMask_dilated)
     {
         if (DIRECT_MULTIDIM_ELEM(positiveMask_dilated_double, n) > epsilon)
         {
