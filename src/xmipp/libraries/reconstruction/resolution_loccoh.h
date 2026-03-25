@@ -33,9 +33,7 @@
 
 #define VERBOSE_OUTPUT
 // #define DEBUG_DIM
-// #define DEBUG_FREQUENCY_MAP
 #define DEBUG_OUTPUT_FILES
-// #define DEBUG_FOURIER_SHELL_NORMALIZE
 
 /**@defgroup ProgLocCoh Calculates statistical map
    @ingroup ReconsLibrary */
@@ -86,7 +84,6 @@ public:
 
     // ----------------------- CORE METHODS ------------------------------
     void localCoherence(MetaDataVec mapPoolMD);
-    void calculateLocCohThreshold();
 
     // ---------------------- UTILS METHODS ------------------------------
     void normalizeMap(MultidimArray<double> &vol);

@@ -46,7 +46,7 @@ void ProgLocCoh::readParams()
 void ProgLocCoh::defineParams()
 {
 	//Usage
-    addUsageLine("This algorithm calculate the Fourier Shell Coherence from a input map pool.");
+    addUsageLine("This algorithm calculate the Local Coherence from a input map pool.");
 
     //Parameters
     addParamsLine("-i <i=\"\">              : Input metadata containing the map pool.");
@@ -73,9 +73,6 @@ void ProgLocCoh::run()
 
     // Calculate statistical map
     localCoherence(mapPoolMD);
-
-	// Calculate LocCoh threshold
-	calculateLocCohThreshold();
 
     auto t2 = std::chrono::high_resolution_clock::now();
     auto ms_int = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1);
@@ -118,14 +115,22 @@ void ProgLocCoh::localCoherence(MetaDataVec mapPoolMD)
             #endif
 
             LocCohMap.initZeros(Zdim, Ydim, Xdim);
+            sum_map.initZeros(Zdim, Ydim, Xdim);
+            sum_map2.initZeros(Zdim, Ydim, Xdim);
 
             dimInitialized = true;
         }
 
         FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
         {
-            DIRECT_MULTIDIM_ELEM(sum_map,  n) += DIRECT_MULTIDIM_ELEM(V,n);
-            DIRECT_MULTIDIM_ELEM(sum_map2, n) += DIRECT_MULTIDIM_ELEM(V,n) * DIRECT_MULTIDIM_ELEM(V,n);
+            double value = DIRECT_MULTIDIM_ELEM(V, n);
+
+            if(value > 0)
+            {  
+                DIRECT_MULTIDIM_ELEM(sum_map,  n) += value;
+                DIRECT_MULTIDIM_ELEM(sum_map2, n) += value * value;
+            }
+            
         }
     }
 
@@ -145,15 +150,7 @@ void ProgLocCoh::localCoherence(MetaDataVec mapPoolMD)
 	saveImage.write(debugFileFn);
     #endif
 
-	std::cout << "  Local coherence saved at: " << LocCohMap << std::endl;
-}
-
-void ProgLocCoh::calculateLocCohThreshold()
-{
-    // Calculate lcoal coherence threhold
-	double LocCoh_thr = (Ndim + 3.0)/(4.0 * Ndim);
-    
-    std::cout << "  Local coherence thresholded at: " << LocCoh_thr << std::endl;
+	std::cout << "  Local coherence saved at: " << debugFileFn << std::endl;
 }
 
 // Utils methods ===================================================================
@@ -169,4 +166,27 @@ void ProgLocCoh::normalizeMap(MultidimArray<double> &vol)
     {
         DIRECT_MULTIDIM_ELEM(vol, n) = (DIRECT_MULTIDIM_ELEM(vol, n) - avg) / std;
     }
+
+    #ifdef DEBUG_OUTPUT_FILES
+    // Build base name
+    const size_t s = fn_V.find_last_of("/\\");
+    const size_t d = fn_V.find_last_of('.');
+    const size_t start = (s == FileName::npos ? 0 : s + 1);
+    const size_t end = (d == FileName::npos || d <= s ? fn_V.size() : d);
+    const FileName base = fn_V.substr(start, end - start);
+
+    // Build output with unique suffix
+    const bool hasSep = (!fn_oroot.empty() && (fn_oroot.back() == '/' || fn_oroot.back() == '\\'));
+    const FileName sep = hasSep ? "" : "/";
+    FileName fnOut;
+    for (int i = 0;; ++i) {
+        fnOut = fn_oroot + sep + base + "_preprocess" + (i ? "_" + std
+            ::to_string(i) : "") + ".mrc";
+        std::ifstream f(fnOut);
+        if (!f.good()) break;
+    }
+
+    V.write(fnOut);
+    std::cout << "  Normalized map saved at: " << fnOut << std::endl;
+    #endif
 }
