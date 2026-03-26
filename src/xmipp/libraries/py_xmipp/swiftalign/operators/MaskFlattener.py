@@ -73,7 +73,7 @@ class MaskFlattener:
     def _calculate_indices(self,
                            mask: torch.BoolTensor, 
                            device: Optional[torch.device] = None ) -> torch.IntTensor:
-        flat_mask = torch.flatten(mask)
+        flat_mask = torch.flatten(mask, start_dim=0)
         indices = torch.argwhere(flat_mask)[:,0]
         return indices.to(device)
 

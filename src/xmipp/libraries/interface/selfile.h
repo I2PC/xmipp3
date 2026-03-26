@@ -79,7 +79,10 @@ public:
      * You must use the function @p set_type to assign a type.
      */
     SelLine() : line_type(NOT_ASSIGNED)
-    {}
+    {
+        label = DISCARDED;
+        number = -1;
+    }
 
     /** Another function for assigment.
      */
