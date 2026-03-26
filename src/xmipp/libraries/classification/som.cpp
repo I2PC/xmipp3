@@ -265,10 +265,10 @@ void SOM::loadObject(std::istream& _is)
  */
 double Descent::operator()(const unsigned _step, const unsigned _nSteps) const
 {
-    if (_nSteps == 0 || initial == final || _step >= _nSteps)
-        return final;
+    if (_nSteps == 0 || initialVal == finalVal || _step >= _nSteps)
+        return finalVal;
     else
-        return final + ((initial - final) *
+        return finalVal + ((initialVal - finalVal) *
                         ((double)(_nSteps - _step) / (double)_nSteps));
 }
 
@@ -279,8 +279,8 @@ double Descent::operator()(const unsigned _step, const unsigned _nSteps) const
 */
 void Descent::printSelf(std::ostream& _os) const
 {
-    _os << initial << std::endl;
-    _os << final << std::endl;
+    _os << initialVal << std::endl;
+    _os << finalVal << std::endl;
 }
 
 /**
@@ -292,9 +292,9 @@ void Descent::readSelf(std::istream& _is)
     try
     {
         if (_is)
-            _is >> initial;
+            _is >> initialVal;
         if (_is)
-            _is >> final;
+            _is >> finalVal;
     }
     catch (std::exception& e)
     {
