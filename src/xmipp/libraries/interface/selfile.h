@@ -78,11 +78,11 @@ public:
      * The selection line is created with no type (neither comment or data).
      * You must use the function @p set_type to assign a type.
      */
-    SelLine() : line_type(NOT_ASSIGNED)
-    {
-        label = DISCARDED;
-        number = -1;
-    }
+    SelLine()
+        : line_type(NOT_ASSIGNED)
+        , label(DISCARDED)
+        , number(-1)
+    {}
 
     /** Another function for assigment.
      */
