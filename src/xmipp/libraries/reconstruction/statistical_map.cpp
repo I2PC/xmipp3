@@ -1027,7 +1027,7 @@ void ProgStatisticalMap::calculateZscoreMADMap()
 // WEIGHT MAP OCCUPY-LIKE VERSION
 void ProgStatisticalMap::weightMap()
 {
-    std::cout << "    Calculating POF (fixed-percentile, OccuPy-inspired)..." << std::endl;
+    std::cout << "    Calculating POF (comparing P95 in each region)..." << std::endl;
 
     // ---------------------------
     // Parámetros fijos y estables
@@ -1037,10 +1037,64 @@ void ProgStatisticalMap::weightMap()
     const size_t N_BOOT_DEFAULT = 2000; 
     const double CI_ALPHA       = 0.05;
 
-    // 1) Cargar máscara diferente (igual que antes)
+    // FOR TESTING) Cargar máscara diferente (igual que antes)
     // Image<int> readMask;
-    // readMask.read("/home/fpdeisidro/testBench/publication_FSCoh+StatMaps/Betagal_PO/StatisticalMaps_POmask/00100_postprocess_rescaled_ali_differentMask.mrc");
+    // readMask.read("/home/fpdeisidro/testBench/publication_FSCoh+StatMaps/Betagal_PO/StatisticalMaps_OK/00100_postprocess_rescaled_ali_differentMask.mrc");
     // differentMask = readMask();
+
+    // 1) Define background region (as the dilated region from  coincident mask)
+    double epsilon = 1e-6;
+    MultidimArray<double> positiveMask_double;
+    positiveMask_double.initZeros(Zdim, Ydim, Xdim);
+
+    MultidimArray<double> positiveMask_dilated_double;
+    positiveMask_dilated.initZeros(Zdim, Ydim, Xdim);
+    positiveMask_dilated_double.initZeros(Zdim, Ydim, Xdim);
+
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(positiveMask)
+    {
+        DIRECT_MULTIDIM_ELEM(positiveMask_double, n) = 1.0 * DIRECT_MULTIDIM_ELEM(differentMask, n);
+    }
+
+    int neig = 18;  // Neighbourhood
+    int count = 1;  // Min number of empty elements in neighbourhood
+    int size = 1;   // Number of iterations
+
+    dilate3D(positiveMask_double, positiveMask_dilated_double, neig, count, size);
+
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(positiveMask_dilated)
+    {
+        if (DIRECT_MULTIDIM_ELEM(positiveMask_dilated_double, n) > epsilon)
+        {
+            DIRECT_MULTIDIM_ELEM(positiveMask_dilated, n) = 1;
+        }
+        else
+        {
+            DIRECT_MULTIDIM_ELEM(positiveMask_dilated, n) = 0;
+        }
+    }
+    
+    // #ifdef DEBUG_OUTPUT_FILES
+    // Image<double> si;
+    // std::string foo = fn_oroot + "positiveMask_double.mrc";
+    // si = positiveMask_double;
+    // si.write(foo);
+
+    // foo = fn_oroot + "positiveMask_double_dilate.mrc";
+    // si = positiveMask_dilated_double;
+    // si.write(foo);  
+
+    // Image<int> saveImage;
+    // std::string debugFileFn;
+
+    // debugFileFn = fn_oroot + "positiveMask.mrc";
+    // saveImage() = positiveMask;
+    // saveImage.write(debugFileFn);
+
+    // debugFileFn = fn_oroot + "positiveMask_dilated.mrc";
+    // saveImage() = positiveMask_dilated;
+    // saveImage.write(debugFileFn);
+    // #endif   
 
     // 2) Extraer valores de mapa en cada ROI (igual que antes)
     std::vector<double> valsCoincident, valsDifferent, valsBackground;
@@ -1049,7 +1103,7 @@ void ProgStatisticalMap::weightMap()
     valsBackground.reserve(4096);
 
     // Capture values from coincident, different and background ROIs
-    double epsilon = 1e-5;
+    // double epsilon = 1e-5;
 
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
@@ -1153,9 +1207,13 @@ void ProgStatisticalMap::weightMap()
     const double pofMedian = p_boot(0.50);
     const double pofLo     = p_boot(CI_ALPHA / 2.0);
     const double pofHi     = p_boot(1.0 - CI_ALPHA / 2.0);
+    const double pofMin    = p_boot(0);
+    const double pofMax    = p_boot(1.0);
+
 
     std::cout << "  Bootstrap POF median --------------------> " << pofMedian << std::endl;
-    std::cout << "  Bootstrap POF CI [" << pofLo << ", " << pofHi << "]" << std::endl;
+    std::cout << "  Bootstrap POF absolute interval [" << pofMin << ", " << pofMax << "]" << std::endl;
+    std::cout << "  Bootstrap POF confidence interval [" << pofLo << ", " << pofHi << "]" << std::endl;
 
     // 6) Decisión final (idéntica)
     double finalPOF = 1.0;
