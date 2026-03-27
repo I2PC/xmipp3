@@ -88,8 +88,8 @@ class ProgStatisticalMap: public XmippProgram
     MultidimArray<int> ROI_mask;            // Mask for focus analysis if protein radius provided
     MultidimArray<int> coincidentMask;      // Mask for coincident regions between each input map and the statiscal pool
     MultidimArray<int> differentMask;       // Mask for different regions between each input map and the statiscal pool
+    MultidimArray<int> differentMask_dilated;       // Mask for positive values in each input map + backgorund
     MultidimArray<int> positiveMask;                // Mask for positive values in each input map
-    MultidimArray<int> positiveMask_dilated;        // Mask for positive values in each input map + backgorund
     MultidimArray<double> distanceCoincidentMask;
     MultidimArray<double> distanceDifferentMask;
 

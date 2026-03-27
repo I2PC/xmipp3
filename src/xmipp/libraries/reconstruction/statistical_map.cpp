@@ -283,6 +283,14 @@ void ProgStatisticalMap::writeMask(FileName fnIn)
             fn_out_different_mask = rootPrefix + baseName + "_differentMask_" + std::to_string(counter++) + ".mrc";
     }
 
+    // 2) Different Dilated Mask (different mask + background)
+    FileName fn_out_different_mask_dilated = rootPrefix + baseName + "_differentMask_dilated.mrc";
+    {
+        int counter = 1;
+        while (std::ifstream(fn_out_different_mask_dilated))
+            fn_out_different_mask_dilated = rootPrefix + baseName + "_differentMask_dilated_" + std::to_string(counter++) + ".mrc";
+    }
+
     // // 3) Coincident Distance Mask
     // FileName fn_out_coincident_dist = rootPrefix + baseName + "_coincidentDistance.mrc";
     // {
@@ -307,6 +315,9 @@ void ProgStatisticalMap::writeMask(FileName fnIn)
 
         saveMask() = differentMask;
         saveMask.write(fn_out_different_mask);
+
+        saveMask() = differentMask_dilated;
+        saveMask.write(fn_out_different_mask_dilated);
     }
 
     // // Distance masks (double)
@@ -710,61 +721,7 @@ void ProgStatisticalMap::computeStatisticalMaps()
                 DIRECT_MULTIDIM_ELEM(positiveMask, n) = 1;
             }
         }
-    }
-
-    // Dilate positive mask for posterior background sampling in map weighting
-    double epsilon = 1e-6;
-    MultidimArray<double> positiveMask_double;
-    positiveMask_double.initZeros(Zdim, Ydim, Xdim);
-
-    MultidimArray<double> positiveMask_dilated_double;
-    positiveMask_dilated.initZeros(Zdim, Ydim, Xdim);
-    positiveMask_dilated_double.initZeros(Zdim, Ydim, Xdim);
-
-    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(positiveMask)
-    {
-        DIRECT_MULTIDIM_ELEM(positiveMask_double, n) = 1.0 * DIRECT_MULTIDIM_ELEM(positiveMask, n);
-    }
-
-    int neig = 18;  // Neighbourhood
-    int count = 1;  // Min number of empty elements in neighbourhood
-    int size = 1;   // Number of iterations
-
-    dilate3D(positiveMask_double, positiveMask_dilated_double, neig, count, size);
-
-    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(positiveMask_dilated)
-    {
-        if (DIRECT_MULTIDIM_ELEM(positiveMask_dilated_double, n) > epsilon)
-        {
-            DIRECT_MULTIDIM_ELEM(positiveMask_dilated, n) = 1;
-        }
-        else
-        {
-            DIRECT_MULTIDIM_ELEM(positiveMask_dilated, n) = 0;
-        }
-    }
-    
-    #ifdef DEBUG_OUTPUT_FILES
-    Image<double> si;
-    std::string foo = fn_oroot + "positiveMask_double.mrc";
-    si = positiveMask_double;
-    si.write(foo);
-
-    foo = fn_oroot + "positiveMask_double_dilate.mrc";
-    si = positiveMask_dilated_double;
-    si.write(foo);  
-
-    Image<int> saveImage;
-    std::string debugFileFn;
-
-    debugFileFn = fn_oroot + "positiveMask.mrc";
-    saveImage() = positiveMask;
-    saveImage.write(debugFileFn);
-
-    debugFileFn = fn_oroot + "positiveMask_dilated.mrc";
-    saveImage() = positiveMask_dilated;
-    saveImage.write(debugFileFn);
-    #endif   
+    } 
 }
 
 void ProgStatisticalMap::calculateAvgDiffMap()
@@ -1044,58 +1001,32 @@ void ProgStatisticalMap::weightMap()
 
     // 1) Define background region (as the dilated region from  coincident mask)
     double epsilon = 1e-6;
-    MultidimArray<double> positiveMask_double;
-    positiveMask_double.initZeros(Zdim, Ydim, Xdim);
+    MultidimArray<double> differentMask_double;
+    differentMask_double.initZeros(Zdim, Ydim, Xdim);
 
-    MultidimArray<double> positiveMask_dilated_double;
-    positiveMask_dilated.initZeros(Zdim, Ydim, Xdim);
-    positiveMask_dilated_double.initZeros(Zdim, Ydim, Xdim);
+    MultidimArray<double> differentMask_dilated_double;
+    differentMask_dilated.initZeros(Zdim, Ydim, Xdim);
+    differentMask_dilated_double.initZeros(Zdim, Ydim, Xdim);
 
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(positiveMask)
     {
-        DIRECT_MULTIDIM_ELEM(positiveMask_double, n) = 1.0 * DIRECT_MULTIDIM_ELEM(differentMask, n);
+        DIRECT_MULTIDIM_ELEM(differentMask_double, n) = 1.0 * DIRECT_MULTIDIM_ELEM(differentMask, n);
     }
 
     int neig = 18;  // Neighbourhood
     int count = 1;  // Min number of empty elements in neighbourhood
     int size = 1;   // Number of iterations
 
-    dilate3D(positiveMask_double, positiveMask_dilated_double, neig, count, size);
+    dilate3D(differentMask_double, differentMask_dilated_double, neig, count, size);
 
-    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(positiveMask_dilated)
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(differentMask_dilated)
     {
-        if (DIRECT_MULTIDIM_ELEM(positiveMask_dilated_double, n) > epsilon)
+        if (DIRECT_MULTIDIM_ELEM(differentMask_dilated_double, n) > epsilon)
         {
-            DIRECT_MULTIDIM_ELEM(positiveMask_dilated, n) = 1;
-        }
-        else
-        {
-            DIRECT_MULTIDIM_ELEM(positiveMask_dilated, n) = 0;
+            DIRECT_MULTIDIM_ELEM(differentMask_dilated, n) = 1;
         }
     }
     
-    // #ifdef DEBUG_OUTPUT_FILES
-    // Image<double> si;
-    // std::string foo = fn_oroot + "positiveMask_double.mrc";
-    // si = positiveMask_double;
-    // si.write(foo);
-
-    // foo = fn_oroot + "positiveMask_double_dilate.mrc";
-    // si = positiveMask_dilated_double;
-    // si.write(foo);  
-
-    // Image<int> saveImage;
-    // std::string debugFileFn;
-
-    // debugFileFn = fn_oroot + "positiveMask.mrc";
-    // saveImage() = positiveMask;
-    // saveImage.write(debugFileFn);
-
-    // debugFileFn = fn_oroot + "positiveMask_dilated.mrc";
-    // saveImage() = positiveMask_dilated;
-    // saveImage.write(debugFileFn);
-    // #endif   
-
     // 2) Extraer valores de mapa en cada ROI (igual que antes)
     std::vector<double> valsCoincident, valsDifferent, valsBackground;
     valsCoincident.reserve(4096);
@@ -1113,7 +1044,7 @@ void ProgStatisticalMap::weightMap()
         if (DIRECT_MULTIDIM_ELEM(differentMask, n) > 0)
             valsDifferent.push_back(DIRECT_MULTIDIM_ELEM(V(), n));
         
-        if ((DIRECT_MULTIDIM_ELEM(positiveMask_dilated, n) > epsilon) && !(DIRECT_MULTIDIM_ELEM(differentMask, n) > epsilon) && !(DIRECT_MULTIDIM_ELEM(coincidentMask, n) > epsilon))
+        if ((DIRECT_MULTIDIM_ELEM(differentMask_dilated, n) > epsilon) && !(DIRECT_MULTIDIM_ELEM(differentMask, n) > epsilon) && !(DIRECT_MULTIDIM_ELEM(coincidentMask, n) > epsilon))
             valsBackground.push_back(DIRECT_MULTIDIM_ELEM(V(), n));
     }
 
