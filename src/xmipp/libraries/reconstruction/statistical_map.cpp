@@ -996,10 +996,10 @@ void ProgStatisticalMap::weightMap()
 
     // FOR TESTING) Cargar máscara diferente (igual que antes)
     // Image<int> readMask;
-    // readMask.read("/home/fpdeisidro/testBench/publication_FSCoh+StatMaps/Betagal_PO/StatisticalMaps_OK/00100_postprocess_rescaled_ali_differentMask.mrc");
+    // readMask.read("/home/fpdeisidro/testBench/publication_FSCoh+StatMaps/Betagal_PO/StatisticalMaps_definitivo_BGsubs/00100_postprocess_rescaled_ali_differentMask.mrc");
     // differentMask = readMask();
 
-    // 1) Define background region (as the dilated region from  coincident mask)
+    // 1) Define background region (as the dilated region from different mask)
     double epsilon = 1e-6;
     MultidimArray<double> differentMask_double;
     differentMask_double.initZeros(Zdim, Ydim, Xdim);
