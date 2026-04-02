@@ -139,18 +139,29 @@ void ProgLocCoh::localCoherence(MetaDataVec mapPoolMD)
     // Local coherence per voxel
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(LocCohMap)
 	{
-        DIRECT_MULTIDIM_ELEM(LocCohMap, n) = DIRECT_MULTIDIM_ELEM(sum_map,n) * DIRECT_MULTIDIM_ELEM(sum_map,n) / (Ndim * DIRECT_MULTIDIM_ELEM(sum_map2,n));
+        if(DIRECT_MULTIDIM_ELEM(sum_map2,n) > 0)
+        {
+            DIRECT_MULTIDIM_ELEM(LocCohMap, n) = (DIRECT_MULTIDIM_ELEM(sum_map,n) * DIRECT_MULTIDIM_ELEM(sum_map,n)) / (Ndim * DIRECT_MULTIDIM_ELEM(sum_map2,n));
+        }
 	}
 
-    #ifdef DEBUG_OUTPUT_FILES
-	Image<double> saveImage;
-    std::string debugFileFn = fn_oroot + "LocCoh.mrc";
+    Image<double> saveImage;
 
-	saveImage() = LocCohMap;
-	saveImage.write(debugFileFn);
+    // Save local coherence map
+    saveImage() = LocCohMap;
+    saveImage.write(fn_oroot + "LocCoh.mrc");
+
+    #ifdef DEBUG_OUTPUT_FILES
+    // Save sum_map
+    saveImage() = sum_map;
+    saveImage.write(fn_oroot + "sum_map.mrc");
+
+    // Save sum_map2
+    saveImage() = sum_map2;
+    saveImage.write(fn_oroot + "sum_map2.mrc");
     #endif
 
-	std::cout << "  Local coherence saved at: " << debugFileFn << std::endl;
+	std::cout << "  Local coherence saved at: " << fn_oroot << "LocCoh.mrc" << std::endl;
 }
 
 // Utils methods ===================================================================
