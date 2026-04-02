@@ -86,7 +86,7 @@ public:
     void localCoherence(MetaDataVec mapPoolMD);
 
     // ---------------------- UTILS METHODS ------------------------------
-    void normalizeMap(MultidimArray<double> &vol);
+    void normalizeMap();
 };
 //@}
 #endif

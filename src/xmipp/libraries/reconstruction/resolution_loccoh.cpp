@@ -97,7 +97,6 @@ void ProgLocCoh::localCoherence(MetaDataVec mapPoolMD)
         #endif
 
         V.read(fn_V);
-		normalizeMap(V());
 
         if (!dimInitialized)
         {
@@ -121,16 +120,14 @@ void ProgLocCoh::localCoherence(MetaDataVec mapPoolMD)
             dimInitialized = true;
         }
 
+        normalizeMap();
+
         FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
         {
             double value = DIRECT_MULTIDIM_ELEM(V, n);
 
-            if(value > 0)
-            {  
-                DIRECT_MULTIDIM_ELEM(sum_map,  n) += value;
-                DIRECT_MULTIDIM_ELEM(sum_map2, n) += value * value;
-            }
-            
+            DIRECT_MULTIDIM_ELEM(sum_map,  n) += value;
+            DIRECT_MULTIDIM_ELEM(sum_map2, n) += value * value;           
         }
     }
 
@@ -165,17 +162,32 @@ void ProgLocCoh::localCoherence(MetaDataVec mapPoolMD)
 }
 
 // Utils methods ===================================================================
-void ProgLocCoh::normalizeMap(MultidimArray<double> &vol)
+void ProgLocCoh::normalizeMap()
 {
-    // Compute avg and std
     double avg;
     double std;
     V().computeAvgStdev(avg, std);
 
-    // Normalize map
-    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(vol)
+    MultidimArray<int> positiveMask;
+    positiveMask.initZeros(Zdim, Ydim, Xdim);
+
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
-        DIRECT_MULTIDIM_ELEM(vol, n) = (DIRECT_MULTIDIM_ELEM(vol, n) - avg) / std;
+        if (DIRECT_MULTIDIM_ELEM(V(), n) > 1.64 * std)
+        {
+            DIRECT_MULTIDIM_ELEM(positiveMask, n) = 1;
+        }
+    }
+
+    // Normalize map on positive densities dividing by std
+    double foo;
+    V().computeAvgStdev_within_binary_mask(positiveMask, foo, std);
+    std::cout << "    Normalizing map by stdev value of positive densities: " << std << std::endl;
+
+    // Normalize map
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+    {
+        DIRECT_MULTIDIM_ELEM(V(), n) = DIRECT_MULTIDIM_ELEM(V(), n) / std;
     }
 
     #ifdef DEBUG_OUTPUT_FILES
