@@ -65,24 +65,15 @@ public:
     } Line_Type;
 
 private:
-    Line_Type line_type;
+    Line_Type line_type = NOT_ASSIGNED;
     std::string text;
-    Label label;
-    int number;
+    Label label = DISCARDED;
+    int number = -1;
 
     friend class SelFile;
 
 public:
-    /** Empty Constructor.
-     *
-     * The selection line is created with no type (neither comment or data).
-     * You must use the function @p set_type to assign a type.
-     */
-    SelLine()
-        : line_type(NOT_ASSIGNED)
-        , label(DISCARDED)
-        , number(-1)
-    {}
+    SelLine() = default;
 
     /** Another function for assigment.
      */
