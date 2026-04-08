@@ -23,8 +23,8 @@
  *  e-mail address 'xmipp@cnb.csic.es'
  ***************************************************************************/
 
-#ifndef _PROG_STATISTICAL_MAP
-#define _PROG_STATISTICAL_MAP
+#ifndef _PROG_CLASSIFY_MAP_CLUSTER
+#define _PROG_CLASSIFY_MAP_CLUSTER
 
 #include "core/metadata_vec.h"
 #include "core/xmipp_program.h"
@@ -45,7 +45,7 @@
 /**@defgroup ProgClassifyMapCluster Calculates statistical map
    @ingroup ReconsLibrary */
 //@{
-/** Calculate statistical map from a pool of input maps and weight input volume*/
+/** Cluster map based in FSC distance*/
 
 class ProgClassifyMapCluster: public XmippProgram
 {

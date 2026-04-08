@@ -23,7 +23,7 @@
  *  e-mail address 'xmipp@cnb.csic.es'
  ***************************************************************************/
 
- #include "resolution_fscoh.h"
+ #include "classify_map_cluster.h"
  #include "core/metadata_extension.h"
  #include "core/multidim_array.h"
  #include "core/xmipp_image_base.h"
