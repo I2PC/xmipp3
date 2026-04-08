@@ -163,15 +163,19 @@ void ProgLocCoh::localCoherence(MetaDataVec mapPoolMD)
     //                 {
     //                     for (int x = -halfWin; x <= halfWin; x++)
     //                     {
-    //                         // localSum  += DIRECT_A3D_ELEM(sum_map, k+z, i+y, j+x);
-    //                         // localSum2 += DIRECT_A3D_ELEM(sum_map2, k+z, i+y, j+x);
-    //                         localCoherence += (DIRECT_A3D_ELEM(sum_map, k+z, i+y, j+x) * DIRECT_A3D_ELEM(sum_map, k+z, i+y, j+x)) / (Ndim * DIRECT_A3D_ELEM(sum_map2, k+z, i+y, j+x));
+    //                         localSum  += DIRECT_A3D_ELEM(sum_map, k+z, i+y, j+x);
+    //                         localSum2 += DIRECT_A3D_ELEM(sum_map2, k+z, i+y, j+x);
+    //                         // localCoherence += (DIRECT_A3D_ELEM(sum_map, k+z, i+y, j+x) * DIRECT_A3D_ELEM(sum_map, k+z, i+y, j+x)) / (Ndim * DIRECT_A3D_ELEM(sum_map2, k+z, i+y, j+x));
     //                     }
     //                 }
     //             }
 
-    //             // DIRECT_A3D_ELEM(LocCohMap, k, i, j) = (localSum * localSum) / (winSize * winSize * winSize * localSum2 * Ndim);
-    //             DIRECT_A3D_ELEM(LocCohMap, k, i, j) = localCoherence / (winSize * winSize * winSize);
+    //             if (localSum2 > 0.00001)
+    //             {
+    //                 DIRECT_A3D_ELEM(LocCohMap, k, i, j) = (localSum * localSum) / (winSize * winSize * winSize * localSum2 * Ndim);
+    //             }
+                
+    //             DIRECT_A3D_ELEM(LocCohMap, k, i, j) = (localSum * localSum) / (winSize * winSize * winSize * localSum2 * Ndim);                // DIRECT_A3D_ELEM(LocCohMap, k, i, j) = localCoherence / (winSize * winSize * winSize);
 	// 		}
 	// 	}
 	// } 
