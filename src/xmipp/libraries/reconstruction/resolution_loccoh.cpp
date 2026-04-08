@@ -142,6 +142,40 @@ void ProgLocCoh::localCoherence(MetaDataVec mapPoolMD)
         }
 	}
 
+    // // Local coherence per voxel with local neighborhood (3x3)
+    // int winSize = 3;
+    // int halfWin = winSize / 2;
+
+    // for (int k = halfWin; k < Zdim - halfWin; k++)
+	// {
+	//     for (int i = halfWin; i < Ydim - halfWin; i++)
+	// 	{
+	// 		for (int j = halfWin; j < Xdim - halfWin; j++)
+	// 		{	
+    //             // Iterate over local neighborhood
+    //             double localSum = 0.0;
+    //             double localSum2 = 0.0;
+    //             double localCoherence = 0.0;
+
+    //             for (int z = -halfWin; z <= halfWin; z++)                
+    //             {
+    //                 for (int y = -halfWin; y <= halfWin; y++)                    
+    //                 {
+    //                     for (int x = -halfWin; x <= halfWin; x++)
+    //                     {
+    //                         // localSum  += DIRECT_A3D_ELEM(sum_map, k+z, i+y, j+x);
+    //                         // localSum2 += DIRECT_A3D_ELEM(sum_map2, k+z, i+y, j+x);
+    //                         localCoherence += (DIRECT_A3D_ELEM(sum_map, k+z, i+y, j+x) * DIRECT_A3D_ELEM(sum_map, k+z, i+y, j+x)) / (Ndim * DIRECT_A3D_ELEM(sum_map2, k+z, i+y, j+x));
+    //                     }
+    //                 }
+    //             }
+
+    //             // DIRECT_A3D_ELEM(LocCohMap, k, i, j) = (localSum * localSum) / (winSize * winSize * winSize * localSum2 * Ndim);
+    //             DIRECT_A3D_ELEM(LocCohMap, k, i, j) = localCoherence / (winSize * winSize * winSize);
+	// 		}
+	// 	}
+	// } 
+
     Image<double> saveImage;
 
     // Save local coherence map
@@ -179,15 +213,51 @@ void ProgLocCoh::normalizeMap()
         }
     }
 
-    // Normalize map on positive densities dividing by std
-    double foo;
-    V().computeAvgStdev_within_binary_mask(positiveMask, foo, std);
-    std::cout << "    Normalizing map by stdev value of positive densities: " << std << std::endl;
+    // // Normalize map on positive densities dividing by std
+    // double foo;
+    // V().computeAvgStdev_within_binary_mask(positiveMask, foo, std);
+    // std::cout << "    Normalizing map by stdev value of positive densities: " << std << std::endl;
 
-    // Normalize map
+    // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+    // {
+    //     DIRECT_MULTIDIM_ELEM(V(), n) = (DIRECT_MULTIDIM_ELEM(V(), n)+3*std) / std;
+    // }
+
+    // Normalize map on positive densities dividing by bouding in (min, max)
+    double min = MAXDOUBLE;
+    double max = 0;
+
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
-        DIRECT_MULTIDIM_ELEM(V(), n) = DIRECT_MULTIDIM_ELEM(V(), n) / std;
+        if (DIRECT_MULTIDIM_ELEM(positiveMask, n) > 0)
+        {
+            double val = DIRECT_MULTIDIM_ELEM(V(), n);
+            
+            if (val < min)
+            {
+                min = val;
+            }
+            if (val > max)
+            {
+                max = val;
+            }
+        }
+    }
+
+    std::cout << "    Normalizing map by min and max value of positive densities: " << min << " - " << max << std::endl;
+
+    FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
+    {
+        double val = (DIRECT_MULTIDIM_ELEM(V(), n) - min) / (max - min);
+
+        if (val < 0)
+        {
+            DIRECT_MULTIDIM_ELEM(V(), n) = 0;
+        }
+        else
+        {
+            DIRECT_MULTIDIM_ELEM(V(), n) = val;
+        }
     }
 
     #ifdef DEBUG_OUTPUT_FILES
