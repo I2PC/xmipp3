@@ -79,18 +79,15 @@ void ProgClassifyMapCluster::run()
 	{
         row.getValue(MDL_IMAGE, fn_V);
 
-        #ifdef DEBUG_STAT_MAP
+        #ifdef VERBOSE_OUTPUT
         std::cout << "Processing volume " << fn_V << " from statistical map pool..." << std::endl;
         #endif
 
         V.clear();
-		V_ft.clear();  // ** ojo que esto no se este cargando el vecto y solo lo ponga a ceros
+		V_ft.clear();
 
         V.read(fn_V);
-
 		ft.FourierTransform(V(), V_ft, false);
-		
-		normalizeFTMap(V_ft);
 
         if (!dimInitialized)
         {
@@ -113,6 +110,9 @@ void ProgClassifyMapCluster::run()
 
             dimInitialized = true;
         }
+
+		// Normalize map in Fourier space 
+		normalizeFTMap(V_ft);
 
         // Load preprocess map in reference map pool
         for(size_t k = 0; k < Zdim_ft; k++)
@@ -149,6 +149,19 @@ void ProgClassifyMapCluster::run()
 			}
 		}
 	}
+
+	#ifdef VERBOSE_OUTPUT
+	for(size_t i = 0; i < Ndim; i++)
+	{
+		for(size_t j = 0; j <Ndim; j++)
+		{	
+			if (j == 0) std::cout << "\n";
+			std::cout << DIRECT_A2D_ELEM(distanceMatrix, i, j) << "\t";
+		}
+	}
+	std::cout << std::endl;
+	#endif
+
 
 	// Cluster maps
 	// ***TODO!!!!!!!!!!!
@@ -228,11 +241,6 @@ void ProgClassifyMapCluster::generateSideInfo()
     Xdim_ft = XSIZE(V_ft);
     Ydim_ft = YSIZE(V_ft);
     Zdim_ft = ZSIZE(V_ft);
-
-    fn_out_avg_map = fn_oroot + "statsMap_avg.mrc";
-    fn_out_std_map = fn_oroot + "statsMap_std.mrc";
-    fn_out_median_map = fn_oroot + "statsMap_median.mrc";
-    fn_out_mad_map = fn_oroot + "statsMap_mad.mrc";
 
     composefreqMap();
 }
@@ -345,8 +353,8 @@ void ProgClassifyMapCluster::composefreqMap()
 void ProgClassifyMapCluster::normalizeFTMap(MultidimArray<std::complex<double>> &volFT)
 {
     // Compute avg and std
-    std::complex<double> sum(0.0, 0.0);	// Also mean
-    double sum2 = 0.0;				// Also std
+    std::complex<double> sum(0.0, 0.0);		// Also mean
+    double sum2 = 0.0;						// Also std
 	int numElems = 0; 
 
 	// Compute sum and sum^2 

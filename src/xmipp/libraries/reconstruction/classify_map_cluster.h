@@ -33,14 +33,9 @@
 #include "reconstruction/resolution_fscoh.h"
 
 #define VERBOSE_OUTPUT
-// #define DEBUG_DIM
-// #define DEBUG_FREQUENCY_MAP
-#define DEBUG_STAT_MAP
-#define DEBUG_WEIGHT_MAP
-#define DEBUG_WRITE_OUTPUT
+#define DEBUG_DIM
+#define DEBUG_FREQUENCY_MAP
 #define DEBUG_OUTPUT_FILES
-#define DEBUG_PREPROCESS
-#define DEBUG_SIGMA_NORM
 
 /**@defgroup ProgClassifyMapCluster Calculates statistical map
    @ingroup ReconsLibrary */
