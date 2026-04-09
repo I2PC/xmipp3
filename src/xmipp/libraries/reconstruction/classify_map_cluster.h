@@ -72,17 +72,28 @@ class ProgClassifyMapCluster: public XmippProgram
     size_t Ydim;
     size_t Zdim;
     size_t Ndim;
+    size_t Xdim_ft;
+	size_t Ydim_ft;
+	size_t Zdim_ft;
+	size_t Ndim_ft;
 
     // Data variables
-    MultidimArray<MultidimArray<double>> distanceMatrix;  // Matrix for saving pairwise distance between maps
+    MultidimArray<double> distanceMatrix;  // Matrix for saving pairwise distance between maps
+    FourierTransformer ft;              // Fourier transformer
+    MultidimArray<double> freqMap;                      // Frequency mapping in Fourier space
+    MultidimArray<double> FSC;                        // Fourier Shell Coherence
+    MultidimArray<double> FSC_num;                    // Fourier Shell Coherence numerator
+    MultidimArray<double> FSC_den;                    // Fourier Shell Coherence denominator
 
     Image<double> referenceMapPool;         // Reference map pool
+    Image<std::complex<double>> referenceMapPool_ft;         // Reference map pool Fourier Transform
     Image<double> medianMap;                // Median volume
     Image<double> MADMap;                   // MAD volume
     Image<double> V_ZscoresMAD;             // Each z-scores map using MAD from pool
 
     FileName fn_V;                          // Filename for each input volume from pool
     Image<double> V;                        // Each input volume from pool
+    MultidimArray<std::complex<double>> V_ft;       // Each input volume from pool Fourier Transform
     Image<double> V_Zscores;                // Each z-scores map from pool
     Image<double> avgVolume;                // Average volume
     Image<double> stdVolume;                // Standard deviation volume
@@ -104,9 +115,6 @@ class ProgClassifyMapCluster: public XmippProgram
     // Particle metadata
     MetaDataVec mapPoolMD;
     MDRowVec row;
-
-    // FSCoh
-    ProgFSCoh fscoh;
 
 public:
 
@@ -130,6 +138,9 @@ public:
     void run();
 
     // ----------------------- CORE METHODS ------------------------------
+    void calculateDistanceFSC(double &distance, int i1, int i2);
+
+
     void calculateFSCoh();
     void preprocessMap(FileName fnIn);
     void processStaticalMap();
@@ -140,8 +151,13 @@ public:
     void weightMap();
 
     // ---------------------- UTILS METHODS ------------------------------
+
     // Generate side info
     void generateSideInfo();
+    void composefreqMap();
+    void normalizeFTMap(MultidimArray<std::complex<double>> &volFT);
+
+
     void createRadiusMask();
     void generateDistanceMask(MultidimArray<int>& mask, MultidimArray<double>& maskDistance, double tao);
 

@@ -224,7 +224,7 @@ void ProgLocCoh::normalizeMap()
 
     // FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     // {
-    //     DIRECT_MULTIDIM_ELEM(V(), n) = (DIRECT_MULTIDIM_ELEM(V(), n)+3*std) / std;
+    //     DIRECT_MULTIDIM_ELEM(V(), n) = (DIRECT_MULTIDIM_ELEM(V(), n)) / std;
     // }
 
     // Normalize map on positive densities dividing by bouding in (min, max)

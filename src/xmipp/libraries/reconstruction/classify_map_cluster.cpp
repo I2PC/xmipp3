@@ -47,7 +47,7 @@ void ProgClassifyMapCluster::readParams()
 void ProgClassifyMapCluster::defineParams()
 {
 	//Usage
-    addUsageLine("This algorithm calculate the Fourier Shell Coherence from a input map pool.");
+    addUsageLine("This algorithm cluster maps based on FSC distance.");
 
     //Parameters
     addParamsLine("-i <i=\"\">                              : Input metadata containing the map pool.");
@@ -61,7 +61,7 @@ void ProgClassifyMapCluster::show() const
         return;
 	std::cout
 	<< "Input metadata containing map pool:\t" << fn_mapPool << std::endl
-	<< "Output location for FSCoh:\t" << fn_oroot << std::endl;
+	<< "Output location for FSC:\t" << fn_oroot << std::endl;
 }
 
 
@@ -73,6 +73,8 @@ void ProgClassifyMapCluster::run()
     mapPoolMD.read(fn_mapPool);
     Ndim = mapPoolMD.size();
 
+	size_t volCounter = 0;
+
 	for (const auto& row : mapPoolMD)
 	{
         row.getValue(MDL_IMAGE, fn_V);
@@ -82,10 +84,12 @@ void ProgClassifyMapCluster::run()
         #endif
 
         V.clear();
-		V_tf.clean();  // ** ojo que esto no se este cargando el vecto y solo lo ponga a ceros
+		V_ft.clear();  // ** ojo que esto no se este cargando el vecto y solo lo ponga a ceros
 
         V.read(fn_V);
+
 		ft.FourierTransform(V(), V_ft, false);
+		
 		normalizeFTMap(V_ft);
 
         if (!dimInitialized)
@@ -117,7 +121,7 @@ void ProgClassifyMapCluster::run()
             {
                 for(size_t i = 0; i < Ydim_ft; i++)
                 {
-                    DIRECT_NZYX_ELEM(referenceMapPool_ft(), volCounter, k, i, j) = DIRECT_ZYX_ELEM(V_ft(), k, i, j);
+                    DIRECT_NZYX_ELEM(referenceMapPool_ft(), volCounter, k, i, j) = DIRECT_ZYX_ELEM(V_ft, k, i, j);
                 }
             }
         }
@@ -134,14 +138,14 @@ void ProgClassifyMapCluster::run()
 		{
 			if (i1==i2)
 			{
-				DIRECT_YX_ELEM(distanceMatrix, i1, i2) = 1;
-				DIRECT_YX_ELEM(distanceMatrix, i2, i1) = 1;
+				DIRECT_A2D_ELEM(distanceMatrix, i1, i2) = 1;
+				DIRECT_A2D_ELEM(distanceMatrix, i2, i1) = 1;
 			}
 			else
 			{
 				calculateDistanceFSC(distance, i1, i2);
-				DIRECT_YX_ELEM(distanceMatrix, i1, i2) = distance;
-				DIRECT_YX_ELEM(distanceMatrix, i2, i1) = distance;
+				DIRECT_A2D_ELEM(distanceMatrix, i1, i2) = 0.0;
+				DIRECT_A2D_ELEM(distanceMatrix, i2, i1) = 0.0;
 			}
 		}
 	}
@@ -157,18 +161,19 @@ void ProgClassifyMapCluster::run()
 
 
 // Core methods ===================================================================
-void ProgClassifyMapCluster::calculateDistanceFSC(double distance, int i1, int i2)
+void ProgClassifyMapCluster::calculateDistanceFSC(double &distance, int i1, int i2)
 {
     std::cout << "Calculating FSC distance for indexes " << i1 << " and " << i2 << "..." << std::endl;
 
+	FSC_num.initZeros(std::min(Xdim_ft, std::min(Ydim_ft, Zdim_ft)));
+    FSC_den.initZeros(std::min(Xdim_ft, std::min(Ydim_ft, Zdim_ft)));
+
 	for(size_t k = 0; k < Zdim_ft; k++)
 	{
-		for(size_t j = 0; j <Xdim_ft; j++)
+		for(size_t j = 0; j < Xdim_ft; j++)
 		{
 			for(size_t i = 0; i < Ydim_ft; i++)
 			{
-				DIRECT_NZYX_ELEM(referenceMapPool_ft(), volCounter, k, i, j) = DIRECT_ZYX_ELEM(V_ft(), k, i, j);
-
 				int freqIdx = (int)DIRECT_ZYX_ELEM(freqMap, k, i, j);
 
 				// Consider only up to Nyquist (remove corners from analysis)
@@ -201,15 +206,15 @@ void ProgClassifyMapCluster::calculateDistanceFSC(double distance, int i1, int i
 
 		id = md.addObject();
 
-		md.setValue(MDL_RESOLUTION, value, id);
+		md.setValue(MDL_RESOLUTION_FRC, value, id);
 		md.setValue(MDL_RESOLUTION_FREQ, (1.0 * n / (2 * NZYXSIZE(FSC))), id);
 	}
 
-	std::string outputMD = fn_oroot + "FSC_" + str(i1) + "_vs_" + str(i2) + ".xmd";
+	std::string outputMD = fn_oroot + "FSC_" + std::to_string(i1) + "_vs_" + std::to_string(i2) + ".xmd";
 	md.write(outputMD);
 
 	std::cout << "  FSC saved at: " << outputMD << std::endl;
-	std::cout << "  Caluculated distance for maps " << str(i1) << " and " << str(i2) << ": " << distance << std::endl;
+	std::cout << "  Caluculated distance for maps " << std::to_string(i1) << " and " << std::to_string(i2) << ": " << distance << std::endl;
 }
 
 
@@ -220,9 +225,9 @@ void ProgClassifyMapCluster::generateSideInfo()
     Ydim = YSIZE(V());
     Zdim = ZSIZE(V());
 
-    Xdim_ft = XSIZE(V_ft());
-    Ydim_ft = YSIZE(V_ft());
-    Zdim_ft = ZSIZE(V_ft());
+    Xdim_ft = XSIZE(V_ft);
+    Ydim_ft = YSIZE(V_ft);
+    Zdim_ft = ZSIZE(V_ft);
 
     fn_out_avg_map = fn_oroot + "statsMap_avg.mrc";
     fn_out_std_map = fn_oroot + "statsMap_std.mrc";
@@ -234,16 +239,13 @@ void ProgClassifyMapCluster::generateSideInfo()
 
 void ProgClassifyMapCluster::composefreqMap()
 {
-	// Calculate FT
-	MultidimArray<std::complex<double>> V_ft; // Volume FT
-
 	ft.FourierTransform(V(), V_ft, false);
 
 	// FT dimensions
-	int Xdim_ft = XSIZE(V_ft);
-	int Ydim_ft = YSIZE(V_ft);
-	int Zdim_ft = ZSIZE(V_ft);
-	int Ndim_ft = NSIZE(V_ft);
+	Xdim_ft = XSIZE(V_ft);
+	Ydim_ft = YSIZE(V_ft);
+	Zdim_ft = ZSIZE(V_ft);
+	Ndim_ft = NSIZE(V_ft);
 
     // Use this dimension to initialize mFSC auxiliary maps
     FSC.initZeros(std::min(Xdim_ft, std::min(Ydim_ft, Zdim_ft)));
@@ -333,7 +335,7 @@ void ProgClassifyMapCluster::composefreqMap()
 
     #ifdef DEBUG_OUTPUT_FILES
 	Image<double> saveImage;
-	std::string debugFileFn = fn_oroot + "FSCoh_freqMap.mrc";
+	std::string debugFileFn = fn_oroot + "FSC_freqMap.mrc";
 	saveImage() = freqMap;
 	saveImage.write(debugFileFn);
     #endif
@@ -343,20 +345,16 @@ void ProgClassifyMapCluster::composefreqMap()
 void ProgClassifyMapCluster::normalizeFTMap(MultidimArray<std::complex<double>> &volFT)
 {
     // Compute avg and std
-    std::complex<double> sum;
-    double sum2;
-	int numElems; 
-
-	sum = (0,0);	// also mean
-	sum2 = 0;		// also std
-	numElems = 0;
+    std::complex<double> sum(0.0, 0.0);	// Also mean
+    double sum2 = 0.0;				// Also std
+	int numElems = 0; 
 
 	// Compute sum and sum^2 
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(volFT)
 	{
 		int freqIdx = static_cast<int>(DIRECT_MULTIDIM_ELEM(freqMap, n));
 
-       	if (freqIdx < NZYXSIZE(FSCoh))
+       	if (freqIdx < NZYXSIZE(FSC))
 		{
             sum      += DIRECT_MULTIDIM_ELEM(volFT,n);
             sum2     += std::norm(DIRECT_MULTIDIM_ELEM(volFT,n));
