@@ -139,14 +139,14 @@ void ProgClassifyMapCluster::run()
 		{
 			if (i1==i2)
 			{
-				DIRECT_A2D_ELEM(distanceMatrix, i1, i2) = 0.0;
-				DIRECT_A2D_ELEM(distanceMatrix, i2, i1) = 0.0;
+				MAT_ELEM(distanceMatrix, i1, i2) = 0.0;
+				MAT_ELEM(distanceMatrix, i2, i1) = 0.0;
 			}
 			else
 			{
 				calculateDistanceFSC(distance, i1, i2);
-				DIRECT_A2D_ELEM(distanceMatrix, i1, i2) = distance;
-				DIRECT_A2D_ELEM(distanceMatrix, i2, i1) = distance;
+				MAT_ELEM(distanceMatrix, i1, i2) = distance;
+				MAT_ELEM(distanceMatrix, i2, i1) = distance;
 			}
 		}
 	}
@@ -159,7 +159,7 @@ void ProgClassifyMapCluster::run()
 		for(size_t j = 0; j <Ndim; j++)
 		{	
 			if (j == 0) std::cout << "\n";
-			std::cout << std::fixed << std::setprecision(2) << DIRECT_A2D_ELEM(distanceMatrix, i, j) << "\t";
+			std::cout << std::fixed << std::setprecision(2) << MAT_ELEM(distanceMatrix, i, j) << "\t";
 
 		}
 	}
@@ -169,14 +169,18 @@ void ProgClassifyMapCluster::run()
 
 
 	// Cluster maps
-	// ***TODO!!!!!!!!!!!
+	// Eigen::MatrixXd X;
+	// Eigen::VectorXd eigenvals;
+
+	// classicalMDS(distanceMatrix, Ndim, 2, X, eigenvals);
+
+	// std::cout << "Eigenvalues:\n" << eigenvals.transpose() << std::endl;
 
     auto t2 = std::chrono::high_resolution_clock::now();
     auto ms_int = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1);
 
  	std::cout << "Execution time: " << ms_int.count() << " ms" << std::endl;
 }
-
 
 // Core methods ===================================================================
 void ProgClassifyMapCluster::calculateDistanceFSC(double &distance, int i1, int i2)
@@ -238,6 +242,75 @@ void ProgClassifyMapCluster::calculateDistanceFSC(double &distance, int i1, int 
 	std::cout << "  FSC saved at: " << outputMD << std::endl;
 	std::cout << "  Caluculated distance for maps " << std::to_string(i1) << " and " << std::to_string(i2) << ": " << distance << std::endl;
 }
+
+
+// #include <Eigen/Dense>
+// #include <iostream>
+// #include <vector>
+// #include <cmath>
+
+// // Replace this with your actual macro
+// #define MAT(m,i,j) DIRECT_A2D_ELEM(m,i,j)
+
+// template<typename MatrixType>
+// void classicalMDS(
+//     MatrixType& distanceMatrix,  // your structure
+//     int N,                       // number of points
+//     int outputDim,               // 2 or 3 usually
+//     Eigen::MatrixXd& X,          // output coordinates (NxoutputDim)
+//     Eigen::VectorXd& eigenvals   // eigenvalues (for diagnostics)
+// )
+// {
+//     // --- Step 1: copy into Eigen matrix ---
+//     Eigen::MatrixXd D(N, N);
+//     for (int i = 0; i < N; ++i)
+//         for (int j = 0; j < N; ++j)
+//             D(i,j) = MAT(distanceMatrix, i, j);
+
+//     // --- Step 2: square distances ---
+//     Eigen::MatrixXd D2 = D.array().square();
+
+//     // --- Step 3: centering matrix J = I - 1/N ---
+//     Eigen::MatrixXd J = Eigen::MatrixXd::Identity(N, N)
+//                       - Eigen::MatrixXd::Constant(N, N, 1.0 / N);
+
+//     // --- Step 4: compute B ---
+//     Eigen::MatrixXd B = -0.5 * J * D2 * J;
+
+//     // --- Step 5: eigen decomposition ---
+//     Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> solver(B);
+
+//     if (solver.info() != Eigen::Success)
+//     {
+//         std::cerr << "Eigen decomposition failed\n";
+//         return;
+//     }
+
+//     Eigen::VectorXd evals = solver.eigenvalues();
+//     Eigen::MatrixXd evecs = solver.eigenvectors();
+
+//     // --- Step 6: sort eigenvalues descending ---
+//     eigenvals.resize(N);
+//     for (int i = 0; i < N; ++i)
+//         eigenvals(i) = evals(N - 1 - i);
+
+//     // --- Step 7: build coordinates ---
+//     X = Eigen::MatrixXd::Zero(N, outputDim);
+
+//     int usedDims = 0;
+//     for (int k = 0; k < N && usedDims < outputDim; ++k)
+//     {
+//         double lambda = evals(N - 1 - k);
+
+//         if (lambda <= 0)
+//             continue;  // skip non-positive eigenvalues
+
+//         X.col(usedDims) =
+//             std::sqrt(lambda) * evecs.col(N - 1 - k);
+
+//         usedDims++;
+//     }
+// }
 
 
 // Utils methods ===================================================================

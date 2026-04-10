@@ -31,6 +31,7 @@
 #include "core/xmipp_image.h"
 #include "core/xmipp_filename.h"
 #include "reconstruction/resolution_fscoh.h"
+#include "core/matrix2d.h"
 
 #define VERBOSE_OUTPUT
 // #define DEBUG_DIM
@@ -73,7 +74,7 @@ class ProgClassifyMapCluster: public XmippProgram
 	size_t Ndim_ft;
 
     // Data variables
-    MultidimArray<double> distanceMatrix;  // Matrix for saving pairwise distance between maps
+    Matrix2D<double> distanceMatrix;  // Matrix for saving pairwise distance between maps
     FourierTransformer ft;              // Fourier transformer
     MultidimArray<double> freqMap;                      // Frequency mapping in Fourier space
     MultidimArray<double> FSC;                        // Fourier Shell Coherence
