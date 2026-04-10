@@ -58,8 +58,9 @@ class ScriptDeepConsensusJaxTrain(XmippScript):
     def define_params(self):
         self.addUsageLine('Train a DeepScreen model using JAX')
         ## Parameters
-        self.addParamsLine(' -i <metadata> : xmd file with the list of particle images')
-        self.addParamsLine(' --omodel <fnModel> : output file name for the trained model (default: model.npz)')
+        self.addParamsLine(' --pos <metadata> : xmd of true particle images')
+        self.addParamsLine(' --neg <metadata> : xmd of false particle images')
+        self.addParamsLine(' --omodel <fnModel> : output FOLDER for the trained model')
         self.addParamsLine('[--batchSize <N=64>] : Batch size')
         self.addParamsLine('[--imgSize <Xdim=128>] : Image size for training')
         self.addParamsLine('[--gpu <id=0>] : GPU ID to use')
@@ -71,7 +72,6 @@ class ScriptDeepConsensusJaxTrain(XmippScript):
         self.addParamsLine('[--bands <K=4>] : Number of frequency bands for the model')
     
     def run(self):
-        fnXmd = self.getParam("-i")
         fnModel = self.getParam("--omodel")
         maxEpochs = int(self.getParam("--maxEpochs"))
         batchSize = int(self.getParam("--batchSize")
@@ -88,11 +88,23 @@ class ScriptDeepConsensusJaxTrain(XmippScript):
 
         setup_gpu(gpuId)
 
-        mdExp = xmippLib.MetaData(fnXmd)
-        #TODO: SEPARATE POS; NEG; DOUBT
-        fnImgs = mdExp.getColumnValues(xmippLib.MDL_IMAGE)
-        fnLabels = mdExp.getColumnValues(xmippLib.MDL_LABEL)
+        fnDict = dict()
 
+        # Only POS and NEG are needed in training mode
+        # For scoring check deep_consensus_jax_predict.py
+        posXmdPath = self.getParam("--pos")
+        mdPos = xmippLib.MetaData(posXmdPath)
+        pos = mdPos.getColumnValues(xmippLib.MDL_IMAGE)
+        nPos = len(mdPos)
+        fnDict["positive"] = pos
+
+        negXmdPath = self.getParam("--neg")
+        mdNeg = xmippLib.MetaData(negXmdPath)
+        neg = mdNeg.getColumnValues(xmippLib.MDL_IMAGE)
+        nNeg = len(mdNeg)
+        fnDict["negative"] = neg
+
+        nTotal = nPos + nNeg
 
         # Set up the model, optimizer and state
         model = CryoCNNet()
@@ -113,22 +125,27 @@ class ScriptDeepConsensusJaxTrain(XmippScript):
             dropout_rng=rng
         )
 
-        num_steps = math.ceil(len(fnImgs) / batchSize)
+        num_steps = math.ceil(nTotal / batchSize)
 
-        train_gen = xmipp_train_batch_generator(fn_imgs=fnImgs, fn_labels=fnLabels, 
-                                          batch_size=batchSize, XDimOut=XDimOut, 
-                                          K=bands, n_cores=nCores, augment=augment)
+        train_gen = xmipp_train_batch_generator(fn_image_lists=fnDict, 
+                                                batch_size=batchSize,
+                                                XdimOut=XDimOut,
+                                                K=bands,
+                                                n_cores=nCores,
+                                                augment=augment
+                                                ) 
+            
         #train_gen_prefetch = prefetch_to_device(train_gen, 2) # batches
         train_gen_prefetch = train_gen
 
-        val_gen = xmipp_batch_generator(fn_imgs=fnImgs, fn_labels=fnLabels, 
-                                        batch_size=batchSize, XDimOut=XDimOut, 
-                                        K=bands, n_cores=nCores, augment=False)
+        val_gen = xmipp_val_batch_generator(fn_image_lists=fnDict, 
+                                                batch_size=batchSize,
+                                                XdimOut=XDimOut,
+                                                K=bands,
+                                                n_cores=nCores
+                                                ) 
         #val_gen_prefetch = prefetch_to_device(val_gen, 2) # batches
-        val_gen_prefetch = val_gen
-
-
-        
+        val_gen_prefetch = val_gen  
 
         # TRAIN LOOP
         val_interval = 500 # Validate every 500 steps
