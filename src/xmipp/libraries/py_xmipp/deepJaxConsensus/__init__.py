@@ -42,11 +42,12 @@ import optax
 import numpy as np
 from scipy.ndimage import zoom
 
-import xmippLib
+#import xmippLib
 
 DT_IMAGE = jnp.bfloat16
-CONV_DEPTH = 6
-CONV_INITIAL_CHANNELS = 32
+CONV_DEPTH = 4 
+PRECONV_DEPTH = 3
+CONV_INITIAL_CHANNELS = 16
 FILTER_BANK_BANDS = 5
 DROPOUT_PROB = 0.1
 
@@ -166,44 +167,99 @@ def xmipp_preload_all(fn_imgs, XdimOut, K=4):
     pre = jax.device_put(pre)
     return pre.astype(DT_IMAGE)
 
-def xmipp_train_batch_generator(fn_imgs, batch_size, XdimOut, K=4, n_cores=None, augment=True):
+@jax.jit
+def oversample_indices(key, n_source, n_target):
+    return jax.random.randint(key, shape=(n_target,), minval=0, maxval=n_source)
+
+@jax.jit
+def xmipp_train_batch_generator(fn_image_lists, batch_size, XdimOut, K=4,
+                                 n_cores=None, augment=True):
     """
-    fn_imgs: list of str, paths to the images
+    fn_imgage_lists: dictionary with positive, negative and doubt fns
     batch_size: int, number of particles per batch
     XdimOut: int, output dimension of the preprocessed images
     K: filterbank parameter, number of bands
     augment: bool, whether to apply random augmentations
     """
     preprocess_ctx = make_preprocess_context(XdimOut, K=K)
+
+    pos_fns = jnp.array(fn_image_lists["positive"])
+    neg_fns = jnp.array(fn_image_lists["negative"])
+    doubtful_fns = jnp.array(fn_image_lists["doubt"])
+
+    n_target = (len(pos_fns) + len(neg_fns)) / 2
+
+    rng = np.random.default_rng(0)
+
+    pos_idx = rng.integers(0, len(pos_fns), size=n_target)
+    neg_idx = rng.integers(0, len(neg_fns), size=n_target)
+
+    pos_bal = pos_fns[pos_idx]
+    neg_bal = neg_fns[neg_idx]
+
+    fn_imgs = np.concatenate([pos_bal, neg_bal])
+    labels = np.concatenate([
+        np.ones(n_target),
+        np.zeros(n_target)
+    ])
+
     n_imgs = len(fn_imgs)
-    idxs = np.arange(n_imgs)
+    key = jax.random.PRNGKey(0)
 
     # Infinitely generate for training
     while True:
-        np.random.shuffle(idxs)
+        perm = rng.permutation(n_imgs)
+        fn_imgs = fn_imgs[perm]
+        labels = labels[perm]
 
         for start in range(0, n_imgs, batch_size):
-            batch_idxs = idxs[start : start + batch_size]
-            batch_fns = [fn_imgs[i] for i in batch_idxs]
+            batch_fns = fn_imgs[start:start + batch_size]
+            batch_labels = labels[start:start + batch_size]
 
             # Load in parallel
             imgs = _load_parallel(batch_fns, n_cores) # (B, H, W)
 
             # Preprocess data (generate filterbank, PSD, resize, etc)
-            pre = preprocess_images(batch_fns, preprocess_ctx, dtype=np.float32, n_cores=n_cores) # (B, Hout, Wout, K+2)
-
-            # On-the-fly augmentation
-            if augment:
-                for i in range(pre.shape[0]):
-                    angle = np.random.choice([0, 90, 180, 270])
-                    pre[i] = np.rot90(pre[i], k=angle // 90, axes=(0, 1))
-                    pre[i] = np.fliplr(pre[i]) if np.random.rand() < 0.5 else pre[i]
-
+            pre = preprocess_images(batch_fns, 
+                                    preprocess_ctx, 
+                                    dtype=np.float32, 
+                                    n_cores=n_cores
+                                ) # (B, Hout, Wout, K+2)
+            
             # Send to GPU
             pre = jax.device_put(pre.astype(DT_IMAGE))
 
-            yield pre.astype(np.float32), labels_batch
+            # On-the-fly augmentation
+            if augment:
+                key, subkey = jax.random.split(key)
+                pre = augment_batch(pre, subkey)
 
+            yield pre.astype(np.float32), batch_labels
+
+@jax.jit
+def augment_batch(images, key):
+    B = images.shape[0]
+
+    key1, key2 = jax.random.split(key)
+
+    ks = jax.random.randint(key1, (B,), 0, 4)
+
+    def rotate(img, k):
+        return jnp.rot90(img, k=k, axes=(0,1))
+    
+    images = jax.vmap(rotate)(images, ks)
+
+    flip_mask = jax.random.bernoulli(key2, 0.5, (B,))
+
+    def flip(img, do_flip):
+        return jax.lax.cond(
+            do_flip,
+            lambda x: jnp.fliplr(x),
+            lambda x: x,
+            img
+        )
+    
+    return jax.vmap(flip)(images, flip_mask)
 
 # -----------------------------------------------------------------------------
 # Block definitions
@@ -232,7 +288,7 @@ class MultiScaleDilatedBlock(nn.Module):
         b2 = nn.Conv(features=self.features, kernel_size=(5,5), padding="SAME")(x)
         branches.append(norm_act(b2))
 
-        # Branches 3+: Dilated convolutions
+        # Branches 3+: Dilated Convolutions
         # Larger receptive fields without pooling, cool for low SNR lol
         for d in self.dilation_rates:
             bd = nn.Conv(
@@ -304,14 +360,14 @@ class AttentionPoolingBlock(nn.Module):
         return pooled
 
 class MultiHeadAttentionPoolingBlock(nn.Module):
-    num_heads: int = 4
+    num_heads: int = 2
 
     @nn.compact
     def __call__(self, x):
         heads = []
 
         for _ in range(self.num_heads):
-            attn = nn.conv(1, (1,1))(x)
+            attn = nn.Conv(1, (1,1))(x)
             B, H ,W , _ = attn.shape
 
             attn = attn.reshape(B, H*W)
@@ -433,8 +489,15 @@ class CryoCNNet(nn.Module):
 
         # Encode features
         raw_feat = nn.Conv(features=self.features, kernel_size=(3,3), padding="SAME")(raw)
-        band_feat = nn.conv(features=self.features, kernel_size=(3,3), padding="SAME")(bands)
+        band_feat = nn.Conv(features=self.features, kernel_size=(3,3), padding="SAME")(bands)
         psd_feat = nn.Conv(features=self.features, kernel_size=(3,3), padding="SAME")(psd)
+
+        #TODO: COSS - Colapso esta información demasiado pronto
+        #TODO: añadir un par de Convoluciones más por cada canal separado
+        for _ in range(1, 2):
+            raw_feat = nn.Conv(features=self.features, kernel_size=(3,3), padding="SAME")(raw_feat)
+            band_feat = nn.Conv(features=self.features, kernel_size=(3,3), padding="SAME")(band_feat)
+            psd_feat = nn.Conv(features=self.features, kernel_size=(3,3), padding="SAME")(psd_feat)
 
         # Gating for branch weighting
         weights = BranchGatingBlock()([raw_feat, band_feat, psd_feat])
@@ -452,10 +515,11 @@ class CryoCNNet(nn.Module):
         x = jnp.concatenate([raw_feat, band_feat, psd_feat], axis=-1)
         x = nn.Conv(features=self.features, kernel_size=(1,1), padding="SAME")(x)
 
-        # Stack of CNNBlocks
+        # Stack of CNNBlocks (use local variable for feature width growth)
+        cur_features = self.features
         for _ in range(self.depth):
-            x = MultiScaleDilatedBlock(features=self.features)(x, training=training)
-            self.features *= 2
+            x = MultiScaleDilatedBlock(features=cur_features)(x, training=training)
+            cur_features *= 2
 
         # Attention! Pooling
         x = MultiHeadAttentionPoolingBlock()(x) # Attention-based pooling
@@ -470,3 +534,89 @@ class CryoCNNet(nn.Module):
         # Ojo! Apply sigmoid_binary_cross_entropy in the loss function 
         # for better numerical stability with mixed precision
         return logits
+        #TODO: Ver como reducir n de parametros. Ver que capas son las mas gogdas 
+
+def _print_param_shapes(params):
+    # Recursively print parameter shapes from a (possibly) FrozenDict
+    def _recurse(d, prefix=""):
+        if hasattr(d, "items"):
+            for k, v in d.items():
+                _recurse(v, prefix + f"/{k}")
+        else:
+            try:
+                print(f"{prefix}: {jnp.shape(d)}")
+            except Exception:
+                print(f"{prefix}: {type(d)}")
+
+    _recurse(params, prefix="params")
+
+
+def _ascii_diagram(H, W, C, F, depth, num_heads=4):
+    """Return a simple ASCII diagram of the network with approximate shapes."""
+    lines = []
+    lines.append(f"Input: (1, {H}, {W}, {C})")
+    lines.append(f"  |\n  v")
+    lines.append(f"Branch convs (raw, bands, psd) -> each (1, {H}, {W}, {F})")
+    lines.append(f"  |\n  v")
+    lines.append(f"Fusion conv -> (1, {H}, {W}, {F})")
+
+    curF = F
+    for i in range(depth):
+        lines.append(f"  |\n  v\nBlock {i+1}: MultiScaleDilatedBlock -> (1, {H}, {W}, {curF})")
+        curF = curF * 2
+
+    last_feat = curF // 2
+    pooled_dim = num_heads * last_feat
+    lines.append(f"  |\n  v")
+    lines.append(f"Attention pooling -> (1, {pooled_dim})")
+    lines.append(f"  |\n  v")
+    lines.append(f"Dense -> 512 -> Out -> 1")
+
+    # Create a boxed ASCII layout for readability
+    return "\n" + "\n".join(lines)
+
+
+if __name__ == "__main__":
+    # Small demo runner: initialize the network and print a brief diagram
+    rng = jax.random.PRNGKey(0)
+
+    H = W = 32
+    K = FILTER_BANK_BANDS
+    C = int(K + 2)
+
+    # Create a dummy batch of one image with the expected number of channels
+    x_dummy = jnp.zeros((1, H, W, C), dtype=jnp.float32)
+
+    model = CryoCNNet()
+    variables = model.init(rng, x_dummy, training=False)
+    params = variables.get("params", variables)
+
+    print("=== CryoCNNet summary ===")
+    _print_param_shapes(params)
+
+    # Print total parameter count
+    import numpy as _np
+
+    def _count_params(p):
+        leaves = jax.tree_util.tree_leaves(p)
+        total = 0
+        for v in leaves:
+            try:
+                total += int(_np.prod(v.shape))
+            except Exception:
+                pass
+        return total
+
+    print("Total params:", _count_params(params))
+
+    # Forward a dummy input and print output shape
+    out = model.apply({"params": params}, x_dummy, training=False)
+    print("Output shape:", jnp.shape(out))
+
+    # Print ASCII diagram
+    try:
+        feat = int(getattr(model, "features", CONV_INITIAL_CHANNELS))
+        depth = int(getattr(model, "depth", CONV_DEPTH))
+        print(_ascii_diagram(H, W, C, feat, depth, num_heads=4))
+    except Exception as e:
+        print("Could not generate ASCII diagram:", e)
