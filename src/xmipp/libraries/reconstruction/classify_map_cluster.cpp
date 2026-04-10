@@ -30,6 +30,7 @@
  #include <iostream>
  #include <string>
  #include <chrono>
+ #include <iomanip>
 
 
 
@@ -151,12 +152,15 @@ void ProgClassifyMapCluster::run()
 	}
 
 	#ifdef VERBOSE_OUTPUT
+	std::cout << "--Distance matrix" << std::endl;
+
 	for(size_t i = 0; i < Ndim; i++)
 	{
 		for(size_t j = 0; j <Ndim; j++)
 		{	
 			if (j == 0) std::cout << "\n";
-			std::cout << DIRECT_A2D_ELEM(distanceMatrix, i, j) << "\t";
+			std::cout << std::fixed << std::setprecision(2) << DIRECT_A2D_ELEM(distanceMatrix, i, j) << "\t";
+
 		}
 	}
 	std::cout << std::endl;
