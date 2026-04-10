@@ -90,12 +90,12 @@ class ScriptDeepScreeningTrain(XmippScript):
         self.addParamsLine('[ -l <learningRate>  <F=1e-4> ] : Learning rate to train the network')
         
         self.addParamsLine('[ -r <regularizationStrengh> <F=1e-5> ] : l2 regularization to train the network')
-        
-        self.addParamsLine('[ -s <autoStop>  ]                      : Do not stop training when convengercy is '
-                           'detected')          
+               
         self.addParamsLine('[ -m <numberOfModels> <N=2> ]           : Number of models used as ensemble')
         self.addParamsLine('[ --effective_data_size <numberOfModels> <N=-1> ] : Number of effective data points for '
-                           ' training. If -1 use the number of true particles')        
+                           ' training. If -1 use the number of true particles')  
+        self.addParamsLine('[ -s <autoStop> <S=yes>]                      : Do not stop training when convengercy is '
+                           'detected')         
         
         ## examples
         self.addExampleLine('trainNet net:  xmipp_deep_screen -n ./netData --train_mode -p trueParticles.xmd -f '
@@ -137,9 +137,12 @@ class ScriptDeepScreeningTrain(XmippScript):
           nEpochs= self.getDoubleParam('-e')
           learningRate= self.getDoubleParam('-l')
           l2RegStrength= self.getDoubleParam('-r')
-          auto_stop=True
-          if self.checkParam('-s'):
-            auto_stop= False
+          stop = self.getParam('-s')
+          stop = stop.lower()
+          if stop == "y" or stop=="yes":
+            auto_stop= True
+          else:
+             auto_stop= False
           
           numModels=self.getIntParam('-m')
           effective_data_size= self.getIntParam("--effective_data_size")
@@ -192,7 +195,8 @@ class ScriptDeepScreeningTrain(XmippScript):
 
         trainDataManager = DataManager(posSetDict=posTrainDict,
                      negSetDict=negTrainDict,
-                     resizeSize=resizeSize)
+                     resizeSize=resizeSize,
+                     binary_labels=True)
                                        
         dataShape_nTrue_numModels= loadNetShape(netDataPath)
         if dataShape_nTrue_numModels:
@@ -210,7 +214,9 @@ class ScriptDeepScreeningTrain(XmippScript):
         assert numModels >=1, "Error, nModels<1"
         try:
             nnet = DeepTFSupervised(numberOfThreads= numberOfThreads, rootPath= netDataPath,
-                                    numberOfModels=numModels, effective_data_size=effective_data_size, use_mixed_precision=True, resizeSize=resizeSize)
+                                    numberOfModels=numModels, effective_data_size=effective_data_size,
+                                    use_mixed_precision=True, resizeSize=resizeSize,
+                                    num_labels=1)
             nnet.trainNet(nEpochs, trainDataManager, learningRate,
                           l2RegStrength, auto_stop, lr_auto_scale=True)
         except tf_intarnalError as e:
@@ -237,7 +243,8 @@ class ScriptDeepScreeningTrain(XmippScript):
 
         updateEnviron(gpuToUse)
 
-        predictDataManager = DataManager(posSetDict=predictDict, negSetDict=None, resizeSize=resizeSize)
+        predictDataManager = DataManager(posSetDict=predictDict, negSetDict=None,
+                                         resizeSize=resizeSize, binary_labels=True)
         dataShape_nTrue_numModels = loadNetShape(netDataPath)
         if dataShape_nTrue_numModels:
           numModels= dataShape_nTrue_numModels[-1]
@@ -246,7 +253,8 @@ class ScriptDeepScreeningTrain(XmippScript):
         try:
             nnet = DeepTFSupervised(numberOfThreads=numberOfThreads,
                                     rootPath=netDataPath,
-                                    numberOfModels=numModels)
+                                    numberOfModels=numModels,
+                                    num_labels=1)
         except tf_intarnalError as e:
             if e._error_code == 13:
                 raise Exception("Out of GPU Memory. GPU # %d" % (gpuToUse))
@@ -270,7 +278,8 @@ class ScriptDeepScreeningTrain(XmippScript):
             testDataManager = DataManager(posSetDict=posTestDict,
                                           negSetDict=negTestDict,
                                           validationFraction=0,
-                                          resizeSize=resizeSize)
+                                          resizeSize=resizeSize,
+                                          binary_labels=True)
             print("Evaluating test set")
             global_auc, global_acc, y_labels, y_pred_all = nnet.evaluateNet(testDataManager)
             if WRITE_TEST_SCORES:

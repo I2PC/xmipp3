@@ -202,7 +202,8 @@ def loadANDwriteNetAccuracy(netDataPath, nModels):
     f.write("mean_val_acc: %f" % mean_acc)
         
 class DeepTFSupervised(object):
-  def __init__(self, numberOfThreads, rootPath, numberOfModels=1, effective_data_size=-1, use_mixed_precision=False, resizeSize=None):
+  def __init__(self, numberOfThreads, rootPath, numberOfModels=1, effective_data_size=-1,
+               use_mixed_precision=False, resizeSize=None, num_labels=1):
     '''
       @param numberOfThreads: int or None if use gpu
       @param rootPath: str. Root directory where neural net data will be saved.
@@ -219,6 +220,7 @@ class DeepTFSupervised(object):
     self.effective_data_size= effective_data_size
     self.use_mixed_precision = use_mixed_precision
     self.resizeSize = resizeSize if resizeSize is not None else DESIRED_INPUT_SIZE
+    self.num_labels = num_labels
     if self.use_mixed_precision:
       try:
         tf.keras.mixed_precision.set_global_policy('mixed_float16')
@@ -243,7 +245,10 @@ class DeepTFSupervised(object):
       @param nData: number of positive cases expected in data. Not needed
     '''
     print ("Creating net.")
-    self.nNetModel, self.optimizerFunLambda = main_network( (xdim, ydim, num_chan),  nData= nData, l2RegStrength= l2RegStrength, resizeSize=self.resizeSize)
+    self.nNetModel, self.optimizerFunLambda = main_network((xdim, ydim, num_chan), nData=nData,
+                                                           l2RegStrength=l2RegStrength,
+                                                           num_labels=self.num_labels,
+                                                           resizeSize=self.resizeSize)
     self.optimizer= self.optimizerFunLambda(learningRate)
     # If mixed precision is enabled, wrap optimizer with LossScaleOptimizer
     if self.use_mixed_precision:
@@ -251,10 +256,11 @@ class DeepTFSupervised(object):
         self.optimizer = tf.keras.mixed_precision.LossScaleOptimizer(self.optimizer)
       except Exception:
         pass
-    self.nNetModel.compile( self.optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
+    loss = 'binary_crossentropy' if self.num_labels == 1 else 'categorical_crossentropy'
+    self.nNetModel.compile(self.optimizer, loss=loss, metrics=['accuracy'])
 
   def loadNNet(self, kerasModelFname, keepTraining=True, learningRate=1e-4, l2RegStrength=1e-5):
-    self.nNetModel= keras.models.load_model( kerasModelFname , custom_objects={"DESIRED_INPUT_SIZE":DESIRED_INPUT_SIZE})
+    self.nNetModel= keras.models.load_model(kerasModelFname, custom_objects={"DESIRED_INPUT_SIZE":DESIRED_INPUT_SIZE})
     self.optimizer= self.nNetModel.optimizer
     if keepTraining:
       # TF2: optimizer uses `learning_rate` attribute. If optimizer is a LossScaleOptimizer,
@@ -271,7 +277,9 @@ class DeepTFSupervised(object):
         if hasattr(layer, "kernel_regularizer"):
           if hasattr(layer.kernel_regularizer, "l2"):
             layer.kernel_regularizer.l2= l2RegStrength
-      self.nNetModel.compile( self.nNetModel.optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
+      output_dim = int(self.nNetModel.output_shape[-1])
+      loss = 'binary_crossentropy' if output_dim == 1 else 'categorical_crossentropy'
+      self.nNetModel.compile(self.nNetModel.optimizer, loss=loss, metrics=['accuracy'])
     
   def startSessionAndInitialize(self):
     '''
@@ -284,11 +292,20 @@ class DeepTFSupervised(object):
           tf.config.experimental.set_memory_growth(gpu, True)
       except Exception:
         pass
-    # Configure threading when numberOfThreads specified
+    # Configure threading for better data pipeline parallelism
     if self.numberOfThreads is not None:
       try:
         tf.config.threading.set_intra_op_parallelism_threads(self.numberOfThreads)
         tf.config.threading.set_inter_op_parallelism_threads(self.numberOfThreads)
+      except Exception:
+        pass
+    else:
+      # If no thread count specified, use auto-tuning for better I/O parallelism
+      try:
+        import multiprocessing
+        num_threads = max(4, multiprocessing.cpu_count() // 2)
+        tf.config.threading.set_intra_op_parallelism_threads(num_threads)
+        tf.config.threading.set_inter_op_parallelism_threads(num_threads)
       except Exception:
         pass
     return None
@@ -330,8 +347,29 @@ class DeepTFSupervised(object):
       currentCheckPointName= self.checkPointsNameTemplate%modelNum
       print("current checkpoint name %s"%(currentCheckPointName))
       if os.path.isfile( currentCheckPointName ):
-        print("loading previosly saved model %s"%(currentCheckPointName))
-        # Optionally autoscale learning rate with batch size (linear scaling rule)
+        print("loading previously saved model %s"%(currentCheckPointName))
+        try:
+          # Check if the saved model has compatible architecture
+          temp_model = tf.keras.models.load_model(currentCheckPointName)
+          saved_output_shape = temp_model.output_shape
+          expected_output_shape = (None, self.num_labels)
+          if saved_output_shape != expected_output_shape:
+            print(f"Model architecture mismatch: saved={saved_output_shape}, expected={expected_output_shape}. Starting fresh.")
+            os.remove(currentCheckPointName)  # Remove incompatible checkpoint
+            checkpoint_exists = False
+          else:
+            checkpoint_exists = True
+        except Exception as e:
+          print(f"Error checking model architecture: {e}. Starting fresh.")
+          try:
+            os.remove(currentCheckPointName)
+          except:
+            pass
+          checkpoint_exists = False
+      else:
+        checkpoint_exists = False
+      
+      if checkpoint_exists:
         batch_size = dataManagerTrain.getBatchSize()
         if lr_auto_scale:
           base_bs = lr_base_batch_size if lr_base_batch_size is not None else BATCH_SIZE
@@ -360,7 +398,7 @@ class DeepTFSupervised(object):
         cBacks+= [ keras.callbacks.EarlyStopping(monitor='val_accuracy', min_delta=0.001, patience=10, verbose=1) ]
 
       cBacks+= [ keras.callbacks.ReduceLROnPlateau(monitor='val_accuracy', factor=0.1, patience=3, cooldown=1,
-                 min_lr= learningRate*1e-3, verbose=1) ]
+                 min_lr= learningRate*1e-2, verbose=1) ]
 
       # Batch-level logging callback to provide more frequent progress when steps_per_epoch is small
       class BatchLoggingCallback(keras.callbacks.Callback):
@@ -395,9 +433,44 @@ class DeepTFSupervised(object):
       # Use tf.data.Dataset for training to leverage TF2 performance
       train_ds = dataManagerTrain.getTrainDataset()
       val_ds = dataManagerTrain.getValidationDataset(batchesPerEpoch=n_batches_per_epoch_val)
+      
+      # Debug: Check a few validation samples and filenames
+      try:
+        val_samples = list(val_ds.take(1))
+        if val_samples:
+          sample_images, sample_labels = val_samples[0]
+          print(f"Sample validation labels: {sample_labels[:10].numpy()}")
+          # Get model predictions on sample
+          sample_preds = self.nNetModel.predict_on_batch(sample_images[:10])
+          print(f"Sample validation predictions: {sample_preds}")
+          print(f"Model output shape: {self.nNetModel.output_shape}")
+          print(f"Loss function: {self.nNetModel.loss}")
+          print(f"Optimizer: {self.nNetModel.optimizer}")
+          try:
+            lr = self.nNetModel.optimizer.learning_rate.numpy() if hasattr(self.nNetModel.optimizer, 'learning_rate') else 'N/A'
+          except Exception:
+            lr = 'N/A'
+          print(f"Learning rate: {lr}")
+      except Exception as e:
+        print("Validation sample debug failed:", e)
+
+      # Diagnostic: print first few validation filename batches (diagnostic helper)
+      try:
+        fn_batches = dataManagerTrain.getValidationFilenameBatches(max_batches=3)
+        for i, fb in enumerate(fn_batches):
+          print(f"Validation filenames batch {i}: {fb[:min(10, len(fb))]}")
+      except Exception as e:
+        print("Could not retrieve validation filename batches:", e)
+      
       history = self.nNetModel.fit(x=train_ds, steps_per_epoch= steps_per_epoch,
              validation_data=val_ds, validation_steps=n_batches_per_epoch_val,
              callbacks=cBacks, epochs=nEpochs, verbose=2)
+      
+      # Debug: Check training history
+      print(f"Training history - Loss: {history.history.get('loss', [])[-5:]}")
+      print(f"Training history - Accuracy: {history.history.get('accuracy', [])[-5:]}")
+      print(f"Training history - Val Loss: {history.history.get('val_loss', [])[-5:]}")
+      print(f"Training history - Val Accuracy: {history.history.get('val_accuracy', [])[-5:]}")
 
       # history key in TF2 is 'val_accuracy'
       last_val_acc = history.history.get('val_accuracy', history.history.get('val_acc'))[-1]
@@ -407,22 +480,27 @@ class DeepTFSupervised(object):
     loadANDwriteNetAccuracy(self.rootPath, self.numberOfModels)
       
       
+  def _extract_positive_probability(self, preds):
+    if preds.ndim == 2 and preds.shape[1] == 2:
+      return preds[:,1]
+    return np.squeeze(preds)
+
   def predictNet(self, dataManger):
     n_images, n_batches= dataManger.getIteratorPredictBatchNSteps()
     y_pred_all= np.zeros(n_images)
     for modelNum in range(self.numberOfModels):
       self.startSessionAndInitialize()
       currentCheckPointName= self.checkPointsNameTemplate%modelNum
-      if os.path.isfile( currentCheckPointName ):
+      if os.path.isfile(currentCheckPointName):
         print("loading model %s"%(currentCheckPointName)); sys.stdout.flush()
-        self.loadNNet( currentCheckPointName, keepTraining=False)
+        self.loadNNet(currentCheckPointName, keepTraining=False)
       else:
         raise ValueError("Neural net must be trained before prediction")
 
       sys.stdout.flush()
       print("predicting with model %d/%d"%((modelNum+1), self.numberOfModels)); sys.stdout.flush()
       preds = self.nNetModel.predict(dataManger.getPredictDataset(), steps=n_batches, verbose=0)
-      y_pred_all+= preds[:,1]
+      y_pred_all += self._extract_positive_probability(preds)
       print("prediction done"); sys.stdout.flush()
       self.closeSession()
     y_pred_all= y_pred_all/ self.numberOfModels
@@ -451,7 +529,7 @@ class DeepTFSupervised(object):
 
     n_images, n_batches= dataManger.getIteratorPredictBatchNSteps()
     y_pred_all= np.zeros( (self.numberOfModels, n_images) )
-    y_labels= np.concatenate( [label[:,1] for data,label in dataManger.getIteratorPredictBatch()] )
+    y_labels= np.concatenate([np.squeeze(label) for data,label in dataManger.getIteratorPredictBatch()])
     stats=[]
     for modelNum in range(self.numberOfModels):
       self.startSessionAndInitialize()
@@ -466,7 +544,7 @@ class DeepTFSupervised(object):
       sys.stdout.flush()
 
       preds = self.nNetModel.predict(dataManger.getPredictDataset(), steps=n_batches, verbose=0)
-      y_pred_all[modelNum,:]= preds[:,1]
+      y_pred_all[modelNum,:]= self._extract_positive_probability(preds)
 
       curr_auc= roc_auc_score(y_labels, y_pred_all[modelNum,:] )
       curr_acc= accuracy_score(y_labels, [1 if y>=0.5 else 0 for y in  y_pred_all[modelNum,:]])
@@ -488,11 +566,12 @@ class DeepTFSupervised(object):
 
 class DataManager(object):
 
-  def __init__(self, posSetDict, negSetDict=None, validationFraction=0.1, batch_size=None, prefetch_to_device=True, resizeSize=None):
+  def __init__(self, posSetDict, negSetDict=None, validationFraction=0.2, batch_size=None,
+               prefetch_to_device=True, resizeSize=None, binary_labels=False):
     '''
         posSetDict, negSetDict: { fnameToMetadata:  weight:int ]
     '''
-    assert validationFraction <= 0.4, "Error, validationFraction must  <= 0.4"
+    assert validationFraction <= 0.4, "Error, validationFraction must be <= 0.4"
     if negSetDict is None: validationFraction= -1
     self.mdListFalse = None
     self.nFalse = 0 #Number of negative particles in dataManager
@@ -503,10 +582,11 @@ class DataManager(object):
     self.validationIdsNeg = None
     # store user-provided resize size (falls back to DESIRED_INPUT_SIZE)
     self.resizeSize = (resizeSize, resizeSize, 1) if resizeSize is not None else (DESIRED_INPUT_SIZE, DESIRED_INPUT_SIZE, 1)
+    self.binary_labels = binary_labels
 
     self.mdListTrue, self.fnMergedListTrue, self.weightListTrue, self.nTrue, self.shape= self.colectMetadata(posSetDict)
 
-    info = estimate_batch_size_for_image(self.resizeSize, gpu_index=0, reserved_memory_mb=768, overhead_ratio=0.92, max_batch=1024)
+    info = estimate_batch_size_for_image(self.resizeSize, gpu_index=0, reserved_memory_mb=768, overhead_ratio=0.92, max_batch=512)
 
     if info and info.get('estimated_batch'):
       est = int(info['estimated_batch'])
@@ -542,6 +622,26 @@ class DataManager(object):
 #        assert len(self.trainingIdsPos)<=  len(self.trainingIdsNeg), "Error, the number of positive particles "+\
 #        "must be <= negative particles ( %d / %d)"%(len(self.trainingIdsPos), len(self.trainingIdsNeg))
         
+  def _get_2d_shape_from_image(self, img_data):
+    """Extract 2D shape from image data, handling 3D volumes by taking the middle slice."""
+    if img_data.ndim == 3:
+      # Return shape of the middle slice
+      return img_data.shape[1], img_data.shape[2]
+    elif img_data.ndim == 2:
+      return img_data.shape
+    else:
+      raise ValueError(f"Unexpected image shape: {img_data.shape}")
+
+  def _get_2d_data_from_image(self, img_data):
+    """Extract 2D numpy array from image data, handling 3D volumes by taking the middle slice."""
+    if img_data.ndim == 3:
+      mid_z = img_data.shape[0] // 2
+      return img_data[mid_z, :, :]
+    elif img_data.ndim == 2:
+      return img_data
+    else:
+      raise ValueError(f"Unexpected image shape: {img_data.shape}")
+
   def colectMetadata(self, dictData):
 
     mdList=[]
@@ -554,7 +654,7 @@ class DataManager(object):
       mdObject  = xmippLib.MetaData(fnameXMDF)
       I= xmippLib.Image()
       I.read(mdObject.getValue(xmippLib.MDL_IMAGE, mdObject.firstObject()))
-      xdim, ydim= I.getData().shape
+      xdim, ydim= self._get_2d_shape_from_image(I.getData())
       imgFnames = mdObject.getColumnValues(xmippLib.MDL_IMAGE)
       mdList+= [mdObject]
       fnamesList_merged+= imgFnames
@@ -608,14 +708,6 @@ class DataManager(object):
       batch[i] = np.rot90(batch[i], num_rotations)
     return batch
 
-  def _random_rotation(self, batch, max_angle):
-    for i in range(len(batch)):
-      if bool(random.getrandbits(1)):
-        # Random angle
-        angle = random.uniform(-max_angle, max_angle)
-        batch[i] = scipy.ndimage.interpolation.rotate(batch[i], angle,reshape=False, mode="reflect")
-    return batch
-
   def _random_blur(self, batch, sigma_max):
     for i in range(len(batch)):
       if bool(random.getrandbits(1)):
@@ -630,8 +722,6 @@ class DataManager(object):
       batch= self._random_flip_updown(batch)
     if bool(random.getrandbits(1)):
       batch= self._random_90degrees_rotation(batch)
-    if bool(random.getrandbits(1)):
-      batch= self._random_rotation(batch, 10.0)
     return batch
 
   def getDataAsNp(self):
@@ -639,6 +729,7 @@ class DataManager(object):
     x, labels, __ = zip(* allData)
     x= np.concatenate(x)
     y= np.concatenate(labels)
+    print((x,y))
     return x,y
 
   def getPredictDataLabel_Id_dataSetNum(self):
@@ -653,6 +744,31 @@ class DataManager(object):
         for objId in mdFalse:
           label_Id_dataSetNum.append((False,objId, dataSetNum))
     return label_Id_dataSetNum
+
+  def getValidationFilenameBatches(self, max_batches=3):
+    """Yield lists of filenames for the first `max_batches` validation batches.
+
+    This helper is purely diagnostic: it returns the filenames (not the images)
+    that would be used in the validation dataset, batched according to
+    `self.batchSize`.
+    """
+    # Build filename list for validation mode similar to `_get_dataset`
+    fn_list = []
+    if self.validationIdsPos is None:
+      return []
+    ids_true = list(self.validationIdsPos)
+    ids_false = list(self.validationIdsNeg) if self.validationIdsNeg is not None else []
+    for idx in ids_true:
+      fn_list.append(self.fnMergedListTrue[idx])
+    for idx in ids_false:
+      fn_list.append(self.fnMergedListFalse[idx])
+
+    batches = []
+    for i in range(0, len(fn_list), self.batchSize):
+      batches.append(fn_list[i:i + self.batchSize])
+      if len(batches) >= max_batches:
+        break
+    return batches
 
   def getIteratorPredictBatchNSteps(self):
     '''
@@ -670,7 +786,10 @@ class DataManager(object):
     batchSize = self.batchSize
     xdim,ydim,nChann= self.shape
     batchStack = np.zeros((self.batchSize, xdim,ydim,nChann))
-    batchLabels  = np.zeros((batchSize, 2))
+    if self.binary_labels:
+      batchLabels = np.zeros((batchSize,))
+    else:
+      batchLabels = np.zeros((batchSize, 2))
     I = xmippLib.Image()
     n = 0
     for dataSetNum in range(len(self.mdListTrue)):
@@ -678,8 +797,12 @@ class DataManager(object):
       for objId in mdTrue:
         fnImage = mdTrue.getValue(xmippLib.MDL_IMAGE, objId)
         I.read(fnImage)
-        batchStack[n,...]= np.expand_dims(I.getData(),-1)
-        batchLabels[n, 1]= 1
+        data_2d = self._get_2d_data_from_image(I.getData().astype(np.float32))
+        batchStack[n,...]= np.expand_dims(data_2d, -1)
+        if self.binary_labels:
+          batchLabels[n] = 1
+        else:
+          batchLabels[n, 1] = 1
         n+=1
         if n>=batchSize:
 #          fig=plt.figure()
@@ -689,15 +812,20 @@ class DataManager(object):
 #          plt.show()
           yield batchStack, batchLabels
           n=0
-          batchLabels  = np.zeros((batchSize, 2))
+          if self.binary_labels:
+            batchLabels = np.zeros((batchSize,))
+          else:
+            batchLabels = np.zeros((batchSize, 2))
     if not self.mdListFalse is None:
       for dataSetNum in range(len(self.mdListFalse)):
         mdFalse= self.mdListFalse[dataSetNum]
         for objId in mdFalse:
           fnImage = mdFalse.getValue(xmippLib.MDL_IMAGE, objId)
           I.read(fnImage)
-          batchStack[n,...]= np.expand_dims(I.getData(),-1)
-          batchLabels[n, 0]= 1
+          data_2d = self._get_2d_data_from_image(I.getData().astype(np.float32))
+          batchStack[n,...]= np.expand_dims(data_2d, -1)
+          if not self.binary_labels:
+            batchLabels[n, 0] = 1
           n+=1
           if n>=batchSize:
 #            fig=plt.figure()
@@ -707,7 +835,10 @@ class DataManager(object):
 #            plt.show()
             yield batchStack, batchLabels
             n=0
-            batchLabels  = np.zeros((batchSize, 2))
+            if self.binary_labels:
+              batchLabels = np.zeros((batchSize,))
+            else:
+              batchLabels = np.zeros((batchSize, 2))
     if n>0:
       yield batchStack[:n,...], batchLabels[:n,...]
 
@@ -734,7 +865,10 @@ class DataManager(object):
     batchSize = self.batchSize
     xdim,ydim,nChann= self.shape
     batchStack = np.zeros((self.batchSize, xdim,ydim,nChann))
-    batchLabels  = np.zeros((batchSize, 2))
+    if self.binary_labels:
+      batchLabels = np.zeros((batchSize,))
+    else:
+      batchLabels = np.zeros((batchSize, 2))
     I = xmippLib.Image()
     n = 0
     currNBatches=0
@@ -756,7 +890,7 @@ class DataManager(object):
 
     fnMergedListTrue = (self.fnMergedListTrue[i] for i in idxListTrue)
     # fnMergedListFalse may be None or empty when no negative dataset was provided
-    if (self.fnMergedListFalse is not None) and (len(ids_false if 'ids_false' in locals() else idxListFalse) > 0):
+    if (self.fnMergedListFalse is not None) and (len(idxListFalse) > 0):
       fnMergedListFalse = (self.fnMergedListFalse[i] for i in idxListFalse)
     else:
       fnMergedListFalse = None
@@ -764,35 +898,54 @@ class DataManager(object):
     if fnMergedListFalse is not None:
       for fnImageTrue, fnImageFalse in zip(fnMergedListTrue, fnMergedListFalse):
         I.read(fnImageTrue)
-        batchStack[n,...]= np.expand_dims(I.getData(),-1)
-        batchLabels[n, 1]= 1
+        data_2d = self._get_2d_data_from_image(I.getData().astype(np.float32))
+        batchStack[n,...]= np.expand_dims(data_2d, -1)
+        if self.binary_labels:
+          batchLabels[n] = 1
+        else:
+          batchLabels[n, 1] = 1
         n+=1
         if n>=batchSize:
           yield augmentBatch(batchStack), batchLabels
           n=0
-          batchLabels  = np.zeros((batchSize, 2))
+          if self.binary_labels:
+            batchLabels = np.zeros((batchSize,))
+          else:
+            batchLabels = np.zeros((batchSize, 2))
           currNBatches+=1
           if nBatches and currNBatches>=nBatches:
             break
         I.read(fnImageFalse)
-        batchStack[n,...]= np.expand_dims(I.getData(),-1)
-        batchLabels[n, 0]= 1
+        data_2d = self._get_2d_data_from_image(I.getData().astype(np.float32))
+        batchStack[n,...]= np.expand_dims(data_2d, -1)
+        if not self.binary_labels:
+          batchLabels[n, 0] = 1
         n+=1
         if n>=batchSize:
           yield augmentBatch(batchStack), batchLabels
           n=0
-          batchLabels  = np.zeros((batchSize, 2))
+          if self.binary_labels:
+            batchLabels = np.zeros((batchSize,))
+          else:
+            batchLabels = np.zeros((batchSize, 2))
     else:
       # No negative examples: yield batches composed only of positive examples
       for fnImageTrue in fnMergedListTrue:
         I.read(fnImageTrue)
-        batchStack[n,...]= np.expand_dims(I.getData(),-1)
-        batchLabels[n, 1]= 1
+        data_2d = self._get_2d_data_from_image(I.getData().astype(np.float32))
+        batchStack[n,...]= np.expand_dims(data_2d, -1)
+        if self.binary_labels:
+          batchLabels[n] = 1
+        else:
+          batchLabels[n, 1] = 1
         n+=1
         if n>=batchSize:
           yield augmentBatch(batchStack), batchLabels
           n=0
-          batchLabels  = np.zeros((batchSize, 2))
+          if self.binary_labels:
+            batchLabels = np.zeros((batchSize,))
+          else:
+            batchLabels = np.zeros((batchSize, 2))
         currNBatches+=1
         if nBatches and currNBatches>=nBatches:
           break
@@ -819,7 +972,9 @@ class DataManager(object):
     """Load image from disk using xmippLib.Image and return numpy float32 array with channel dim."""
     I = xmippLib.Image()
     I.read(fname)
-    arr = np.expand_dims(I.getData().astype(np.float32), -1)
+    data = I.getData().astype(np.float32)
+    data_2d = self._get_2d_data_from_image(data)
+    arr = np.expand_dims(data_2d, -1)
     return arr
 
   def _py_load_image(self, fname):
@@ -846,76 +1001,47 @@ class DataManager(object):
     return img
 
   def _augment_tf(self, image):
-    """Apply augmentation with TF ops where possible (flips, 90deg rotations, small gaussian blur)."""
+    """Apply augmentation with TF ops where possible (flips, 90deg rotations, small gaussian blur, small variations)."""
     # image: tf.Tensor [H,W,1], dtype float32
-    # random flips
+    xdim, ydim, nChann = self.shape
+    
+    # Random flips (very reliable, no shape issues)
     image = tf.image.random_flip_left_right(image)
     image = tf.image.random_flip_up_down(image)
-    # random 90-degree rotation
+    
+    # Random 90-degree rotation (very reliable)
     k = tf.random.uniform([], 0, 4, dtype=tf.int32)
     image = tf.image.rot90(image, k)
-    # small random rotation (angle in degrees) using tensorflow_addons when available
-    def _apply_small_rotation(img):
-      if tfa is not None:
-        angle_deg = tf.random.uniform([], -10.0, 10.0)
-        angle = angle_deg * (3.14159265 / 180.0)
-        # tfa.image.rotate expects shape [H,W, C]
-        return tfa.image.rotate(img, angles=angle, interpolation='bilinear', fill_mode='reflect')
-      else:
-        # fallback to py_function using scipy (CPU)
-        def _py_rotate(img_np):
-          # img_np is a numpy array when called via tf.numpy_function
-          if bool(random.getrandbits(1)):
-            angle = random.uniform(-10.0, 10.0)
-            img_np = scipy.ndimage.interpolation.rotate(img_np.squeeze(), angle, reshape=False, mode='reflect')
-            img_np = np.expand_dims(img_np, -1)
-          return img_np.astype(np.float32)
-        out = tf.numpy_function(func=_py_rotate, inp=[img], Tout=tf.float32)
-        out.set_shape(img.shape)
-        return out
+    
+    # Small random rotation (with fallback, avoiding tf.cond shape issues)
+    # Use only numpy-based rotation to avoid tfa.image.rotate shape problems
+    def _py_rotate_and_blur(img_np):
+      # img_np shape should be [H, W, 1]
+      img_2d = img_np.squeeze()  # Remove channel dim for rotation
+      
+      # Random rotation (reduced frequency to reduce CPU load)
+      if random.random() < 0.3:  # 30% chance instead of 50%
+        angle = random.uniform(-10.0, 10.0)
+        img_2d = scipy.ndimage.interpolation.rotate(img_2d, angle, reshape=False, mode='reflect')
+      
+      # Random gaussian blur (reduced frequency to reduce CPU load)
+      if random.random() < 0.2:  # 20% chance instead of 50%
+        sigma = random.uniform(0.0, 1.0)
+        img_2d = scipy.ndimage.filters.gaussian_filter(img_2d, sigma)
+      
+      # Add channel dimension back
+      return np.expand_dims(img_2d.astype(np.float32), -1)
+    
+    # Use py_function which is more predictable than tf.cond with tfa ops
+    image = tf.numpy_function(func=_py_rotate_and_blur, inp=[image], Tout=tf.float32)
+    image.set_shape([xdim, ydim, nChann])
+    
+    # Random amplitude scaling (TF op, very reliable)
+    do_amplitude = tf.less(tf.random.uniform([], 0.0, 1.0), 0.4)
+    scale = tf.random.uniform([], 0.5, 2.0)
+    image = tf.cond(do_amplitude, lambda: image * scale, lambda: image)
+    image.set_shape([xdim, ydim, nChann])
 
-    do_rotate = tf.less(tf.random.uniform([], 0.0, 1.0), 0.5)
-    image = tf.cond(do_rotate, lambda: _apply_small_rotation(image), lambda: image)
-
-    # Gaussian blur via depthwise conv2d (TF op) for GPU; fallback to py_function if kernel degenerate
-    def _apply_gaussian_blur(img):
-      # sigma random in [0, 1.0)
-      sigma = tf.random.uniform([], 0.0, 1.0)
-      # if sigma is very small, skip
-      def _no_blur():
-        return img
-
-      def _blur():
-        # kernel size: odd, proportional to sigma (3*sigma rule)
-        radius = tf.cast(tf.math.ceil(3.0 * sigma), tf.int32)
-        ksize = tf.maximum(1, radius * 2 + 1)
-        # if ksize==1 no blur
-        def _no_blur_inner():
-          return img
-
-        def _do_blur():
-          # create 1D gaussian
-          coords = tf.cast(tf.range(-radius, radius + 1), tf.float32)
-          sigma_safe = tf.maximum(sigma, 1e-6)
-          g = tf.exp(- (coords ** 2) / (2.0 * sigma_safe ** 2))
-          g = g / tf.reduce_sum(g)
-          kernel2d = tf.tensordot(g, g, axes=0)  # shape [ksize, ksize]
-          kernel2d = kernel2d[:, :, tf.newaxis, tf.newaxis]
-          # cast to float32
-          kernel2d = tf.cast(kernel2d, tf.float32)
-          # img shape [H,W,1], add batch dim
-          img_batch = tf.expand_dims(img, 0)
-          # pad to preserve size
-          # perform depthwise conv
-          blurred = tf.nn.depthwise_conv2d(img_batch, kernel2d, strides=[1, 1, 1, 1], padding='SAME')
-          return tf.squeeze(blurred, 0)
-
-        return tf.cond(tf.equal(ksize, 1), _no_blur_inner, _do_blur)
-
-      return tf.cond(tf.less(sigma, 1e-6), _no_blur, _blur)
-
-    do_blur = tf.less(tf.random.uniform([], 0.0, 1.0), 0.5)
-    image = tf.cond(do_blur, lambda: _apply_gaussian_blur(image), lambda: image)
     return image
 
   def _augment_batch_tf(self, images):
@@ -928,6 +1054,8 @@ class DataManager(object):
     # images: [B,H,W,C]
     B = tf.shape(images)[0]
     # Random per-example left-right flip
+
+    #TODO: En aleatorizar, no hacer concatenados. O una, o la otra, o la que sea pero solo 1
     mask_lr = tf.random.uniform([B], 0.0, 1.0) < 0.5
     flipped_lr = tf.image.flip_left_right(images)
     images = tf.where(tf.reshape(mask_lr, [B, 1, 1, 1]), flipped_lr, images)
@@ -978,6 +1106,71 @@ class DataManager(object):
         blurred = tf.nn.depthwise_conv2d(img_batch, kernel2d, strides=[1, 1, 1, 1], padding='SAME')
         return tf.squeeze(blurred, 0)
       img = tf.cond(tf.less(sigma, 1e-6), _no_blur, _do_blur)
+      
+      # Filter bank augmentation (TF version)
+      filter_type = tf.random.uniform([], 0, 3, dtype=tf.int32)
+      def _low_pass_filter_tf(img):
+        fft = tf.signal.fft2d(tf.cast(img, tf.complex64))
+        h, w = tf.shape(img)[0], tf.shape(img)[1]
+        center_h, center_w = h // 2, w // 2
+        cutoff_ratio = tf.random.uniform([], 0.1, 0.5)
+        cutoff_h = tf.cast(tf.cast(center_h, tf.float32) * cutoff_ratio, tf.int32)
+        y_coords = tf.range(h)
+        x_coords = tf.range(w)
+        y_grid, x_grid = tf.meshgrid(y_coords, x_coords, indexing='ij')
+        distances = tf.sqrt(tf.cast((y_grid - center_h)**2 + (x_grid - center_w)**2, tf.float32))
+        mask = tf.cast(distances <= tf.cast(cutoff_h, tf.float32), tf.complex64)
+        filtered_fft = fft * mask
+        filtered = tf.signal.ifft2d(filtered_fft)
+        return tf.abs(tf.cast(filtered, tf.float32))
+      
+      def _high_pass_filter_tf(img):
+        fft = tf.signal.fft2d(tf.cast(img, tf.complex64))
+        h, w = tf.shape(img)[0], tf.shape(img)[1]
+        center_h, center_w = h // 2, w // 2
+        cutoff_ratio = tf.random.uniform([], 0.05, 0.3)
+        cutoff_h = tf.cast(tf.cast(center_h, tf.float32) * cutoff_ratio, tf.int32)
+        y_coords = tf.range(h)
+        x_coords = tf.range(w)
+        y_grid, x_grid = tf.meshgrid(y_coords, x_coords, indexing='ij')
+        distances = tf.sqrt(tf.cast((y_grid - center_h)**2 + (x_grid - center_w)**2, tf.float32))
+        mask = tf.cast(distances > tf.cast(cutoff_h, tf.float32), tf.complex64)
+        filtered_fft = fft * mask
+        filtered = tf.signal.ifft2d(filtered_fft)
+        return tf.abs(tf.cast(filtered, tf.float32))
+      
+      def _band_pass_filter_tf(img):
+        fft = tf.signal.fft2d(tf.cast(img, tf.complex64))
+        h, w = tf.shape(img)[0], tf.shape(img)[1]
+        center_h, center_w = h // 2, w // 2
+        low_cutoff_ratio = tf.random.uniform([], 0.05, 0.2)
+        high_cutoff_ratio = tf.random.uniform([], 0.3, 0.6)
+        low_cutoff = tf.cast(tf.cast(center_h, tf.float32) * low_cutoff_ratio, tf.int32)
+        high_cutoff = tf.cast(tf.cast(center_h, tf.float32) * high_cutoff_ratio, tf.int32)
+        y_coords = tf.range(h)
+        x_coords = tf.range(w)
+        y_grid, x_grid = tf.meshgrid(y_coords, x_coords, indexing='ij')
+        distances = tf.sqrt(tf.cast((y_grid - center_h)**2 + (x_grid - center_w)**2, tf.float32))
+        mask = tf.logical_and(distances >= tf.cast(low_cutoff, tf.float32), 
+                             distances <= tf.cast(high_cutoff, tf.float32))
+        mask = tf.cast(mask, tf.complex64)
+        filtered_fft = fft * mask
+        filtered = tf.signal.ifft2d(filtered_fft)
+        return tf.abs(tf.cast(filtered, tf.float32))
+      
+      do_filter = tf.less(tf.random.uniform([], 0.0, 1.0), 0.3)
+      img = tf.cond(do_filter, 
+                   lambda: tf.switch_case(filter_type, 
+                                         {0: lambda: _low_pass_filter_tf(img),
+                                          1: lambda: _high_pass_filter_tf(img),
+                                          2: lambda: _band_pass_filter_tf(img)}), 
+                   lambda: img)
+      
+      # Amplitude randomization
+      do_amplitude = tf.less(tf.random.uniform([], 0.0, 1.0), 0.4)
+      scale = tf.random.uniform([], 0.5, 2.0)
+      img = tf.cond(do_amplitude, lambda: img * scale, lambda: img)
+      
       return img
 
     if tfa is not None:
@@ -995,6 +1188,47 @@ class DataManager(object):
           if bool(random.getrandbits(1)):
             sigma = random.uniform(0., 1.0)
             img = scipy.ndimage.filters.gaussian_filter(img, sigma)
+          
+          # Filter bank augmentation
+          if bool(random.getrandbits(1)):  # 50% chance when tfa not available
+            filter_type = random.choice([0, 1, 2])  # 0=low-pass, 1=high-pass, 2=band-pass
+            img_squeeze = img.squeeze()
+            fft = np.fft.fft2(img_squeeze)
+            h, w = img_squeeze.shape
+            center_h, center_w = h // 2, w // 2
+            
+            if filter_type == 0:  # low-pass
+              cutoff_ratio = random.uniform(0.1, 0.5)
+              cutoff = int(center_h * cutoff_ratio)
+              y_coords, x_coords = np.ogrid[:h, :w]
+              distances = np.sqrt((y_coords - center_h)**2 + (x_coords - center_w)**2)
+              mask = distances <= cutoff
+              fft_filtered = fft * mask
+            elif filter_type == 1:  # high-pass
+              cutoff_ratio = random.uniform(0.05, 0.3)
+              cutoff = int(center_h * cutoff_ratio)
+              y_coords, x_coords = np.ogrid[:h, :w]
+              distances = np.sqrt((y_coords - center_h)**2 + (x_coords - center_w)**2)
+              mask = distances > cutoff
+              fft_filtered = fft * mask
+            else:  # band-pass
+              low_cutoff_ratio = random.uniform(0.05, 0.2)
+              high_cutoff_ratio = random.uniform(0.3, 0.6)
+              low_cutoff = int(center_h * low_cutoff_ratio)
+              high_cutoff = int(center_h * high_cutoff_ratio)
+              y_coords, x_coords = np.ogrid[:h, :w]
+              distances = np.sqrt((y_coords - center_h)**2 + (x_coords - center_w)**2)
+              mask = (distances >= low_cutoff) & (distances <= high_cutoff)
+              fft_filtered = fft * mask
+            
+            filtered = np.abs(np.fft.ifft2(fft_filtered))
+            img = np.expand_dims(filtered.astype(np.float32), -1)
+          
+          # Amplitude randomization
+          if bool(random.getrandbits(1)):  # 50% chance
+            scale = random.uniform(0.5, 2.0)
+            img = img * scale
+          
           out.append(img.astype(np.float32))
         return np.stack(out, axis=0)
       images = tf.numpy_function(func=_py_batch_augment, inp=[images], Tout=tf.float32)
@@ -1018,13 +1252,13 @@ class DataManager(object):
       # include all datasets
       for fn in self.fnMergedListTrue:
         fn_list.append(fn)
-        label_list.append([0.0, 1.0])
+        label_list.append(1.0 if self.binary_labels else [0.0, 1.0])
       if self.fnMergedListFalse is not None:
         for fn in self.fnMergedListFalse:
           fn_list.append(fn)
-          label_list.append([1.0, 0.0])
+          label_list.append(0.0 if self.binary_labels else [1.0, 0.0])
       ds = tf.data.Dataset.from_tensor_slices((fn_list, label_list))
-      ds = ds.map(lambda f, l: (self._tf_load_image(f), tf.cast(l, tf.float32)), num_parallel_calls=tf.data.AUTOTUNE)
+      ds = ds.map(lambda f, l: (self._tf_load_image(f), tf.cast(l, tf.float32)), num_parallel_calls=4)
       ds = ds.batch(self.batchSize)
       ds = ds.prefetch(tf.data.AUTOTUNE)
       return ds
@@ -1035,33 +1269,53 @@ class DataManager(object):
     # Use provided id lists to select filenames
     for idx in ids_true:
       fn_list.append(self.fnMergedListTrue[idx])
-      label_list.append([0.0, 1.0])
+      label_list.append(1.0 if self.binary_labels else [0.0, 1.0])
     for idx in ids_false:
       fn_list.append(self.fnMergedListFalse[idx])
-      label_list.append([1.0, 0.0])
+      label_list.append(0.0 if self.binary_labels else [1.0, 0.0])
+
+    # Debug: print validation data balance
+    if isTrain_or_validation == "validation":
+      n_pos = len([l for l in label_list if (self.binary_labels and l == 1.0) or (not self.binary_labels and l == [0.0, 1.0])])
+      n_neg = len([l for l in label_list if (self.binary_labels and l == 0.0) or (not self.binary_labels and l == [1.0, 0.0])])
+      print(f"Validation data: {n_pos} positive, {n_neg} negative samples (binary_labels={self.binary_labels})")
 
     ds = tf.data.Dataset.from_tensor_slices((fn_list, label_list))
     if isTrain_or_validation == "train":
       ds = ds.shuffle(buffer_size=len(fn_list))
-    ds = ds.map(lambda f, l: (self._tf_load_image(f), tf.cast(l, tf.float32)), num_parallel_calls=tf.data.AUTOTUNE)
+    # Increase parallelism for I/O-bound xmippLib image loading
+    # Use explicit output_signature to preserve shape information through augmentation
+    xdim, ydim, nChann = self.shape
+    
     if isTrain_or_validation == "train":
-      ds = ds.map(lambda x, y: (self._augment_tf(x), y), num_parallel_calls=tf.data.AUTOTUNE)
+      # For training: apply augmentation after loading
+      ds = ds.map(lambda f, l: (self._tf_load_image(f), tf.cast(l, tf.float32)), 
+                  num_parallel_calls=4)
+      ds = ds.map(lambda x, y: (self._augment_tf(x), y), 
+                  num_parallel_calls=2)
+    else:
+      # For validation/predict: no augmentation
+      ds = ds.map(lambda f, l: (self._tf_load_image(f), tf.cast(l, tf.float32)), 
+                  num_parallel_calls=4)
+    
     ds = ds.batch(self.batchSize)
     # For training, repeat indefinitely so `fit(..., steps_per_epoch=...)` drives epochs
     if isTrain_or_validation == "train":
       ds = ds.repeat()
 
-    # Optionally prefetch full batches to the GPU device to hide host->device copies
+    # Aggressively prefetch to hide I/O latency from xmippLib calls
     if self.prefetch_to_device:
       gpus = tf.config.list_logical_devices('GPU')
       if gpus:
         try:
           device = gpus[0].name
+          # Prefetch 20-50 batches to GPU to hide CPU processing latency
+          ds = ds.prefetch(buffer_size=32)
           ds = ds.apply(tf.data.experimental.prefetch_to_device(device))
         except Exception:
-          ds = ds.prefetch(tf.data.AUTOTUNE)
+          ds = ds.prefetch(buffer_size=tf.data.AUTOTUNE)
       else:
-        ds = ds.prefetch(tf.data.AUTOTUNE)
+        ds = ds.prefetch(buffer_size=tf.data.AUTOTUNE)
     else:
-      ds = ds.prefetch(tf.data.AUTOTUNE)
+      ds = ds.prefetch(buffer_size=tf.data.AUTOTUNE)
     return ds
