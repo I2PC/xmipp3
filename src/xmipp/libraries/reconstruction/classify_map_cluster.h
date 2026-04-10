@@ -78,7 +78,8 @@ class ProgClassifyMapCluster: public XmippProgram
     MultidimArray<double> freqMap;                      // Frequency mapping in Fourier space
     MultidimArray<double> FSC;                        // Fourier Shell Coherence
     MultidimArray<double> FSC_num;                    // Fourier Shell Coherence numerator
-    MultidimArray<double> FSC_den;                    // Fourier Shell Coherence denominator
+    MultidimArray<double> FSC_den1;                    // Fourier Shell Coherence denominator
+    MultidimArray<double> FSC_den2;                    // Fourier Shell Coherence denominator
 
     Image<double> referenceMapPool;         // Reference map pool
     Image<std::complex<double>> referenceMapPool_ft;         // Reference map pool Fourier Transform

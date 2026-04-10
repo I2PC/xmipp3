@@ -138,14 +138,14 @@ void ProgClassifyMapCluster::run()
 		{
 			if (i1==i2)
 			{
-				DIRECT_A2D_ELEM(distanceMatrix, i1, i2) = 1;
-				DIRECT_A2D_ELEM(distanceMatrix, i2, i1) = 1;
+				DIRECT_A2D_ELEM(distanceMatrix, i1, i2) = 0.0;
+				DIRECT_A2D_ELEM(distanceMatrix, i2, i1) = 0.0;
 			}
 			else
 			{
 				calculateDistanceFSC(distance, i1, i2);
-				DIRECT_A2D_ELEM(distanceMatrix, i1, i2) = 0.0;
-				DIRECT_A2D_ELEM(distanceMatrix, i2, i1) = 0.0;
+				DIRECT_A2D_ELEM(distanceMatrix, i1, i2) = distance;
+				DIRECT_A2D_ELEM(distanceMatrix, i2, i1) = distance;
 			}
 		}
 	}
@@ -159,6 +159,7 @@ void ProgClassifyMapCluster::run()
 			std::cout << DIRECT_A2D_ELEM(distanceMatrix, i, j) << "\t";
 		}
 	}
+	std::cout << std::endl;
 	std::cout << std::endl;
 	#endif
 
@@ -179,7 +180,8 @@ void ProgClassifyMapCluster::calculateDistanceFSC(double &distance, int i1, int 
     std::cout << "Calculating FSC distance for indexes " << i1 << " and " << i2 << "..." << std::endl;
 
 	FSC_num.initZeros(std::min(Xdim_ft, std::min(Ydim_ft, Zdim_ft)));
-    FSC_den.initZeros(std::min(Xdim_ft, std::min(Ydim_ft, Zdim_ft)));
+    FSC_den1.initZeros(std::min(Xdim_ft, std::min(Ydim_ft, Zdim_ft)));
+    FSC_den2.initZeros(std::min(Xdim_ft, std::min(Ydim_ft, Zdim_ft)));
 
 	for(size_t k = 0; k < Zdim_ft; k++)
 	{
@@ -195,7 +197,8 @@ void ProgClassifyMapCluster::calculateDistanceFSC(double &distance, int i1, int 
 					std::complex<double> i1_value = DIRECT_NZYX_ELEM(referenceMapPool_ft(), i1, k, i, j);
 					std::complex<double> i2_value = DIRECT_NZYX_ELEM(referenceMapPool_ft(), i2, k, i, j);
 					DIRECT_MULTIDIM_ELEM(FSC_num, freqIdx) += std::abs(i1_value * i2_value);
-					DIRECT_MULTIDIM_ELEM(FSC_den, freqIdx) += sqrt(std::norm(i1_value) + std::norm(i2_value));
+					DIRECT_MULTIDIM_ELEM(FSC_den1, freqIdx) += std::norm(i1_value);
+					DIRECT_MULTIDIM_ELEM(FSC_den2, freqIdx) += std::norm(i2_value);
 				}
 			}
 		}
@@ -208,20 +211,22 @@ void ProgClassifyMapCluster::calculateDistanceFSC(double &distance, int i1, int 
 
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(FSC)
 	{
-        double value;
-		value = DIRECT_MULTIDIM_ELEM(FSC_num, n) / DIRECT_MULTIDIM_ELEM(FSC_den,n);
+        double frc;
+		frc = DIRECT_MULTIDIM_ELEM(FSC_num, n) / sqrt(DIRECT_MULTIDIM_ELEM(FSC_den1,n) * DIRECT_MULTIDIM_ELEM(FSC_den2, n));
 		
-		// Because it is a distance the higher the FSC the lower de distance (1-value)
-		distance += 1 - value;
+		// Because it is a distance the higher the FSC the lower de distance (1-frc)
+		distance += frc;
 
 		// Save FSC for debugging
-		DIRECT_MULTIDIM_ELEM(FSC, n) = value;
+		DIRECT_MULTIDIM_ELEM(FSC, n) = frc;
 
 		id = md.addObject();
 
-		md.setValue(MDL_RESOLUTION_FRC, value, id);
+		md.setValue(MDL_RESOLUTION_FRC, frc, id);
 		md.setValue(MDL_RESOLUTION_FREQ, (1.0 * n / (2 * NZYXSIZE(FSC))), id);
 	}
+
+	distance = 1 - distance / NZYXSIZE(FSC);
 
 	std::string outputMD = fn_oroot + "FSC_" + std::to_string(i1) + "_vs_" + std::to_string(i2) + ".xmd";
 	md.write(outputMD);
@@ -258,7 +263,8 @@ void ProgClassifyMapCluster::composefreqMap()
     // Use this dimension to initialize mFSC auxiliary maps
     FSC.initZeros(std::min(Xdim_ft, std::min(Ydim_ft, Zdim_ft)));
     FSC_num.initZeros(std::min(Xdim_ft, std::min(Ydim_ft, Zdim_ft)));
-    FSC_den.initZeros(std::min(Xdim_ft, std::min(Ydim_ft, Zdim_ft)));
+    FSC_den1.initZeros(std::min(Xdim_ft, std::min(Ydim_ft, Zdim_ft)));
+    FSC_den2.initZeros(std::min(Xdim_ft, std::min(Ydim_ft, Zdim_ft)));
 
 	if (Zdim_ft == 1)
 	{
