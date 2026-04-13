@@ -32,11 +32,13 @@
 #include "core/xmipp_filename.h"
 #include "reconstruction/resolution_fscoh.h"
 #include "core/matrix2d.h"
+#include "core/matrix1d.h"
 
 #define VERBOSE_OUTPUT
 // #define DEBUG_DIM
 #define DEBUG_FREQUENCY_MAP
 #define DEBUG_OUTPUT_FILES
+#define DEBUG_MDS
 
 /**@defgroup ProgClassifyMapCluster Calculates statistical map
    @ingroup ReconsLibrary */
@@ -136,6 +138,7 @@ public:
 
     // ----------------------- CORE METHODS ------------------------------
     void calculateDistanceFSC(double &distance, int i1, int i2);
+    void classicalMDS(Matrix2D<double>& D, Matrix2D<double>& B, Matrix1D<double>& eigenvals, Matrix2D<double>& eigenvecs);
 
 
     void calculateFSCoh();

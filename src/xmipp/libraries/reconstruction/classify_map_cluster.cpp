@@ -167,14 +167,12 @@ void ProgClassifyMapCluster::run()
 	std::cout << std::endl;
 	#endif
 
-
 	// Cluster maps
-	// Eigen::MatrixXd X;
-	// Eigen::VectorXd eigenvals;
-
-	// classicalMDS(distanceMatrix, Ndim, 2, X, eigenvals);
-
-	// std::cout << "Eigenvalues:\n" << eigenvals.transpose() << std::endl;
+	Matrix2D<double> B;
+	Matrix1D<double> eigenvals;
+    Matrix2D<double> eigenvecs;
+	
+	classicalMDS(distanceMatrix, B, eigenvals, eigenvecs);
 
     auto t2 = std::chrono::high_resolution_clock::now();
     auto ms_int = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1);
@@ -244,73 +242,162 @@ void ProgClassifyMapCluster::calculateDistanceFSC(double &distance, int i1, int 
 }
 
 
-// #include <Eigen/Dense>
-// #include <iostream>
-// #include <vector>
-// #include <cmath>
+void ProgClassifyMapCluster::classicalMDS(
+    Matrix2D<double>& D,     	   // NxN distance matrix
+    Matrix2D<double>& B,           // NxN transformed matrix (optional but useful)
+    Matrix1D<double>& eigenvals,   // size N
+    Matrix2D<double>& eigenvecs    // NxN (columns = eigenvectors)
+)
+{
+    // ------------------------------------------------------------
+    // Step 1: compute D^2 (element-wise square)
+    // ------------------------------------------------------------
 
-// // Replace this with your actual macro
-// #define MAT(m,i,j) DIRECT_A2D_ELEM(m,i,j)
+	Matrix2D<double> D2;
+	D2.initZeros(Ndim, Ndim);
 
-// template<typename MatrixType>
-// void classicalMDS(
-//     MatrixType& distanceMatrix,  // your structure
-//     int N,                       // number of points
-//     int outputDim,               // 2 or 3 usually
-//     Eigen::MatrixXd& X,          // output coordinates (NxoutputDim)
-//     Eigen::VectorXd& eigenvals   // eigenvalues (for diagnostics)
-// )
-// {
-//     // --- Step 1: copy into Eigen matrix ---
-//     Eigen::MatrixXd D(N, N);
-//     for (int i = 0; i < N; ++i)
-//         for (int j = 0; j < N; ++j)
-//             D(i,j) = MAT(distanceMatrix, i, j);
+	for(size_t i=0; i<Ndim; ++i)
+	{
+		for(size_t j=0; j<Ndim; ++j)
+		{
+			MAT_ELEM(D2, i, j) = MAT_ELEM(D, i, j) * MAT_ELEM(D, i, j);
+		}
+	}
 
-//     // --- Step 2: square distances ---
-//     Eigen::MatrixXd D2 = D.array().square();
+	#ifdef DEBUG_MDS
+	std::cout << "--D2 matrix" << std::endl;
 
-//     // --- Step 3: centering matrix J = I - 1/N ---
-//     Eigen::MatrixXd J = Eigen::MatrixXd::Identity(N, N)
-//                       - Eigen::MatrixXd::Constant(N, N, 1.0 / N);
+	for(size_t i = 0; i < Ndim; i++)
+	{
+		for(size_t j = 0; j <Ndim; j++)
+		{	
+			if (j == 0) std::cout << "\n";
+			std::cout << std::fixed << std::setprecision(2) << MAT_ELEM(D2, i, j) << "\t";
 
-//     // --- Step 4: compute B ---
-//     Eigen::MatrixXd B = -0.5 * J * D2 * J;
+		}
+	}
+	std::cout << std::endl;
+	std::cout << std::endl;
+	#endif
 
-//     // --- Step 5: eigen decomposition ---
-//     Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> solver(B);
+    // ------------------------------------------------------------
+    // Step 2: build centering matrix J = I - (1/N)
+    // ------------------------------------------------------------
 
-//     if (solver.info() != Eigen::Success)
-//     {
-//         std::cerr << "Eigen decomposition failed\n";
-//         return;
-//     }
+	Matrix2D<double> J;
+	J.initZeros(Ndim, Ndim);
 
-//     Eigen::VectorXd evals = solver.eigenvalues();
-//     Eigen::MatrixXd evecs = solver.eigenvectors();
+	Matrix2D<double> I;
+	I.initIdentity(Ndim);
 
-//     // --- Step 6: sort eigenvalues descending ---
-//     eigenvals.resize(N);
-//     for (int i = 0; i < N; ++i)
-//         eigenvals(i) = evals(N - 1 - i);
+	Matrix2D<double> avgMat;
+	avgMat.initConstant(Ndim, Ndim, 1.0/Ndim);
+	
+	J = I - avgMat;
 
-//     // --- Step 7: build coordinates ---
-//     X = Eigen::MatrixXd::Zero(N, outputDim);
+	#ifdef DEBUG_MDS
+	std::cout << "--J matrix" << std::endl;
 
-//     int usedDims = 0;
-//     for (int k = 0; k < N && usedDims < outputDim; ++k)
-//     {
-//         double lambda = evals(N - 1 - k);
+	for(size_t i = 0; i < Ndim; i++)
+	{
+		for(size_t j = 0; j <Ndim; j++)
+		{	
+			if (j == 0) std::cout << "\n";
+			std::cout << std::fixed << std::setprecision(2) << MAT_ELEM(J, i, j) << "\t";
 
-//         if (lambda <= 0)
-//             continue;  // skip non-positive eigenvalues
+		}
+	}
+	std::cout << std::endl;
+	std::cout << std::endl;
+	#endif
 
-//         X.col(usedDims) =
-//             std::sqrt(lambda) * evecs.col(N - 1 - k);
+    // ------------------------------------------------------------
+    // Step 3: compute B = -0.5 * J * D2 * J
+    // ------------------------------------------------------------
 
-//         usedDims++;
-//     }
-// }
+    B = -0.5 * J * D2 * J;
+
+	#ifdef DEBUG_MDS
+	std::cout << "--B matrix" << std::endl;
+
+	for(size_t i = 0; i < Ndim; i++)
+	{
+		for(size_t j = 0; j <Ndim; j++)
+		{	
+			if (j == 0) std::cout << "\n";
+			std::cout << std::fixed << std::setprecision(2) << MAT_ELEM(B, i, j) << "\t";
+
+		}
+	}
+	std::cout << std::endl;
+	std::cout << std::endl;
+	#endif
+
+    // ------------------------------------------------------------
+    // Step 4: enforce symmetry (numerical safety)
+    // ------------------------------------------------------------
+
+	for(size_t i=0; i<Ndim; ++i)
+	{
+		for(size_t j=0; j<i; ++j)
+		{
+			double avg = (MAT_ELEM(B, i, j) + MAT_ELEM(B, j, i)) / 2.0;
+			MAT_ELEM(B, i, j) = avg;
+			MAT_ELEM(B, j, i) = avg;
+		}
+	}
+
+	#ifdef DEBUG_MDS
+	std::cout << "--B matrix symmetry enforced" << std::endl;
+
+	for(size_t i = 0; i < Ndim; i++)
+	{
+		for(size_t j = 0; j <Ndim; j++)
+		{	
+			if (j == 0) std::cout << "\n";
+			std::cout << std::fixed << std::setprecision(2) << MAT_ELEM(B, i, j) << "\t";
+
+		}
+	}
+	std::cout << std::endl;
+	std::cout << std::endl;
+	#endif
+
+    // ------------------------------------------------------------
+    // Step 5: eigen decomposition
+    // ------------------------------------------------------------
+
+	// This implementation alrady return eigenvalues in descending order and eigenvectors as columns
+	// There is no need to sort them
+	firstEigs(B, Ndim, eigenvals, eigenvecs);
+
+	#ifdef DEBUG_MDS
+	std::cout << "--Eigenvalues" << std::endl;
+
+	for(size_t i = 0; i < Ndim; i++)
+	{
+		std::cout << std::fixed << std::setprecision(2) << eigenvals[i] << "\t";
+	}
+	std::cout << std::endl;
+	std::cout << std::endl;
+	#endif
+
+	#ifdef DEBUG_MDS
+	std::cout << "--Eigenvectors matrix" << std::endl;
+
+	for(size_t i = 0; i < Ndim; i++)
+	{
+		for(size_t j = 0; j <Ndim; j++)
+		{	
+			if (j == 0) std::cout << "\n";
+			std::cout << std::fixed << std::setprecision(2) << MAT_ELEM(eigenvecs, i, j) << "\t";
+
+		}
+	}
+	std::cout << std::endl;
+	std::cout << std::endl;
+	#endif
+}
 
 
 // Utils methods ===================================================================
