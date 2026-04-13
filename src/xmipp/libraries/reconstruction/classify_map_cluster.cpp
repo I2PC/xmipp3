@@ -167,12 +167,66 @@ void ProgClassifyMapCluster::run()
 	std::cout << std::endl;
 	#endif
 
-	// Cluster maps
+	// MDS of distance matrix
 	Matrix2D<double> B;
 	Matrix1D<double> eigenvals;
     Matrix2D<double> eigenvecs;
 	
 	classicalMDS(distanceMatrix, B, eigenvals, eigenvecs);
+
+	// Build embedding
+	int p = 0; // Number of dimensions to keep in the embedding
+	double epsilon = 0.00001;
+
+	// From now im taking all the non-null eigenvalues
+	for(size_t i = 0; i < Ndim; i++)	
+	{
+		if (eigenvals[i] < epsilon)
+		{
+			break;
+		}
+		p++;
+	}
+
+	p=1;
+
+	std::cout << "Number of dimensions in the embedding: " << p << std::endl;
+	std::cout << std::endl;
+
+	Matrix2D<double> embedding;
+	embedding.initZeros(Ndim, p);
+
+	for (size_t i = 0; i < Ndim; ++i)
+	{
+		for (size_t d = 0; d < p; ++d)
+		{
+			double lambda = eigenvals(d);
+			if (lambda > 0)
+				MAT_ELEM(embedding, i, d) = std::sqrt(lambda) * MAT_ELEM(eigenvecs, i, d);
+			else
+				MAT_ELEM(embedding, i, d) = 0.0;
+		}
+	}
+
+	// Apply k-means to embedding
+	int k = 2;
+	int maxIter = 100;
+	Matrix1D<int> labels;
+	labels.initZeros(Ndim);
+
+	kmeans(embedding, k, maxIter, labels);
+
+
+	#ifdef DEBUG_MDS
+	std::cout << "--Labelling" << std::endl;
+
+	for(size_t i = 0; i < Ndim; i++)
+	{
+		std::cout << std::fixed << labels[i] << "\t";
+	}
+	std::cout << std::endl;
+	std::cout << std::endl;
+	#endif
 
     auto t2 = std::chrono::high_resolution_clock::now();
     auto ms_int = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1);
@@ -376,7 +430,7 @@ void ProgClassifyMapCluster::classicalMDS(
 
 	for(size_t i = 0; i < Ndim; i++)
 	{
-		std::cout << std::fixed << std::setprecision(2) << eigenvals[i] << "\t";
+		std::cout << std::fixed << std::setprecision(4) << eigenvals[i] << "\t";
 	}
 	std::cout << std::endl;
 	std::cout << std::endl;
@@ -399,6 +453,104 @@ void ProgClassifyMapCluster::classicalMDS(
 	#endif
 }
 
+void ProgClassifyMapCluster::kmeans(
+    Matrix2D<double>& X,  		// N x p embedding
+    int k,                      // number of clusters
+    int maxIter,				// maximum number of iterations
+    Matrix1D<int>& labels       // output classes
+)
+{
+    const size_t N = MAT_YSIZE(X);
+    const size_t p = MAT_XSIZE(X);
+
+    // Initialization
+    labels.initZeros(N);
+
+    Matrix2D<double> centroids;
+    centroids.initZeros(k, p);
+
+    Matrix1D<int> counts;
+    counts.initZeros(k);
+
+    // Simple init: first k points
+    for (int c = 0; c < k; ++c)
+    {
+        for (size_t d = 0; d < p; ++d)
+            MAT_ELEM(centroids, c, d) = MAT_ELEM(X, c, d);
+    }
+
+    // Main loop
+    for (int iter = 0; iter < maxIter; ++iter)
+    {
+        bool changed = false;
+
+        // --- Assignment step
+        for (size_t i = 0; i < N; ++i)
+        {
+            int bestCluster = -1;
+            double bestDist = std::numeric_limits<double>::max();
+
+            for (int c = 0; c < k; ++c)
+            {
+                double dist = 0.0;
+
+                for (size_t d = 0; d < p; ++d)
+                {
+                    double diff = MAT_ELEM(X, i, d) - MAT_ELEM(centroids, c, d);
+                    dist += diff * diff;
+                }
+
+                if (dist < bestDist)
+                {
+                    bestDist = dist;
+                    bestCluster = c;
+                }
+            }
+
+            if (labels(i) != bestCluster)
+            {
+                labels(i) = bestCluster;
+                changed = true;
+            }
+        }
+
+        // Stop if no change
+        if (!changed && iter > 0)
+            break;
+
+        // --- Update step
+        centroids.initZeros(k, p);
+        for (int c = 0; c < k; ++c)
+            counts(c) = 0;
+
+        // Accumulate
+        for (size_t i = 0; i < N; ++i)
+        {
+            int c = labels(i);
+            counts(c)++;
+
+            for (size_t d = 0; d < p; ++d)
+                MAT_ELEM(centroids, c, d) += MAT_ELEM(X, i, d);
+        }
+
+        // Normalize
+        for (int c = 0; c < k; ++c)
+        {
+            if (counts(c) == 0)
+            {
+                // Reinitialize empty cluster with random point
+                int idx = rand() % N;
+                for (size_t d = 0; d < p; ++d)
+                    MAT_ELEM(centroids, c, d) = MAT_ELEM(X, idx, d);
+            }
+            else
+            {
+                for (size_t d = 0; d < p; ++d)
+                    MAT_ELEM(centroids, c, d) /= counts(c);
+            }
+        }
+    }
+}
 
 // Utils methods ===================================================================
 void ProgClassifyMapCluster::generateSideInfo()

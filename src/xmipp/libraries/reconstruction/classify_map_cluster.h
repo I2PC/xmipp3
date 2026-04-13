@@ -36,7 +36,7 @@
 
 #define VERBOSE_OUTPUT
 // #define DEBUG_DIM
-#define DEBUG_FREQUENCY_MAP
+// #define DEBUG_FREQUENCY_MAP
 #define DEBUG_OUTPUT_FILES
 #define DEBUG_MDS
 
@@ -139,6 +139,7 @@ public:
     // ----------------------- CORE METHODS ------------------------------
     void calculateDistanceFSC(double &distance, int i1, int i2);
     void classicalMDS(Matrix2D<double>& D, Matrix2D<double>& B, Matrix1D<double>& eigenvals, Matrix2D<double>& eigenvecs);
+    void kmeans(Matrix2D<double>& X, int k, int maxIter, Matrix1D<int>& labels);
 
 
     void calculateFSCoh();
