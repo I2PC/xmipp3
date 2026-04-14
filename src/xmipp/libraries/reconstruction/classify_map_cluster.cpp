@@ -176,19 +176,34 @@ void ProgClassifyMapCluster::run()
 
 	// Build embedding
 	int p = 0; // Number of dimensions to keep in the embedding
-	double epsilon = 0.00001;
 
-	// From now im taking all the non-null eigenvalues
+	// Use expalined variance as criteria to select number of dimensions in the embedding
+	double explainedVariance_threshold = 0.9;
+	double totalVariance = 0.0;
+
+	for(size_t i = 0; i < Ndim; i++)
+	{
+		totalVariance += eigenvals[i];
+	}
+
+	double cumulativeVariance = 0.0;
+
 	for(size_t i = 0; i < Ndim; i++)	
 	{
-		if (eigenvals[i] < epsilon)
+		cumulativeVariance = cumulativeVariance + eigenvals[i];
+		double explainedVariance = cumulativeVariance / totalVariance;
+
+		std::cout << "Cumulative variance explained by " << (i+1) << " dimensions: " << explainedVariance << std::endl;
+
+		if (explainedVariance < explainedVariance_threshold)
+		{
+			p++;
+		}
+		else
 		{
 			break;
 		}
-		p++;
 	}
-
-	p=1;
 
 	std::cout << "Number of dimensions in the embedding: " << p << std::endl;
 	std::cout << std::endl;
@@ -215,7 +230,6 @@ void ProgClassifyMapCluster::run()
 	labels.initZeros(Ndim);
 
 	kmeans(embedding, k, maxIter, labels);
-
 
 	#ifdef DEBUG_MDS
 	std::cout << "--Labelling" << std::endl;
