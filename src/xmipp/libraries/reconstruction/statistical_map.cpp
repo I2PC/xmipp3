@@ -716,7 +716,7 @@ void ProgStatisticalMap::computeStatisticalMaps()
         FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(avgVolume())
         {
             // As maps are normalized to std=1 the comparison is direct
-            if (DIRECT_MULTIDIM_ELEM(avgVolume(), n) > 1.64 && DIRECT_MULTIDIM_ELEM(ROI_mask, n) > 0)
+            if (DIRECT_MULTIDIM_ELEM(avgVolume(), n) > 1 && DIRECT_MULTIDIM_ELEM(ROI_mask, n) > 0)
             {
                 DIRECT_MULTIDIM_ELEM(positiveMask, n) = 1;
             }
@@ -996,7 +996,7 @@ void ProgStatisticalMap::weightMap()
 
     // FOR TESTING) Cargar máscara diferente (igual que antes)
     // Image<int> readMask;
-    // readMask.read("/home/fpdeisidro/testBench/publication_FSCoh+StatMaps/Betagal_PO/StatisticalMaps_definitivo_BGsubs/00100_postprocess_rescaled_ali_differentMask.mrc");
+    // readMask.read("/home/fpdeisidro/testBench/publication_FSCoh+StatMaps/Tripamal_PO/fullOccDifferentMask.mrc");
     // differentMask = readMask();
 
     // 1) Define background region (as the dilated region from different mask)
@@ -1017,10 +1017,23 @@ void ProgStatisticalMap::weightMap()
     int count = 1;  // Min number of empty elements in neighbourhood
     int size = 1;   // Number of iterations
 
+    // Make this behavior optional!
+    removeSmallComponents(differentMask_double, 5);
     dilate3D(differentMask_double, differentMask_dilated_double, neig, count, size);
 
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(differentMask_dilated)
     {
+        // Update different mask (after remove small components)
+        if (DIRECT_MULTIDIM_ELEM(differentMask_double, n) > epsilon)
+        {
+            DIRECT_MULTIDIM_ELEM(differentMask, n) = 1;
+        }
+        else
+        {
+            DIRECT_MULTIDIM_ELEM(differentMask, n) = 0;
+        }
+
+        // Create dilated mask 
         if (DIRECT_MULTIDIM_ELEM(differentMask_dilated_double, n) > epsilon)
         {
             DIRECT_MULTIDIM_ELEM(differentMask_dilated, n) = 1;
