@@ -61,6 +61,16 @@ void ProgStatisticalMap::readParams()
     {
         protein_radius = getDoubleParam("--protein_radius");
     }
+
+    if (checkParam("--remove_dust_size"))
+    {
+        remove_small_components = true;
+        remove_small_components_size = getIntParam("--remove_dust_size");
+    }
+     else
+    {
+        remove_small_components = false;
+    }
 }
 
 void ProgStatisticalMap::show() const
@@ -88,6 +98,15 @@ void ProgStatisticalMap::show() const
     << maskMessage << std::endl
 	<< "Sampling rate:\t" << sampling_rate << std::endl
 	<< "Significance Z-score threshold:\t" << significance_thr << std::endl;
+
+    if (remove_small_components)
+    {
+        std::cout << "Remove small components in different mask: Yes (size: " << remove_small_components_size << " voxels)" << std::endl;
+    }
+    else
+    {
+        std::cout << "Remove small components in different mask: No" << std::endl;
+    }
 }
 
 void ProgStatisticalMap::defineParams()
@@ -104,6 +123,7 @@ void ProgStatisticalMap::defineParams()
     addParamsLine("[--protein_radius <protein_radius=-1>]     : Protein radius (in Angstroms) defining a ROI for analysis. By default considers the whole volume. Excluyent with --protein_mask.");
     addParamsLine("[--protein_mask <protein_mask=\"\">]       : Maks containing the ROI of the protein for analysis. Excluyent with --protein_radius.");
     addParamsLine("[--significance_thr <significance_thr=3>]  : Z-score threshold to consider a region significantly different.");
+    addParamsLine("[--remove_dust_size <remove_dust_size=5>]  : Remove small components in the outlier detected regions. Usefull in very flexible and/or noisy domains. Expect less agressive more estable correction.");
 }
 
 void ProgStatisticalMap::writeStatisticalMap() 
@@ -1017,8 +1037,12 @@ void ProgStatisticalMap::weightMap()
     int count = 1;  // Min number of empty elements in neighbourhood
     int size = 1;   // Number of iterations
 
-    // Make this behavior optional!
-    removeSmallComponents(differentMask_double, 5);
+    // Remove small components to avoid dilating noise
+    if (remove_small_components)
+    {
+        removeSmallComponents(differentMask_double, remove_small_components_size);
+    }
+
     dilate3D(differentMask_double, differentMask_dilated_double, neig, count, size);
 
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(differentMask_dilated)

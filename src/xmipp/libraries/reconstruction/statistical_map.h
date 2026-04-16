@@ -58,6 +58,8 @@ class ProgStatisticalMap: public XmippProgram
     double sampling_rate;                   // Sampling rate of input maps
     double protein_radius;                  // Protein radius
     double significance_thr;                // Significance Z-score threshold
+    bool remove_small_components;           // Apply remove small components in the different mask.
+    int remove_small_components_size;       // Minimum size components in the different mask.
 
     // Side info variables
     FileName fn_out_avg_map;
