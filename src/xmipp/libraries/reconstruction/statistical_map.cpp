@@ -805,7 +805,7 @@ void ProgStatisticalMap::computeSigmaNormMAD(double& sigmaNorm)
 
 
 void ProgStatisticalMap::computeSigmaNormIQR(double& sigmaNorm) {
-     // Calculate diff map
+    // Calculate diff map
     std::vector<double> diffs;
 
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(coincidentMask)
