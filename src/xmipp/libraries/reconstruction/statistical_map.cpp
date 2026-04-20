@@ -1089,14 +1089,14 @@ void ProgStatisticalMap::weightMap()
     const size_t nD = valsDifferent.size();
     const size_t nB = valsBackground.size();
     
+    std::cout << "  ROI sizes: coincident=" << nC << ", different=" << nD << ", background=" << nB << std::endl;
+
     if (nC == 0 || nD == 0 || nB == 0) {
         std::cerr << "  [WARN] Empty ROI; skipping correction." << std::endl;
         return;
     }
 
-    std::cout << "  ROI sizes: coincident=" << nC << ", different=" << nD << ", background=" << nB << std::endl;
-
-    // 3) Percentil helper (interpolación lineal)
+    // 3) Percentil helper (linear interpolation)
     auto percentile_of = [](const std::vector<double>& v, double q) -> double {
         if (v.empty()) return std::numeric_limits<double>::quiet_NaN();
         std::vector<double> tmp = v;
@@ -1124,7 +1124,7 @@ void ProgStatisticalMap::weightMap()
     std::cout << "  p" << int(Q*100) << " background --------------------> " << S_background  << std::endl;
     std::cout << "  raw POF (fixed-percentile) --------------> " << rawPOF << std::endl;
 
-    // 5) Bootstrap (mismo reporting, N fijo si es posible)
+    // 5) Bootstrap
     const size_t N_BOOT = std::min({N_BOOT_DEFAULT, nC, nD, nB});
     std::cout << "  Bootstrap: N=" << N_BOOT << " iters=" << BOOTSTRAP_ITERS << std::endl;
 
@@ -1153,8 +1153,15 @@ void ProgStatisticalMap::weightMap()
         const double S_coinc_bs      = percentile_of(sampleC, Q);
         const double S_diff_bs       = percentile_of(sampleD, Q);
         const double S_background_bs = percentile_of(sampleB, Q);
-        if (S_coinc_bs > 0.0)
+        
+        if (S_background_bs > S_coinc_bs || S_background > S_diff_bs)
+        {
+            pofSamples.push_back(S_diff_bs / S_coinc_bs);
+        }
+        else
+        {
             pofSamples.push_back((S_diff_bs - S_background_bs) / (S_coinc_bs - S_background_bs));
+        }
     }
 
     if (pofSamples.empty()) {
