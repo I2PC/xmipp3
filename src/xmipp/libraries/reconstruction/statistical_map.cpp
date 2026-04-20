@@ -351,10 +351,10 @@ void ProgStatisticalMap::writeMask(FileName fnIn)
     // }
 
     #ifdef DEBUG_WRITE_OUTPUT
-    std::cout << "Coincident mask saved at: " << fn_out_coincident_mask << std::endl;
-    std::cout << "Different  mask saved at: " << fn_out_different_mask << std::endl;
-    // std::cout << "Coincident distance mask saved at: " << fn_out_coincident_dist << std::endl;
-    // std::cout << "Different  distance mask saved at: " << fn_out_different_dist << std::endl;
+    std::cout << "    Coincident mask saved at: " << fn_out_coincident_mask << std::endl;
+    std::cout << "    Different  mask saved at: " << fn_out_different_mask << std::endl;
+    // std::cout << "    Coincident distance mask saved at: " << fn_out_coincident_dist << std::endl;
+    // std::cout << "    Different  distance mask saved at: " << fn_out_different_dist << std::endl;
     #endif
 }
 
@@ -1001,7 +1001,6 @@ void ProgStatisticalMap::calculateZscoreMADMap()
 }
 
 
-// WEIGHT MAP OCCUPY-LIKE VERSION
 void ProgStatisticalMap::weightMap()
 {
     std::cout << "    Calculating POF (comparing P95 in each region)..." << std::endl;
@@ -1015,9 +1014,10 @@ void ProgStatisticalMap::weightMap()
     const double CI_ALPHA       = 0.05;
 
     // FOR TESTING) Cargar máscara diferente (igual que antes)
-    // Image<int> readMask;
+    Image<int> readMask;
     // readMask.read("/home/fpdeisidro/testBench/publication_FSCoh+StatMaps/Tripamal_PO/fullOccDifferentMask.mrc");
-    // differentMask = readMask();
+    readMask.read("/home/fpdeisidro/testBench/publication_FSCoh+StatMaps/Tripamal_PO/StatisticalMaps_TM_localAlignment_BestResultsSoFar/100_postprocess_rescaled_differentMask.mrc");
+    differentMask = readMask();
 
     // 1) Define background region (as the dilated region from different mask)
     double epsilon = 1e-6;
@@ -1089,7 +1089,7 @@ void ProgStatisticalMap::weightMap()
     const size_t nD = valsDifferent.size();
     const size_t nB = valsBackground.size();
     
-    std::cout << "  ROI sizes: coincident=" << nC << ", different=" << nD << ", background=" << nB << std::endl;
+    std::cout << "        ROI sizes: coincident=" << nC << ", different=" << nD << ", background=" << nB << std::endl;
 
     if (nC == 0 || nD == 0 || nB == 0) {
         std::cerr << "  [WARN] Empty ROI; skipping correction." << std::endl;
@@ -1119,14 +1119,14 @@ void ProgStatisticalMap::weightMap()
     }
     const double rawPOF = (S_diff-S_background) / (S_coinc-S_background);
 
-    std::cout << "  p" << int(Q*100) << " coincident --------------------> " << S_coinc << std::endl;
-    std::cout << "  p" << int(Q*100) << " different  --------------------> " << S_diff  << std::endl;
-    std::cout << "  p" << int(Q*100) << " background --------------------> " << S_background  << std::endl;
-    std::cout << "  raw POF (fixed-percentile) --------------> " << rawPOF << std::endl;
+    std::cout << "        p" << int(Q*100) << " coincident --------------------> " << S_coinc << std::endl;
+    std::cout << "        p" << int(Q*100) << " different  --------------------> " << S_diff  << std::endl;
+    std::cout << "        p" << int(Q*100) << " background --------------------> " << S_background  << std::endl;
+    std::cout << "    raw POF (fixed-percentile) --------------> " << rawPOF << std::endl;
 
     // 5) Bootstrap
     const size_t N_BOOT = std::min({N_BOOT_DEFAULT, nC, nD, nB});
-    std::cout << "  Bootstrap: N=" << N_BOOT << " iters=" << BOOTSTRAP_ITERS << std::endl;
+    std::cout << "        Bootstrap: N=" << N_BOOT << " iters=" << BOOTSTRAP_ITERS << std::endl;
 
     std::mt19937 rng(12345);
     std::uniform_int_distribution<size_t> uniC(0, nC - 1);
@@ -1165,7 +1165,7 @@ void ProgStatisticalMap::weightMap()
     }
 
     if (pofSamples.empty()) {
-        std::cerr << "  [WARN] Bootstrap failed; skipping correction." << std::endl;
+        std::cerr << "    [WARN] Bootstrap failed; skipping correction." << std::endl;
         return;
     }
 
@@ -1186,25 +1186,24 @@ void ProgStatisticalMap::weightMap()
     const double pofMax    = p_boot(1.0);
 
 
-    std::cout << "  Bootstrap POF median --------------------> " << pofMedian << std::endl;
-    std::cout << "  Bootstrap POF absolute interval [" << pofMin << ", " << pofMax << "]" << std::endl;
-    std::cout << "  Bootstrap POF confidence interval [" << pofLo << ", " << pofHi << "]" << std::endl;
+    std::cout << "        Bootstrap POF median --------------------> " << pofMedian << std::endl;
+    std::cout << "        Bootstrap POF absolute interval [" << pofMin << ", " << pofMax << "]" << std::endl;
+    std::cout << "        Bootstrap POF confidence interval [" << pofLo << ", " << pofHi << "]" << std::endl;
 
     // 6) Decisión final (idéntica)
     double finalPOF = 1.0;
     if (pofMedian < 1.0) {
         finalPOF = pofMedian;
     }
-    std::cout << "  FINAL POF -------------------------------> " << finalPOF << std::endl;
+    std::cout << "    Final POF -------------------------------> " << finalPOF << std::endl;
 
     // ---------------------------------------------------------------------
     // 7) Apply correction
     // ---------------------------------------------------------------------
     if (finalPOF < 1.0)
     {
-        std::cout << "  Significant difference detected; applying correction..." << std::endl;
         double correctionFactor = 1 - finalPOF;
-        std::cout << "  Applying correction with factor: " << correctionFactor << std::endl;
+        std::cout << "    Applying correction with factor: " << correctionFactor << std::endl;
         FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
         {
             DIRECT_MULTIDIM_ELEM(V(), n) = DIRECT_MULTIDIM_ELEM(V(), n) - DIRECT_MULTIDIM_ELEM(avgVolume(), n) * correctionFactor ;
@@ -1212,7 +1211,7 @@ void ProgStatisticalMap::weightMap()
     }
     else
     {
-        std::cout << "  No significant difference detected; skipping correction." << std::endl;
+        std::cout << "    No significant difference detected; skipping correction." << std::endl;
     }
 
     // // ---------------------------------------------------------------------
