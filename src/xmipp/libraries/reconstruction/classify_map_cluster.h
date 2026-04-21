@@ -124,14 +124,6 @@ public:
     void readParams() override;
     // Show
     void show() const override;
-    // Write output statistical map
-    void writeStatisticalMap();
-    // Write Z-scores map
-    void writeZscoresMap(FileName fnIn);
-    // Write weighted map
-    void writeWeightedMap(FileName fnIn);
-    // Write maks
-    void writeMask(FileName fnIn);
 
     // ----------------------- MAIN METHODS ------------------------------
     void run();
@@ -141,41 +133,12 @@ public:
     void classicalMDS(Matrix2D<double>& D, Matrix2D<double>& B, Matrix1D<double>& eigenvals, Matrix2D<double>& eigenvecs);
     void kmeans(Matrix2D<double>& X, int k, int maxIter, Matrix1D<int>& labels);
 
-
-    void calculateFSCoh();
-    void preprocessMap(FileName fnIn);
-    void processStaticalMap();
-    void computeStatisticalMaps();
-    void calculateAvgDiffMap();
-    void computeSigmaNormMAD(double& sigmaNorm);
-    void computeSigmaNormIQR(double& sigmaNorm);
-    void weightMap();
-
     // ---------------------- UTILS METHODS ------------------------------
 
     // Generate side info
     void generateSideInfo();
     void composefreqMap();
     void normalizeFTMap(MultidimArray<std::complex<double>> &volFT);
-
-
-    void createRadiusMask();
-    void generateDistanceMask(MultidimArray<int>& mask, MultidimArray<double>& maskDistance, double tao);
-
-    double t_cdf(double t, int nu);
-    double t_p_value(double t_stat, int nu);
-    double percentile(const std::vector<double>& values, double p);
-
-
-    // Methdos for new approach
-    double median(std::vector<double> v);
-    void computeMedianMap();
-    void writeMedianMap();
-    void writeMadMap();
-    void computemMADMap();
-    void calculateZscoreMADMap();
-    void writeZscoresMADMap(FileName fnIn);
-
 };
 //@}
 #endif
