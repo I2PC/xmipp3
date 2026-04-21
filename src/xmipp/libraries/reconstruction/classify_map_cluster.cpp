@@ -152,7 +152,7 @@ void ProgClassifyMapCluster::run()
 	}
 
 	#ifdef VERBOSE_OUTPUT
-	std::cout << "--Distance matrix" << std::endl;
+	std::cout << "\n\n-- Distance matrix" << std::endl;
 
 	for(size_t i = 0; i < Ndim; i++)
 	{
@@ -168,78 +168,101 @@ void ProgClassifyMapCluster::run()
 	#endif
 
 	// MDS of distance matrix
-	Matrix2D<double> B;
-	Matrix1D<double> eigenvals;
-    Matrix2D<double> eigenvecs;
+	// Matrix2D<double> B;
+	// Matrix1D<double> eigenvals;
+    // Matrix2D<double> eigenvecs;
 	
-	classicalMDS(distanceMatrix, B, eigenvals, eigenvecs);
+	// classicalMDS(distanceMatrix, B, eigenvals, eigenvecs);
 
-	// Build embedding
-	int p = 0; // Number of dimensions to keep in the embedding
+	// // Build embedding
+	// int p = 0; // Number of dimensions to keep in the embedding
 
-	// Use expalined variance as criteria to select number of dimensions in the embedding
-	double explainedVariance_threshold = 0.9;
-	double totalVariance = 0.0;
+	// // Use expalined variance as criteria to select number of dimensions in the embedding
+	// double explainedVariance_threshold = 0.9;
+	// double totalVariance = 0.0;
 
-	for(size_t i = 0; i < Ndim; i++)
-	{
-		totalVariance += eigenvals[i];
-	}
+	// for(size_t i = 0; i < Ndim; i++)
+	// {
+	// 	totalVariance += eigenvals[i];
+	// }
 
-	double cumulativeVariance = 0.0;
+	// double cumulativeVariance = 0.0;
 
-	for(size_t i = 0; i < Ndim; i++)	
-	{
-		cumulativeVariance = cumulativeVariance + eigenvals[i];
-		double explainedVariance = cumulativeVariance / totalVariance;
+	// for(size_t i = 0; i < Ndim; i++)	
+	// {
+	// 	cumulativeVariance = cumulativeVariance + eigenvals[i];
+	// 	double explainedVariance = cumulativeVariance / totalVariance;
 
-		std::cout << "Cumulative variance explained by " << (i+1) << " dimensions: " << explainedVariance << std::endl;
+	// 	std::cout << "Cumulative variance explained by " << (i+1) << " dimensions: " << explainedVariance << std::endl;
 
-		if (explainedVariance < explainedVariance_threshold)
-		{
-			p++;
-		}
-		else
-		{
-			break;
-		}
-	}
+	// 	if (explainedVariance < explainedVariance_threshold)
+	// 	{
+	// 		p++;
+	// 	}
+	// 	else
+	// 	{
+	// 		break;
+	// 	}
+	// }
 
-	std::cout << "Number of dimensions in the embedding: " << p << std::endl;
-	std::cout << std::endl;
+	// std::cout << "Number of dimensions in the embedding: " << p << std::endl;
+	// std::cout << std::endl;
 
-	Matrix2D<double> embedding;
-	embedding.initZeros(Ndim, p);
+	// Matrix2D<double> embedding;
+	// embedding.initZeros(Ndim, p);
 
-	for (size_t i = 0; i < Ndim; ++i)
-	{
-		for (size_t d = 0; d < p; ++d)
-		{
-			double lambda = eigenvals(d);
-			if (lambda > 0)
-				MAT_ELEM(embedding, i, d) = std::sqrt(lambda) * MAT_ELEM(eigenvecs, i, d);
-			else
-				MAT_ELEM(embedding, i, d) = 0.0;
-		}
-	}
+	// for (size_t i = 0; i < Ndim; ++i)
+	// {
+	// 	for (size_t d = 0; d < p; ++d)
+	// 	{
+	// 		double lambda = eigenvals(d);
+	// 		if (lambda > 0)
+	// 			MAT_ELEM(embedding, i, d) = std::sqrt(lambda) * MAT_ELEM(eigenvecs, i, d);
+	// 		else
+	// 			MAT_ELEM(embedding, i, d) = 0.0;
+	// 	}
+	// }
 
-	// Apply k-means to embedding
-	int k = 2;
-	int maxIter = 100;
-	Matrix1D<int> labels;
-	labels.initZeros(Ndim);
+	// // Apply k-means to embedding
+	// int k = 2;
+	// int maxIter = 100;
+	// Matrix1D<int> labels;
+	// labels.initZeros(Ndim);
 
-	kmeans(embedding, k, maxIter, labels);
+	// kmeans(embedding, k, maxIter, labels);
 
-	#ifdef DEBUG_MDS
-	std::cout << "--Labelling" << std::endl;
+	// #ifdef DEBUG_MDS
+	// std::cout << "--Labelling" << std::endl;
 
-	for(size_t i = 0; i < Ndim; i++)
-	{
-		std::cout << std::fixed << labels[i] << "\t";
-	}
-	std::cout << std::endl;
-	std::cout << std::endl;
+	// for(size_t i = 0; i < Ndim; i++)
+	// {
+	// 	std::cout << std::fixed << labels[i] << "\t";
+	// }
+	// std::cout << std::endl;
+	// std::cout << std::endl;
+	// #endif
+
+	// Hierarchical clustering of distance matrix
+	Matrix2D<double> Z;
+	hierarchicalClusteringLinkage_LW(distanceMatrix, Z);
+
+	#ifdef DEBUG_HIERARCHICAL_CLUSTERING
+	// Apply hierarchical clustering with linkage method to distance matrix
+	size_t rows = MAT_YSIZE(Z);
+
+    std::cout << "-- Linkage matrix [a, b, h, k]\n";
+
+    for (size_t i = 0; i < rows; ++i)
+    {
+        std::cout << "\n";
+        std::cout << (int)MAT_ELEM(Z, i, 0) << "\t"
+                  << (int)MAT_ELEM(Z, i, 1) << "\t"
+                  << std::fixed << std::setprecision(4)
+                  << MAT_ELEM(Z, i, 2) << "\t"
+                  << (int)MAT_ELEM(Z, i, 3);
+    }
+
+    std::cout << "\n\n";
 	#endif
 
     auto t2 = std::chrono::high_resolution_clock::now();
@@ -563,6 +586,131 @@ void ProgClassifyMapCluster::kmeans(
                     MAT_ELEM(centroids, c, d) /= counts(c);
             }
         }
+    }
+}
+
+void ProgClassifyMapCluster::hierarchicalClusteringLinkage_LW(
+    const Matrix2D<double>& D,   // NxN input distances
+    Matrix2D<double>& Z          // (N-1)x4 output
+)
+{
+    int N = MAT_YSIZE(D);
+
+    // ------------------------------------------------------------
+    // Initialize working distance matrix
+    // ------------------------------------------------------------
+
+	Matrix2D<double> dist;
+	dist.initZeros(2 * N, 2 * N);
+
+	// copy original distances
+	for (int i = 0; i < N; ++i)
+	{
+		for (int j = 0; j < N; ++j)
+		{
+			MAT_ELEM(dist, i, j) = MAT_ELEM(D, i, j);
+		}
+	}
+    // cluster sizes
+    std::vector<int> size(2*N, 0);
+
+    // active clusters
+    std::vector<bool> active(2*N, false);
+
+    // cluster ids
+    std::vector<int> clusterId(2*N, -1);
+
+    for (int i = 0; i < N; ++i)
+    {
+        size[i] = 1;
+        active[i] = true;
+        clusterId[i] = i;
+    }
+
+    // output
+    Z.initZeros(N - 1, 4);
+
+    int nextId = N;
+    int step = 0;
+
+    // ------------------------------------------------------------
+    // Main loop
+    // ------------------------------------------------------------
+
+    while (step < N - 1)
+    {	
+        double bestDist = std::numeric_limits<double>::max();
+        int A = -1, B = -1;
+
+        // --------------------------------------------------------
+        // Find closest pair
+        // --------------------------------------------------------
+
+        for (int i = 0; i < nextId; ++i)
+        {
+            if (!active[i]) continue;
+
+            for (int j = i + 1; j < nextId; ++j)
+            {
+                if (!active[j]) continue;
+
+                double d = MAT_ELEM(dist, i, j);
+
+                if (d < bestDist)
+                {
+                    bestDist = d;
+                    A = i;
+                    B = j;
+                }
+            }
+        }
+
+        // --------------------------------------------------------
+        // Create new cluster C
+        // --------------------------------------------------------
+
+        int C = nextId++;
+
+        size[C] = size[A] + size[B];
+        active[C] = true;
+        clusterId[C] = C;
+
+        // --------------------------------------------------------
+        // Fill linkage matrix
+        // --------------------------------------------------------
+
+        MAT_ELEM(Z, step, 0) = clusterId[A];
+        MAT_ELEM(Z, step, 1) = clusterId[B];
+        MAT_ELEM(Z, step, 2) = bestDist;
+        MAT_ELEM(Z, step, 3) = size[C];
+
+        step++;
+
+        // --------------------------------------------------------
+        // Update distances using Lance–Williams (average linkage)
+        // --------------------------------------------------------
+
+        for (int k = 0; k < nextId; ++k)
+        {
+            if (!active[k] || k == A || k == B)
+                continue;
+
+            double dAC = MAT_ELEM(dist, A, k);
+            double dBC = MAT_ELEM(dist, B, k);
+
+            double newDist =
+                (size[A] * dAC + size[B] * dBC) / (size[A] + size[B]);
+
+            MAT_ELEM(dist, C, k) = newDist;
+            MAT_ELEM(dist, k, C) = newDist;
+        }
+
+        // --------------------------------------------------------
+        // Deactivate merged clusters
+        // --------------------------------------------------------
+
+        active[A] = false;
+        active[B] = false;
     }
 }
 

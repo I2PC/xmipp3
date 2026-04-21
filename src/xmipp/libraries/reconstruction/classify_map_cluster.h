@@ -39,6 +39,7 @@
 // #define DEBUG_FREQUENCY_MAP
 #define DEBUG_OUTPUT_FILES
 #define DEBUG_MDS
+#define DEBUG_HIERARCHICAL_CLUSTERING
 
 /**@defgroup ProgClassifyMapCluster Map clusterin algorithm based on FSC distance
    @ingroup ReconsLibrary */
@@ -67,6 +68,11 @@ class ProgClassifyMapCluster: public XmippProgram
 
     // Data variables
     Matrix2D<double> distanceMatrix;  // Matrix for saving pairwise distance between maps
+    struct Cluster
+    {
+        std::vector<int> points;  // original indices
+        int id;                   // cluster id (for linkage matrix)
+    };                                  // Data strutures for hierarchical clustering
     FourierTransformer ft;              // Fourier transformer
     MultidimArray<double> freqMap;                      // Frequency mapping in Fourier space
     MultidimArray<double> FSC;                        // Fourier Shell Coherence
@@ -101,6 +107,7 @@ public:
     void calculateDistanceFSC(double &distance, int i1, int i2);
     void classicalMDS(Matrix2D<double>& D, Matrix2D<double>& B, Matrix1D<double>& eigenvals, Matrix2D<double>& eigenvecs);
     void kmeans(Matrix2D<double>& X, int k, int maxIter, Matrix1D<int>& labels);
+    void hierarchicalClusteringLinkage_LW(const Matrix2D<double>& D, Matrix2D<double>& Z);
 
     // ---------------------- UTILS METHODS ------------------------------
 
