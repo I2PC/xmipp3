@@ -61,6 +61,16 @@ void ProgStatisticalMap::readParams()
     {
         protein_radius = getDoubleParam("--protein_radius");
     }
+
+    if (checkParam("--remove_dust_size"))
+    {
+        remove_small_components = true;
+        remove_small_components_size = getIntParam("--remove_dust_size");
+    }
+     else
+    {
+        remove_small_components = false;
+    }
 }
 
 void ProgStatisticalMap::show() const
@@ -81,13 +91,22 @@ void ProgStatisticalMap::show() const
     }
 
 	std::cout
-    << "RUNNING IN MAD (MEAN AVERAGE DEVIATION) MODE!!!!!!!!!!!!!!!" << std::endl
+    << std::endl
 	<< "Input metadata with map pool for analysis:\t" << fn_mapPool << std::endl
 	<< "Input metadata with map pool for statistical map calculation:\t" << fn_mapPool_statistical << std::endl
 	<< "Output location for statistical volumes:\t" << fn_oroot << std::endl
     << maskMessage << std::endl
 	<< "Sampling rate:\t" << sampling_rate << std::endl
 	<< "Significance Z-score threshold:\t" << significance_thr << std::endl;
+
+    if (remove_small_components)
+    {
+        std::cout << "Remove small components in different mask: Yes (size: " << remove_small_components_size << " voxels)" << std::endl;
+    }
+    else
+    {
+        std::cout << "Remove small components in different mask: No" << std::endl;
+    }
 }
 
 void ProgStatisticalMap::defineParams()
@@ -104,14 +123,16 @@ void ProgStatisticalMap::defineParams()
     addParamsLine("[--protein_radius <protein_radius=-1>]     : Protein radius (in Angstroms) defining a ROI for analysis. By default considers the whole volume. Excluyent with --protein_mask.");
     addParamsLine("[--protein_mask <protein_mask=\"\">]       : Maks containing the ROI of the protein for analysis. Excluyent with --protein_radius.");
     addParamsLine("[--significance_thr <significance_thr=3>]  : Z-score threshold to consider a region significantly different.");
+    addParamsLine("[--remove_dust_size <remove_dust_size=5>]  : Remove small components in the outlier detected regions. Usefull in very flexible and/or noisy domains. Expect less agressive more estable correction.");
 }
 
 void ProgStatisticalMap::writeStatisticalMap() 
 {
     avgVolume.write(fn_out_avg_map);
     stdVolume.write(fn_out_std_map);
-    #ifdef DEBUG_WRITE_OUTPUT
-    std::cout << "Statistical map saved at: " << fn_out_avg_map << " and " << fn_out_std_map<<std::endl;
+
+    #ifdef DEBUG_OUTPUT_FILES
+    std::cout << "    Statistical map saved at: " << fn_out_avg_map << " and " << fn_out_std_map<<std::endl;
     #endif
 }
 
@@ -119,8 +140,8 @@ void ProgStatisticalMap::writeMedianMap()
 {
     medianMap.write(fn_out_median_map);
 
-    #ifdef DEBUG_WRITE_OUTPUT
-    std::cout << "Median map saved at: " << fn_out_median_map << std::endl;
+    #ifdef DEBUG_OUTPUT_FILES
+    std::cout << "    Median map saved at: " << fn_out_median_map << std::endl;
     #endif
 }
 
@@ -128,8 +149,8 @@ void ProgStatisticalMap::writeMadMap()
 {
     MADMap.write(fn_out_mad_map);
 
-    #ifdef DEBUG_WRITE_OUTPUT
-    std::cout << "MAD map saved at: " << fn_out_mad_map << std::endl;
+    #ifdef DEBUG_OUTPUT_FILES
+    std::cout << "    MAD map saved at: " << fn_out_mad_map << std::endl;
     #endif
 }
 
@@ -177,7 +198,7 @@ void ProgStatisticalMap::writeZscoresMap(FileName fnIn)
     // ---- Write output Z-scores volume ----
        V_Zscores.write(fnOut);
 
-    #ifdef DEBUG_WRITE_OUTPUT
+    #ifdef DEBUG_OUTPUT_FILES
     std::cout << "    Z-scores map saved at: " << fnOut << std::endl;
     #endif
 }
@@ -225,7 +246,7 @@ void ProgStatisticalMap::writeZscoresMADMap(FileName fnIn)
     // ---- Write output Z-scores MAD volume ----
     V_ZscoresMAD.write(fnOut);
 
-    #ifdef DEBUG_WRITE_OUTPUT
+    #ifdef DEBUG_OUTPUT_FILES
     std::cout << "    Z-scores MAD map saved at: " << fnOut << std::endl;
        #endif
 }
@@ -330,11 +351,11 @@ void ProgStatisticalMap::writeMask(FileName fnIn)
     //     saveDist.write(fn_out_different_dist);
     // }
 
-    #ifdef DEBUG_WRITE_OUTPUT
-    std::cout << "Coincident mask saved at: " << fn_out_coincident_mask << std::endl;
-    std::cout << "Different  mask saved at: " << fn_out_different_mask << std::endl;
-    // std::cout << "Coincident distance mask saved at: " << fn_out_coincident_dist << std::endl;
-    // std::cout << "Different  distance mask saved at: " << fn_out_different_dist << std::endl;
+    #ifdef DEBUG_OUTPUT_FILES
+    std::cout << "    Coincident mask saved at: " << fn_out_coincident_mask << std::endl;
+    std::cout << "    Different  mask saved at: " << fn_out_different_mask << std::endl;
+    // std::cout << "    Coincident distance mask saved at: " << fn_out_coincident_dist << std::endl;
+    // std::cout << "    Different  distance mask saved at: " << fn_out_different_dist << std::endl;
     #endif
 }
 
@@ -352,7 +373,7 @@ void ProgStatisticalMap::run()
     // Calculate statistical map
     // ---
     #ifdef VERBOSE_OUTPUT
-    std::cout << "\n\n---Analyzing input map pool for statistical characterization---" << std::endl;
+    std::cout << "\n---Analyzing input map pool for statistical characterization---" << std::endl;
     #endif
     
     mapPoolMD.read(fn_mapPool_statistical);
@@ -363,8 +384,8 @@ void ProgStatisticalMap::run()
 	{
         row.getValue(MDL_IMAGE, fn_V);
 
-        #ifdef DEBUG_STAT_MAP
-        std::cout << "Processing volume " << fn_V << " from statistical map pool..." << std::endl;
+        #ifdef VERBOSE_OUTPUT
+        std::cout << "    Processing volume " << fn_V << " for statistical pool characterization" << std::endl;
         #endif
 
         V.clear();
@@ -412,6 +433,10 @@ void ProgStatisticalMap::run()
         volCounter++;
     }
 
+    #ifdef VERBOSE_OUTPUT
+    std::cout << std::endl;
+    #endif
+
     // Calculate median map
     computeMedianMap();
     writeMedianMap();
@@ -422,61 +447,61 @@ void ProgStatisticalMap::run()
     computeStatisticalMaps();
     writeStatisticalMap();
 
-    // calculateAvgDiffMap();
-
-    #ifdef DEBUG_STAT_MAP
-    std::cout << "Statistical map succesfully calculated!" << std::endl;
+    #ifdef VERBOSE_OUTPUT
+    std::cout << "\nInput map pool statistically chracterized succesfully!!" << std::endl;
     #endif
+
+    // calculateAvgDiffMap();
     
     // ---
     // Calculate Z-score maps from statistical map pool for histogram equalization
     // ---
-    #ifdef VERBOSE_OUTPUT
-    std::cout << "\n\n---Analyzing input map pool for histogram equalization---" << std::endl;
-    #endif
+    // #ifdef VERBOSE_OUTPUT
+    // std::cout << "\n\n---Analyzing input map pool for histogram equalization---" << std::endl;
+    // #endif
 
-    volCounter = 0;
+    // volCounter = 0;
 
-    for (const auto& row : mapPoolMD)
-	{
-        row.getValue(MDL_IMAGE, fn_V);
+    // for (const auto& row : mapPoolMD)
+	// {
+    //     row.getValue(MDL_IMAGE, fn_V);
 
-        #ifdef DEBUG_WEIGHT_MAP
-        std::cout << "Anayzing volume " << fn_V << " against statistical map for histogram equalization..." << std::endl;
-        #endif
+    //     #ifdef DEBUG_WEIGHT_MAP
+    //     std::cout << "Anayzing volume " << fn_V << " against statistical map for histogram equalization..." << std::endl;
+    //     #endif
 
-        // Load preprocess map from reference map pool
-        V().initZeros(Zdim, Ydim, Xdim);
+    //     // Load preprocess map from reference map pool
+    //     V().initZeros(Zdim, Ydim, Xdim);
 
-        for(size_t k = 0; k < Zdim; k++)
-	    {
-            for(size_t j = 0; j <Xdim; j++)
-            {
-                for(size_t i = 0; i < Ydim; i++)
-                {
-                     DIRECT_ZYX_ELEM(V(), k, i, j) = DIRECT_NZYX_ELEM(referenceMapPool(), volCounter, k, i, j);
-                }
-            }
-        }
+    //     for(size_t k = 0; k < Zdim; k++)
+	//     {
+    //         for(size_t j = 0; j <Xdim; j++)
+    //         {
+    //             for(size_t i = 0; i < Ydim; i++)
+    //             {
+    //                  DIRECT_ZYX_ELEM(V(), k, i, j) = DIRECT_NZYX_ELEM(referenceMapPool(), volCounter, k, i, j);
+    //             }
+    //         }
+    //     }
 
-        V_Zscores().initZeros(Zdim, Ydim, Xdim);
-        differentMask.initZeros(Zdim, Ydim, Xdim);
-        coincidentMask.initZeros(Zdim, Ydim, Xdim);
-        V_ZscoresMAD().initZeros(Zdim, Ydim, Xdim);
-        calculateZscoreMADMap();
-        writeZscoresMADMap(fn_V);
+    //     V_Zscores().initZeros(Zdim, Ydim, Xdim);
+    //     differentMask.initZeros(Zdim, Ydim, Xdim);
+    //     coincidentMask.initZeros(Zdim, Ydim, Xdim);
+    //     V_ZscoresMAD().initZeros(Zdim, Ydim, Xdim);
+    //     calculateZscoreMADMap();
+    //     writeZscoresMADMap(fn_V);
 
-        writeZscoresMap(fn_V);
-        // writeMask(fn_V);
+    //     writeZscoresMap(fn_V);
+    //     // writeMask(fn_V);
 
-        volCounter++;
-    }
+    //     volCounter++;
+    // }
 
     // ---
     // Compare input maps against statistical map
     // ---
     #ifdef VERBOSE_OUTPUT
-    std::cout << "\n\n---Comparing input map pool against statistical map---" << std::endl;
+    std::cout << "\n---Comparing input map pool against statistical map---" << std::endl;
     #endif
 
     mapPoolMD.read(fn_mapPool);
@@ -485,8 +510,8 @@ void ProgStatisticalMap::run()
 	{
         row.getValue(MDL_IMAGE, fn_V);
 
-        #ifdef DEBUG_WEIGHT_MAP
-        std::cout << "Anayzing volume " << fn_V << " against statistical map..." << std::endl;
+        #ifdef VERBOSE_OUTPUT
+        std::cout << "    Analyzing volume " << fn_V << " against statistical map" << std::endl;
         #endif
 
         V.clear();
@@ -506,10 +531,14 @@ void ProgStatisticalMap::run()
         weightMap();
         writeWeightedMap(fn_V);
         writeMask(fn_V);
+
+        #ifdef VERBOSE_OUTPUT
+        std::cout << std::endl;
+        #endif
     }
 
-    #ifdef DEBUG_WEIGHT_MAP
-    std::cout << "Input maps succesfully analyzed!" << std::endl;
+    #ifdef VERBOSE_OUTPUT
+    std::cout << "Input maps succesfully analyzed!\n" << std::endl;
     #endif
 
     auto t2 = std::chrono::high_resolution_clock::now();
@@ -528,19 +557,21 @@ void ProgStatisticalMap::calculateFSCoh()
     fscoh.sampling_rate = sampling_rate;
 
 	#ifdef VERBOSE_OUTPUT
-	std::cout << "----- Calculate FSCoh" << std::endl;
+	std::cout << "\n---Calculate FSCoh---" << std::endl;
 	#endif
 
 	fscoh.run();
 
 	#ifdef VERBOSE_OUTPUT
-	std::cout << "----- FSCoh caluclated successfully!" << std::endl;
-	#endif
+	std::cout << "FSCoh caluclated successfully!" << std::endl;
+    #endif
 }
 
 void ProgStatisticalMap::preprocessMap(FileName fnIn)
 {
+    #ifdef DEBUG_PREPROCESS
     std::cout << "    Preprocessing input map..." << std::endl;
+    #endif
 
     // LPF map up to coherent resolution threshold (remove uncoherent frequencies)
     FourierTransformer ft;
@@ -557,12 +588,14 @@ void ProgStatisticalMap::preprocessMap(FileName fnIn)
 
     ft.inverseFourierTransform();
 
+    #ifdef DEBUG_PREPROCESS
     std::cout << "    Low-pass filtering applied up to frequency index: " << fscoh.indexThr << std::endl;
+    #endif
 
     // Create mask with only positive values (std>1 in protein radius)
-    double foo;
+    double avg;
     double std;
-    V().computeAvgStdev_within_binary_mask(ROI_mask, foo, std);
+    V().computeAvgStdev_within_binary_mask(ROI_mask, avg, std);
 
     if (proteinMaskProvided) 
     {
@@ -581,11 +614,27 @@ void ProgStatisticalMap::preprocessMap(FileName fnIn)
         }
     }
 
+    #ifdef DEBUG_PREPROCESS  
     std::cout << "    Positive density mask created." << std::endl;
+    #endif
 
     // Normalize map on positive densities dividing by std
-    V().computeAvgStdev_within_binary_mask(positiveMask, foo, std);
+    V().computeAvgStdev_within_binary_mask(positiveMask, avg, std);
+
+    #ifdef DEBUG_PREPROCESS  
     std::cout << "    Normalizing map by stdev value of positive densities: " << std << std::endl;
+    #endif
+
+    // Safety check of empty map
+    if (avg == 0)
+    {
+        std::cerr << "  [ERR] Map average null!" << std::endl;
+    }
+    if (std == 0)
+    {
+        std::cerr << "  [ERR] Map std null!" << std::endl;
+    }
+
 
     // Normalize map
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
@@ -613,14 +662,13 @@ void ProgStatisticalMap::preprocessMap(FileName fnIn)
     }
 
     V.write(fnOut);
-    #endif
 
+    std::cout << "    Preprocessed map saved at: " << fnOut << std::endl;
+    #endif
 }
 
 void ProgStatisticalMap::processStaticalMap()
 { 
-    std::cout << "    Processing input map for statistical map calculation..." << std::endl;
-
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
         // Reuse avg and std maps for sum and sum^2 (memory efficient)
@@ -632,7 +680,9 @@ void ProgStatisticalMap::processStaticalMap()
 
 void ProgStatisticalMap::computeMedianMap()
 { 
+    #ifdef DEBUG_STATISTICAL_MAP
     std::cout << "    Calculating median map..." << std::endl;
+    #endif
 
     std::vector<double> voxelValues;
     voxelValues.reserve(Ndim);
@@ -661,7 +711,9 @@ void ProgStatisticalMap::computeMedianMap()
 
 void ProgStatisticalMap::computemMADMap()
 { 
+    #ifdef DEBUG_STATISTICAL_MAP
     std::cout << "    Calculating MAD map..." << std::endl;
+    #endif
 
     std::vector<double> voxelValues;
     voxelValues.reserve(Ndim);
@@ -691,7 +743,9 @@ void ProgStatisticalMap::computemMADMap()
 
 void ProgStatisticalMap::computeStatisticalMaps()
 {
-    std::cout << "Computing statisical map..." << std::endl;
+    #ifdef DEBUG_STATISTICAL_MAP
+    std::cout << "    Computing statisical map..." << std::endl;
+    #endif
 
     // Compute mean and standard deviation maps
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(avgVolume())
@@ -716,7 +770,7 @@ void ProgStatisticalMap::computeStatisticalMaps()
         FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(avgVolume())
         {
             // As maps are normalized to std=1 the comparison is direct
-            if (DIRECT_MULTIDIM_ELEM(avgVolume(), n) > 1.64 && DIRECT_MULTIDIM_ELEM(ROI_mask, n) > 0)
+            if (DIRECT_MULTIDIM_ELEM(avgVolume(), n) > 1 && DIRECT_MULTIDIM_ELEM(ROI_mask, n) > 0)
             {
                 DIRECT_MULTIDIM_ELEM(positiveMask, n) = 1;
             }
@@ -778,14 +832,14 @@ void ProgStatisticalMap::computeSigmaNormMAD(double& sigmaNorm)
     // So sigma ≈ MAD / 0.6745 ≈ MAD * 1.4826.
     sigmaNorm = 1.4826 * mad;
 
-    #ifdef DEBUG_SIGMA_NORM
+    #ifdef DEBUG_STATISTICAL_MAP
     std::cout << "    Sigma normalization factor (MAD): " << sigmaNorm << std::endl;
     #endif
 }
 
 
 void ProgStatisticalMap::computeSigmaNormIQR(double& sigmaNorm) {
-     // Calculate diff map
+    // Calculate diff map
     std::vector<double> diffs;
 
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(coincidentMask)
@@ -807,14 +861,16 @@ void ProgStatisticalMap::computeSigmaNormIQR(double& sigmaNorm) {
 
     sigmaNorm = iqr / 1.349;
 
-    #ifdef DEBUG_SIGMA_NORM
+    #ifdef DEBUG_STATISTICAL_MAP
     std::cout << "    Sigma normalization factor (IQR): " << sigmaNorm << std::endl;
     #endif
 }
 
 void ProgStatisticalMap::calculateZscoreMADMap()
 {
+    #ifdef DEBUG_STATISTICAL_MAP
     std::cout << "    Calculating Zscore MAD map..." << std::endl;
+    #endif
 
     double mapMAD;
     double foo;
@@ -822,7 +878,9 @@ void ProgStatisticalMap::calculateZscoreMADMap()
     MADMap().computeAvgStdev_within_binary_mask(positiveMask, mapMAD, foo);
     mapMAD = mapMAD * 1.4826; // Scale MAD to estimate sigma under normality
 
+    #ifdef DEBUG_STATISTICAL_MAP
     std::cout << "    Global MAD value: " << mapMAD << std::endl;
+    #endif
 
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
@@ -848,6 +906,10 @@ void ProgStatisticalMap::calculateZscoreMADMap()
     }
 
     // Calculate different mask
+    #ifdef DEBUG_STATISTICAL_MAP
+    std::cout << "    Calculating different mask..." << std::endl;
+    #endif
+
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V_Zscores())
     {
         if (DIRECT_MULTIDIM_ELEM(ROI_mask,n) > 0)
@@ -890,6 +952,10 @@ void ProgStatisticalMap::calculateZscoreMADMap()
     // }
 
     // Calculate coincident mask
+    #ifdef DEBUG_STATISTICAL_MAP
+    std::cout << "    Calculating coincident mask..." << std::endl;
+    #endif
+
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
         if (DIRECT_MULTIDIM_ELEM(positiveMask,n) > 0)
@@ -977,14 +1043,17 @@ void ProgStatisticalMap::calculateZscoreMADMap()
 
  ///////////////////////////////////////////////////////////////////////////////
 
+    #ifdef DEBUG_STATISTICAL_MAP
     std::cout << "    Zscore MAD map calculated successfully!" << std::endl;
+    #endif
 }
 
 
-// WEIGHT MAP OCCUPY-LIKE VERSION
 void ProgStatisticalMap::weightMap()
 {
+    #ifdef DEBUG_WEIGHT_MAP
     std::cout << "    Calculating POF (comparing P95 in each region)..." << std::endl;
+    #endif
 
     // ---------------------------
     // Parámetros fijos y estables
@@ -996,7 +1065,8 @@ void ProgStatisticalMap::weightMap()
 
     // FOR TESTING) Cargar máscara diferente (igual que antes)
     // Image<int> readMask;
-    // readMask.read("/home/fpdeisidro/testBench/publication_FSCoh+StatMaps/Betagal_PO/StatisticalMaps_definitivo_BGsubs/00100_postprocess_rescaled_ali_differentMask.mrc");
+    // readMask.read("/home/fpdeisidro/testBench/publication_FSCoh+StatMaps/Tripamal_PO/fullOccDifferentMask.mrc");
+    // readMask.read("/home/fpdeisidro/testBench/publication_FSCoh+StatMaps/Tripamal_PO/StatisticalMaps_TM_localAlignment_BestResultsSoFar/100_postprocess_rescaled_differentMask.mrc");
     // differentMask = readMask();
 
     // 1) Define background region (as the dilated region from different mask)
@@ -1017,10 +1087,27 @@ void ProgStatisticalMap::weightMap()
     int count = 1;  // Min number of empty elements in neighbourhood
     int size = 1;   // Number of iterations
 
+    // Remove small components to avoid dilating noise
+    if (remove_small_components)
+    {
+        removeSmallComponents(differentMask_double, remove_small_components_size);
+    }
+
     dilate3D(differentMask_double, differentMask_dilated_double, neig, count, size);
 
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(differentMask_dilated)
     {
+        // Update different mask (after remove small components)
+        if (DIRECT_MULTIDIM_ELEM(differentMask_double, n) > epsilon)
+        {
+            DIRECT_MULTIDIM_ELEM(differentMask, n) = 1;
+        }
+        else
+        {
+            DIRECT_MULTIDIM_ELEM(differentMask, n) = 0;
+        }
+
+        // Create dilated mask 
         if (DIRECT_MULTIDIM_ELEM(differentMask_dilated_double, n) > epsilon)
         {
             DIRECT_MULTIDIM_ELEM(differentMask_dilated, n) = 1;
@@ -1052,14 +1139,16 @@ void ProgStatisticalMap::weightMap()
     const size_t nD = valsDifferent.size();
     const size_t nB = valsBackground.size();
     
+    #ifdef DEBUG_WEIGHT_MAP
+    std::cout << "        ROI sizes: coincident=" << nC << ", different=" << nD << ", background=" << nB << std::endl;
+    #endif
+
     if (nC == 0 || nD == 0 || nB == 0) {
         std::cerr << "  [WARN] Empty ROI; skipping correction." << std::endl;
         return;
     }
 
-    std::cout << "  ROI sizes: coincident=" << nC << ", different=" << nD << ", background=" << nB << std::endl;
-
-    // 3) Percentil helper (interpolación lineal)
+    // 3) Percentil helper (linear interpolation)
     auto percentile_of = [](const std::vector<double>& v, double q) -> double {
         if (v.empty()) return std::numeric_limits<double>::quiet_NaN();
         std::vector<double> tmp = v;
@@ -1082,14 +1171,19 @@ void ProgStatisticalMap::weightMap()
     }
     const double rawPOF = (S_diff-S_background) / (S_coinc-S_background);
 
-    std::cout << "  p" << int(Q*100) << " coincident --------------------> " << S_coinc << std::endl;
-    std::cout << "  p" << int(Q*100) << " different  --------------------> " << S_diff  << std::endl;
-    std::cout << "  p" << int(Q*100) << " background --------------------> " << S_background  << std::endl;
-    std::cout << "  raw POF (fixed-percentile) --------------> " << rawPOF << std::endl;
+    #ifdef DEBUG_WEIGHT_MAP
+    std::cout << "        p" << int(Q*100) << " coincident --------------------> " << S_coinc << std::endl;
+    std::cout << "        p" << int(Q*100) << " different  --------------------> " << S_diff  << std::endl;
+    std::cout << "        p" << int(Q*100) << " background --------------------> " << S_background  << std::endl;
+    std::cout << "        raw POF (fixed-percentile) --------------> " << rawPOF << std::endl;
+    #endif
 
-    // 5) Bootstrap (mismo reporting, N fijo si es posible)
+    // 5) Bootstrap
     const size_t N_BOOT = std::min({N_BOOT_DEFAULT, nC, nD, nB});
-    std::cout << "  Bootstrap: N=" << N_BOOT << " iters=" << BOOTSTRAP_ITERS << std::endl;
+
+    #ifdef DEBUG_WEIGHT_MAP
+    std::cout << "        Bootstrap: N=" << N_BOOT << " iters=" << BOOTSTRAP_ITERS << std::endl;
+    #endif
 
     std::mt19937 rng(12345);
     std::uniform_int_distribution<size_t> uniC(0, nC - 1);
@@ -1116,12 +1210,19 @@ void ProgStatisticalMap::weightMap()
         const double S_coinc_bs      = percentile_of(sampleC, Q);
         const double S_diff_bs       = percentile_of(sampleD, Q);
         const double S_background_bs = percentile_of(sampleB, Q);
-        if (S_coinc_bs > 0.0)
+        
+        if (S_background_bs > S_coinc_bs || S_background > S_diff_bs)
+        {
+            pofSamples.push_back(S_diff_bs / S_coinc_bs);
+        }
+        else
+        {
             pofSamples.push_back((S_diff_bs - S_background_bs) / (S_coinc_bs - S_background_bs));
+        }
     }
 
     if (pofSamples.empty()) {
-        std::cerr << "  [WARN] Bootstrap failed; skipping correction." << std::endl;
+        std::cerr << "    [WARN] Bootstrap failed; skipping correction." << std::endl;
         return;
     }
 
@@ -1141,26 +1242,33 @@ void ProgStatisticalMap::weightMap()
     const double pofMin    = p_boot(0);
     const double pofMax    = p_boot(1.0);
 
-
-    std::cout << "  Bootstrap POF median --------------------> " << pofMedian << std::endl;
-    std::cout << "  Bootstrap POF absolute interval [" << pofMin << ", " << pofMax << "]" << std::endl;
-    std::cout << "  Bootstrap POF confidence interval [" << pofLo << ", " << pofHi << "]" << std::endl;
+    #ifdef DEBUG_WEIGHT_MAP
+    std::cout << "        Bootstrap POF median --------------------> " << pofMedian << std::endl;
+    std::cout << "        Bootstrap POF absolute interval [" << pofMin << ", " << pofMax << "]" << std::endl;
+    std::cout << "        Bootstrap POF confidence interval [" << pofLo << ", " << pofHi << "]" << std::endl;
+    #endif
 
     // 6) Decisión final (idéntica)
     double finalPOF = 1.0;
     if (pofMedian < 1.0) {
         finalPOF = pofMedian;
     }
-    std::cout << "  FINAL POF -------------------------------> " << finalPOF << std::endl;
+
+    #ifdef VERBOSE_OUTPUT
+    std::cout << "    Calculated Partial Occupancy Factor (POF) " << finalPOF << std::endl;
+    #endif
 
     // ---------------------------------------------------------------------
     // 7) Apply correction
     // ---------------------------------------------------------------------
     if (finalPOF < 1.0)
     {
-        std::cout << "  Significant difference detected; applying correction..." << std::endl;
         double correctionFactor = 1 - finalPOF;
-        std::cout << "  Applying correction with factor: " << correctionFactor << std::endl;
+
+        #ifdef VERBOSE_OUTPUT
+        std::cout << "    Applying correction with factor: " << correctionFactor << std::endl;
+        #endif
+
         FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
         {
             DIRECT_MULTIDIM_ELEM(V(), n) = DIRECT_MULTIDIM_ELEM(V(), n) - DIRECT_MULTIDIM_ELEM(avgVolume(), n) * correctionFactor ;
@@ -1168,7 +1276,9 @@ void ProgStatisticalMap::weightMap()
     }
     else
     {
-        std::cout << "  No significant difference detected; skipping correction." << std::endl;
+        #ifdef VERBOSE_OUTPUT
+        std::cout << "    No significant difference detected; skipping correction." << std::endl;
+        #endif
     }
 
     // // ---------------------------------------------------------------------
@@ -1866,8 +1976,11 @@ void ProgStatisticalMap::createRadiusMask()
     #ifdef DEBUG_OUTPUT_FILES
     Image<int> saveImage;
     std::string debugFileFn = fn_oroot + "ROI_mask.mrc";
+
     saveImage() = ROI_mask;
     saveImage.write(debugFileFn);
+
+    std::cout << "    ROI mask saved at: " << debugFileFn << std::endl;
     #endif   
 } 
 

@@ -191,6 +191,9 @@ void ProgFSCoh::calculateResolutionThreshold()
     // Define Coherence threhold
     // double FSCoh_thr = (Ndim + 6.0)/(7.0*Ndim);
 	double FSCoh_thr = (Ndim + 3.0)/(4.0*Ndim);
+
+	// Initialize threshold index to max frequency
+	indexThr = NZYXSIZE(FSCoh) - 1;
     
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(FSCoh)
     {

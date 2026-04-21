@@ -35,12 +35,10 @@
 #define VERBOSE_OUTPUT
 // #define DEBUG_DIM
 // #define DEBUG_FREQUENCY_MAP
-#define DEBUG_STAT_MAP
+// #define DEBUG_PREPROCESS
+#define DEBUG_STATISTICAL_MAP
 #define DEBUG_WEIGHT_MAP
-#define DEBUG_WRITE_OUTPUT
 #define DEBUG_OUTPUT_FILES
-#define DEBUG_PREPROCESS
-#define DEBUG_SIGMA_NORM
 
 /**@defgroup ProgStatisticalMap Calculates statistical map
    @ingroup ReconsLibrary */
@@ -58,6 +56,8 @@ class ProgStatisticalMap: public XmippProgram
     double sampling_rate;                   // Sampling rate of input maps
     double protein_radius;                  // Protein radius
     double significance_thr;                // Significance Z-score threshold
+    bool remove_small_components;           // Apply remove small components in the different mask.
+    int remove_small_components_size;       // Minimum size components in the different mask.
 
     // Side info variables
     FileName fn_out_avg_map;
