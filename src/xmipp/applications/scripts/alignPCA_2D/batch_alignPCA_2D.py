@@ -77,8 +77,9 @@ if __name__=="__main__":
     parser.add_argument("-t", "--training", help="number of image for training", required=True)
     parser.add_argument("-hr", "--highres", help="highest resolution to consider", required=True)
     parser.add_argument("-p", "--perc", help="PCA percentage (between 0-1)", required=True)
+    parser.add_argument("-g", "--gpuIds", help='''GPU ids to employ. Comma separated list. E.g. "0,1". Default 0. '
+        'use -1 for CPU-only computation or "all" to use all devices found in CUDA_VISIBLE_DEVICES (option for slurm)''', required=False)
 
-    
     args = parser.parse_args()
     
     expFile = args.exp
