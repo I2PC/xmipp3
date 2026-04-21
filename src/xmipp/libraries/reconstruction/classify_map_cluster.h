@@ -40,7 +40,7 @@
 #define DEBUG_OUTPUT_FILES
 #define DEBUG_MDS
 
-/**@defgroup ProgClassifyMapCluster Calculates statistical map
+/**@defgroup ProgClassifyMapCluster Map clusterin algorithm based on FSC distance
    @ingroup ReconsLibrary */
 //@{
 /** Cluster map based in FSC distance*/
@@ -52,17 +52,7 @@ class ProgClassifyMapCluster: public XmippProgram
     FileName fn_mapPool;                    // Input metadata with map pool for analysis
     FileName fn_mapPool_statistical;        // Input metadata with map pool for statistical map calculation
     FileName fn_oroot;                      // Location for saving output maps
-    FileName fn_mask;                       // Protein mask filename
     double sampling_rate;                   // Sampling rate of input maps
-    double protein_radius;                  // Protein radius
-    double significance_thr;                // Significance Z-score threshold
-
-    // Side info variables
-    FileName fn_out_avg_map;
-    FileName fn_out_std_map;
-    FileName fn_out_median_map;
-    FileName fn_out_mad_map;
-    bool proteinMaskProvided = false;
 
     // Volume dimensions
     bool dimInitialized = false;
@@ -84,32 +74,11 @@ class ProgClassifyMapCluster: public XmippProgram
     MultidimArray<double> FSC_den1;                    // Fourier Shell Coherence denominator
     MultidimArray<double> FSC_den2;                    // Fourier Shell Coherence denominator
 
-    Image<double> referenceMapPool;         // Reference map pool
     Image<std::complex<double>> referenceMapPool_ft;         // Reference map pool Fourier Transform
-    Image<double> medianMap;                // Median volume
-    Image<double> MADMap;                   // MAD volume
-    Image<double> V_ZscoresMAD;             // Each z-scores map using MAD from pool
 
     FileName fn_V;                          // Filename for each input volume from pool
     Image<double> V;                        // Each input volume from pool
     MultidimArray<std::complex<double>> V_ft;       // Each input volume from pool Fourier Transform
-    Image<double> V_Zscores;                // Each z-scores map from pool
-    Image<double> avgVolume;                // Average volume
-    Image<double> stdVolume;                // Standard deviation volume
-    Image<double> avgDiffVolume;            // Average difference volume
-    MultidimArray<int> ROI_mask;            // Mask for focus analysis if protein radius provided
-    MultidimArray<int> coincidentMask;      // Mask for coincident regions between each input map and the statiscal pool
-    MultidimArray<int> differentMask;       // Mask for different regions between each input map and the statiscal pool
-    MultidimArray<int> positiveMask;                // Mask for positive values in each input map
-    MultidimArray<int> positiveMask_dilated;        // Mask for positive values in each input map + backgorund
-    MultidimArray<double> distanceCoincidentMask;
-    MultidimArray<double> distanceDifferentMask;
-
-    // Calculated parameters
-    std::vector<double> histogramEqualizationParameters;
-    double equalizationParam;
-    double partialOccupancyFactor;
-    std::vector<double> zScoreAccumulator;
 
     // Particle metadata
     MetaDataVec mapPoolMD;
