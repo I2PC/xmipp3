@@ -1064,10 +1064,10 @@ void ProgStatisticalMap::weightMap()
     const double CI_ALPHA       = 0.05;
 
     // FOR TESTING) Cargar máscara diferente (igual que antes)
-    Image<int> readMask;
+    // Image<int> readMask;
     // readMask.read("/home/fpdeisidro/testBench/publication_FSCoh+StatMaps/Tripamal_PO/fullOccDifferentMask.mrc");
-    readMask.read("/home/fpdeisidro/testBench/publication_FSCoh+StatMaps/Tripamal_PO/StatisticalMaps_TM_localAlignment_BestResultsSoFar/100_postprocess_rescaled_differentMask.mrc");
-    differentMask = readMask();
+    // readMask.read("/home/fpdeisidro/testBench/publication_FSCoh+StatMaps/Tripamal_PO/StatisticalMaps_TM_localAlignment_BestResultsSoFar/100_postprocess_rescaled_differentMask.mrc");
+    // differentMask = readMask();
 
     // 1) Define background region (as the dilated region from different mask)
     double epsilon = 1e-6;
@@ -1255,7 +1255,7 @@ void ProgStatisticalMap::weightMap()
     }
 
     #ifdef VERBOSE_OUTPUT
-    std::cout << "    Calculated Partial Occupancy Factor (POF)" << finalPOF << std::endl;
+    std::cout << "    Calculated Partial Occupancy Factor (POF) " << finalPOF << std::endl;
     #endif
 
     // ---------------------------------------------------------------------
