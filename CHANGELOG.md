@@ -1,3 +1,37 @@
+## Release 5.0.0 - Beta-gal 
+   ### Xmipp Programs 
+   - New programs
+      - alignPCA_2D: an alignment method applied for 2D classification using PCA and Euclidean distance.‎
+
+   ### Installation and user guide
+   - Redirect all documentation to the official and fancy one: https://i2pc.github.io/docs/
+     
+   ### More Xmipp  
+   - CUDA 13 is now fully compatible with Xmipp, enabling improved GPU acceleration and performance on modern hardware.
+
+
+## Release 4.0.0 - Apoferritin
+   ### Xmipp Programs 
+   - Programs updated
+      - align volume and particles: Allow considering mirrors
+      - miccCleaner: updated enviroment to tensorflow2
+        
+   - Programs fixed
+      - tranform geometry: Apply geometry program now considers the original geometry in the metadata when the parameter --shift_to is passed.
+      - ‎angular_project_library: Fix indexing problem in angular_project_library
+      - ctf_correct_phase fix and two constants for tomography were added
+      - angular_project_library: Fix indexing bug
+
+   ### Installation and user guide
+   - Fixed issue with CUDA 12.5
+     
+   ### More Xmipp  
+   - Forced compiler GCC >= 9 
+   - getPSF added to the xmipp binding
+   - replace "conda env export" to avoid deprecation issue.
+   - Fixing read when encountering NaN-s and infinite values
+
+
 ## Release 3.25.06.0 - Rhea
    ### Xmipp Programs 
    - New programs

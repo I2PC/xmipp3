@@ -72,6 +72,13 @@ void applyTransformation(const MultidimArray<double> &V2,
     YY(r)            = p[8];
     XX(r)            = p[9];
 
+    if (flip < 0)
+    {
+
+	ZZ(r) *= -1;
+	ZZ(r) += 1;
+    }
+
     Euler_angles2matrix(rot, tilt, psi, A, true);
     for (int i = 0; i < 4; ++i)
     {
