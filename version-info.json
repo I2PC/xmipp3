@@ -1,0 +1,15 @@
+{
+    "xmipp": {
+        "version_number": "5.0.0",
+        "version_name": "v5.0.0-Beta-gal",
+        "release_date": "24/02/2026"
+    },
+    "sources_target_tag": {
+        "xmippCore": "v4",
+        "xmippViz": "v4"
+    }
+}
+
+
+
+
