@@ -236,9 +236,9 @@ void CudaShiftCorrEstimator<T>::loadThreadRoutine(T *others) {
         size_t toProcess = std::min(this->m_settingsInv->batch(), this->m_settingsInv->fDim().n() - offset);
         std::unique_lock<std::mutex> lk(*m_mutex);
         // wait till the data is processed
-        while (m_isDataReady) {
-            m_cv->wait(lk);
-        }
+        m_cv->wait(lk, [this] {
+            return !m_isDataReady;
+        });
         T *src = others + offset * this->m_settingsInv->sDim().xy();
         size_t bytes = toProcess * this->m_settingsInv->sBytesSingle();
 
