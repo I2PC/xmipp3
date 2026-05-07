@@ -9,6 +9,9 @@ import numpy as np
 import torch
 from torch.nn.functional import normalize
 import time
+from xmippPyModules.alignPcaFunctions.bnb_gpu import BnBgpu
+import torchvision.transforms as T
+
 
 class PCAgpu:
     
@@ -265,7 +268,100 @@ class PCAgpu:
             
             self.Bvecs[n] = self.Bvecs[n][:,:(int(self.eigs[n]+1))]
             print(self.Bvecs[n].shape, flush=True)
+            
+        del (band)
+        del self.Bmean, self.Bvar, self.Bvals, self.covariance, self.mean
+        torch.cuda.empty_cache()
 
-        return(self.Bmean, self.Bvals, self.Bvecs)
+        # return(self.Bmean, self.Bvals, self.Bvecs)
+        return(self.Bvecs)
+    
+    
+    
+    def precalculateBands(self, nBand, dim, sampling, maxRes, minRes):
+        
+        fx = torch.fft.rfftfreq(dim, device=self.cuda)
+        fy = torch.fft.fftfreq(dim, device=self.cuda)
+        
+        gy, gx = torch.meshgrid(fy, fx, indexing='ij')
+        
+        w = torch.sqrt(gx**2 + gy**2)
+        del gx, gy
+        
+        # Inicialization
+        freq_band = torch.full((dim, fx.numel()), 50, device=self.cuda, dtype=torch.long)
+        
+        maxFreq = sampling / maxRes
+        minFreq = sampling / minRes
+        factor = nBand / maxFreq
+        
+        mask = (w > minFreq) & (w < maxFreq)
+        freq_band[mask] = torch.floor(w[mask] * factor).long()
+        
+        del w, mask, fx, fy
+    
+        return freq_band
+
+    def augmented(self, images, num_tr):
+        batch_size, size, size = images.size()
+    
+        degrees_range=(0, 360)
+        translate_range=(0.1, 0.1)
+        transform = T.RandomAffine(degrees=degrees_range, translate=translate_range)
+        transformed_images = transform(images.clone().repeat(num_tr, 1, 1, 1))
+        augmented_data = transformed_images.reshape(batch_size*num_tr, size, size)
+    
+        return augmented_data
+    
+    
+    def calculatePCAbasis(self, mexp, Ntrain, nBand, dim, sampling, maxRes, minRes, per_eig, batchPCA):
+        
+        freq_band = self.precalculateBands(nBand, dim, sampling, maxRes, minRes) 
+        #torch.save(freq_band, output + "_bands.pt")
+    
+        coef = torch.zeros(nBand, dtype=int)
+        for n in range(nBand):
+            coef[n] = 2*torch.sum(freq_band==n) 
+           
+        bnb = BnBgpu(nBand)    
+        expBatchSize = 400  
+        band = [torch.zeros(Ntrain, coef[n], device = self.cuda) for n in range(nBand)]  
+           
+         
+        #print("Select bands of images")            
+        for initBatch in range(0, Ntrain, expBatchSize):
+            
+            endBatch = initBatch+expBatchSize 
+            if (endBatch > Ntrain):
+                endBatch = Ntrain
+            
+            expImages = mexp.data[initBatch:endBatch].astype(np.float32)#.copy()
+            Texp = torch.from_numpy(expImages).float().to(self.cuda)
+            radius = 60
+            Texp = Texp * bnb.create_mask(Texp, radius)
+    
+            del(expImages)
+
+            
+            for augm in range(10):
+                Texp_augmented = self.augmented(Texp, 5)
+    
+                ft = torch.fft.rfft2(Texp_augmented, norm="forward")
+                del(Texp_augmented)
+                bandBatch = bnb.selectBandsRefs(ft, freq_band, coef)
+                del(ft)
+    
+                for n in range(nBand):
+                    band[n] = torch.cat((band[n], bandBatch[n]), dim=0)
+            del(Texp, bandBatch)
+        
+        # mean, vals, vecs = self.trainingPCAonline(band, coef, per_eig, batchPCA)
+        vecs = self.trainingPCAonline(band, coef, per_eig, batchPCA)
+     
+        del(band)
+        torch.cuda.empty_cache()
+        # del(mean, vals)
+            
+        return (freq_band, vecs, coef)
     
  

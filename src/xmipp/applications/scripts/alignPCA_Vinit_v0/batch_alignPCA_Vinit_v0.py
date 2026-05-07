@@ -10,28 +10,15 @@ import mrcfile
 import argparse
 import sys, os
 import numpy as np
-from xmippPyModules.alignPcaFunctions.pca_gpu import PCAgpu
-from xmippPyModules.alignPcaFunctions.bnb_gpu import BnBgpu
-from xmippPyModules.alignPcaFunctions.reconstruct_gpu import *
+from xmippPyModules.alignPcaFunctions.bnb_gpu import *
 from xmippPyModules.alignPcaFunctions.assessment import *
 
 
 def read_images(mrcfilename):
 
     with mrcfile.open(mrcfilename, permissive=True) as f:
-        return f.data.astype(np.float32)
-
-def save_vol(volume, filename, psize):
-    vol_np = volume.detach().cpu().numpy().astype('float32')
-    with mrcfile.new(filename, overwrite=True) as mrc:
-        mrc.set_data(vol_np)
-        mrc.voxel_size = psize
-        
-def save_proj(projections, filename, psize):
-    proj_np = projections.detach().cpu().numpy().astype("float32")
-    with mrcfile.new(filename, overwrite=True) as mrc:
-        mrc.set_data(proj_np)
-        mrc.voxel_size = psize
+         emImages = f.data.astype(np.float32).copy()
+    return emImages 
 
 
 def flatGrid(freq_band, nBand):
@@ -64,15 +51,17 @@ if __name__=="__main__":
       
     parser = argparse.ArgumentParser(description="align images")
     parser.add_argument("-i", "--exp", help="input mrc file for experimental images)", required=True)
-    # parser.add_argument("-r", "--ref", help="input mrc file for references images)", required=True)
+    parser.add_argument("-r", "--ref", help="input mrc file for references images)", required=True)
     parser.add_argument("-s", "--sampling", type=float, help="pixel size of the images", required=True)
     parser.add_argument("-a", "--ang", type=float, help="rotation angle (in degree)", required=True)
     parser.add_argument("-amax", "--angmax", type=float, default=180.0, help="maximum rotation angle (in degree, default = 180)")
     parser.add_argument("-sh", "--shift", type=float, help="shift (px)", required=True)
     parser.add_argument("-msh", "--maxshift", type=float,help="maximum shift (px)", required=True)
+    parser.add_argument("-b", "--bands", help="file with frequency bands, obtained from train step", required=True)
+    parser.add_argument("-v", "--vecs", help="file with pretrain eigenvectors, obtained from train step", required=True)
     parser.add_argument("-o", "--output", help="Root directory for the output files", required=True)
     parser.add_argument("-stExp", "--sartExp", help="star file for experimental images", required=True)
-    # parser.add_argument("-stRef", "--starRef", help="star file for reference images", required=True)
+    parser.add_argument("-stRef", "--starRef", help="star file for experimental images", required=True)
     parser.add_argument("-radius", type=int, help="radius for circular mask (in pixels)")       
     parser.add_argument("--apply_shifts",  action="store_true", help="Apply starfile shifts to experimental images")
     parser.add_argument("-nCl", "--numCl", type=int, default=1, help="number of classes for initial model")
@@ -81,15 +70,17 @@ if __name__=="__main__":
     args = parser.parse_args()
     
     expFile = args.exp  
-    # prjFile = args.ref
+    prjFile = args.ref
     sampling = args.sampling
     ang = args.ang
     amax = args.angmax
     shiftMove = args.shift
     maxshift = args.maxshift
+    bands = args.bands
+    vecs = args.vecs
     output = args.output
     expStar = args.sartExp
-    # prjStar = args.starRef 
+    prjStar = args.starRef 
     radius = args.radius
     apply_shifts = args.apply_shifts
     numCl = args.numCl
@@ -97,51 +88,17 @@ if __name__=="__main__":
            
     torch.cuda.is_available()
     torch.cuda.current_device()
-    cuda = torch.device('cuda') 
-
+    cuda = torch.device('cuda')
     
-    #Basename for multiple references
-    # if numCl > 1:
-    #     prjFile_base = os.path.join(os.path.dirname(prjFile), os.path.splitext(os.path.basename(prjFile))[0].split('_class')[0])
-    #     output_base = os.path.join(os.path.dirname(output), os.path.splitext(os.path.basename(output))[0].split("_class")[0])
-
+    #load pca
+    freqBn = torch.load(bands) 
+    cvecs = torch.load(vecs)
+    nBand = freqBn.unique().size(dim=0) - 1
     
-    #Read Experimental Images
-    mmap = mrcfile.mmap(expFile, permissive=True)
-    nExp = mmap.data.shape[0]
-    dim = mmap.data.shape[1]
-    Ntrain = nExp
+    coef = torch.zeros(nBand, dtype=int)
+    for n in range(nBand):
+        coef[n] = 2*torch.sum(freqBn==n)
     
-    
-    #Create initial references
-    R = reconstruct()
-    angular_step = 5
-    transf, angle_triplet = R.generate_library(angular_step)
-    
-    n_proj = transf.shape[0] 
-    all_refs_cpu = torch.zeros((numCl, n_proj, dim, dim), device='cpu', dtype=torch.float32, pin_memory=True)
-    
-    for i in range(numCl):
-        random_angles = R.generate_random_angles(nExp)
-        zeroVol = R.reconstruct_volume(mmap, random_angles, "C1", 20, sampling, dim)
-        ref = R.generate_projections(zeroVol, transf)
-        all_refs_cpu[i] = ref.detach().cpu()
-        del zeroVol, ref
-        
-
-    # file = output+"_zerovol.mrc"
-    # save_vol(zeroVol.cpu(), file, sampling) 
-    # file = output+"_zeroref.mrcs" 
-    # save_proj(all_refs_cpu[0], file, sampling) 
-    # exit()
-    
-    #pca
-    nBand = 1
-    pca = PCAgpu(nBand)
-    maxRes = 20
-    freqBn, cvecs, coef = pca.calculatePCAbasis(mmap, Ntrain, nBand, dim, sampling, maxRes, 
-                                                minRes=530, per_eig=1.1, batchPCA=True)
-
     grid_flat = flatGrid(freqBn, nBand)
 
         
@@ -156,6 +113,15 @@ if __name__=="__main__":
     vectorRot.sort()         
     nShift = len(vectorshift)
     
+    #Basename for multiple references
+    if numCl > 1:
+        prjFile_base = os.path.join(os.path.dirname(prjFile), os.path.splitext(os.path.basename(prjFile))[0].split('_class')[0])
+        output_base = os.path.join(os.path.dirname(output), os.path.splitext(os.path.basename(output))[0].split("_class")[0])
+
+    
+    #Read Experimental Images
+    mmap = mrcfile.mmap(expFile, permissive=True)
+    nExp = mmap.data.shape[0]
     
     #Precalculate whitening 
     Im_whitening = mmap.data[:nExp].astype(np.float32)
@@ -164,25 +130,39 @@ if __name__=="__main__":
     del Im_whitening, Texp_whitening
         
 
-
-    #Reading experimental images (solo una vez)
-    expImages = read_images(expFile)
-    texp = torch.from_numpy(expImages).pin_memory().to(cuda, non_blocking=True)
-    del expImages
-    if radius:
-        texp *= bnb.create_mask(texp, radius)
-    
-    
+    # print("---Precomputing the projections of the references images---")
     matches = [None] * numCl
     for i in range(numCl):    
         #Reading references particles 
-               
-        tref = all_refs_cpu[i].to(cuda, non_blocking=True)
+       
+        if numCl > 1:   
+            prjImages = read_images(f"{prjFile_base}_class{i}.mrcs")
+            
+            if save_class:
+                output = f"{output_base}_classes.xmd"
+            else:
+                output = f"{output_base}_class{i}.xmd"
+        else:
+            prjImages = read_images(prjFile)
+        
+                                
+        tref = torch.from_numpy(prjImages).float().to(cuda)  
         if radius:
             tref = tref * bnb.create_mask(tref, radius)
-        # del(prjImages)
+            # tref = bnb.robust_normalize_and_mask(tref)    
+        del(prjImages)
     
         batch_projRef = bnb.create_batchExp(tref, whitening, freqBn, coef, cvecs) 
+ 
+    
+        
+        #Reading experimental images 
+        expImages = read_images(expFile)
+        texp= torch.from_numpy(expImages).float().to("cpu")
+        if radius:
+            texp = texp * bnb.create_mask(texp, radius)
+            # texp = bnb.robust_normalize_and_mask(texp)
+        del(expImages)
         
         
         matches[i] = torch.full((nExp, 5), float("Inf"), device = cuda)
@@ -199,26 +179,17 @@ if __name__=="__main__":
         
         # print(matches[i])
         matches[i] = bnb.match_batch_label_minScore(matches[i])
-        print(matches[i])
         
         score = matches[i][:, 2].mean()
         print("mean score = %s" %score.item())
-        
-        if not save_class: 
-            valid_indices, rotMatrix, XX, YY = assess.estimatePose(angle_triplet, expStar, matches[i], vectorshift, nExp, apply_shifts)
-        mmap_filtrado = mmap.data[valid_indices.cpu().numpy()].astype('float32')
-        vol = R.reconstruct_volume(mmap_filtrado, rotMatrix, "C1", 10, sampling, dim)
-        file = output+"_zerovol.mrc"
-        save_vol(vol.cpu(), file, sampling)
-
         #Write new starfile
-    #     if not save_class:   
-    #         # assess.writeExpStar(prjStar, expStar, matches[i], vectorshift, nExp, apply_shifts, output)
-    #         assess.writeExpStar_minScore(prjStar, expStar, matches[i], vectorshift, nExp, apply_shifts, output)
-    #
-    # if save_class:
-    #     matches_min = bnb.match_batch_with_class(matches)
-    #     assess.writeExpStarClass(prjStar, expStar, matches_min, vectorshift, nExp, apply_shifts, output)
+        if not save_class:   
+            # assess.writeExpStar(prjStar, expStar, matches[i], vectorshift, nExp, apply_shifts, output)
+            assess.writeExpStar_minScore(prjStar, expStar, matches[i], vectorshift, nExp, apply_shifts, output)
+    
+    if save_class:
+        matches_min = bnb.match_batch_with_class(matches)
+        assess.writeExpStarClass(prjStar, expStar, matches_min, vectorshift, nExp, apply_shifts, output)
 
 
 

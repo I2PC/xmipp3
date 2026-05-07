@@ -1,0 +1,646 @@
+#!/usr/bin/env python3
+"""/***************************************************************************
+ *
+ * Authors:    Erney Ramirez-Aportela
+ *
+  ***************************************************************************/
+"""
+import numpy as np
+import torch
+import time
+import torchvision.transforms.functional as T
+import torch.nn.functional as F
+import kornia
+import math
+
+class reconstruct:
+    
+    # def __init__(self, nBand):
+    def __init__(self):
+
+        # self.nBand = nBand 
+        
+        torch.cuda.is_available()
+        torch.cuda.current_device()
+        self.cuda = torch.device('cuda')
+        # self.cuda = torch.device('cpu')
+    
+    
+    @torch.no_grad()
+    def enforce_hermitian_symmetry(self,vol_f):
+        G = vol_f.shape[0]
+        device = vol_f.device
+    
+        center = G // 2
+    
+        z = torch.arange(G, device=device)
+        y = torch.arange(G, device=device)
+        x = torch.arange(G, device=device)
+    
+        zz, yy, xx = torch.meshgrid(z, y, x, indexing='ij')
+    
+        zz_m = (2*center - zz) % G
+        yy_m = (2*center - yy) % G
+        xx_m = (2*center - xx) % G
+    
+        vol_sym = 0.5 * (vol_f + torch.conj(vol_f[zz_m, yy_m, xx_m]))
+    
+        return vol_sym
+    
+    def generate_symmetry(self, sym, device='cuda', dtype=torch.float32):
+        """
+        sym: string tipo 'C4', 'D7', 'C1', etc.
+        """
+    
+        sym = sym.upper()
+    
+        if sym.startswith('C'):
+            n = int(sym[1:])
+            return self._generate_Cn(n, device=device, dtype=dtype)
+    
+        elif sym.startswith('D'):
+            n = int(sym[1:])
+            return self._generate_Dn(n, device, dtype)
+    
+        else:
+            raise ValueError(f"Simetría no soportada: {sym}")
+        
+    def _generate_Cn(self, n, device, dtype):
+        
+        ops = []
+        
+        if n==1:
+            n=2
+    
+        for k in range(n-1):
+            theta = 2 * math.pi * k / n
+    
+            R = torch.tensor([
+                [ math.cos(theta), -math.sin(theta), 0.0],
+                [ math.sin(theta),  math.cos(theta), 0.0],
+                [ 0.0,              0.0,             1.0]
+            ], dtype=dtype, device=device)
+    
+            ops.append(R)
+    
+        return torch.stack(ops)  # (n, 3, 3)
+    
+        
+    def _generate_Dn(self, n, device, dtype):
+
+        ops = []
+    
+        # =========================
+        # 1. Rotaciones Cn (eje Z)
+        # =========================
+        for k in range(n-1):
+            theta = 2 * math.pi * k / n
+            c, s = math.cos(theta), math.sin(theta)
+    
+            Rz = torch.tensor([
+                [c, -s, 0.0],
+                [s,  c, 0.0],
+                [0.0, 0.0, 1.0]
+            ], dtype=dtype, device=device)
+    
+            ops.append(Rz)
+    
+        # =========================
+        # 2. C2 base (eje X)
+        # =========================
+        C2x = torch.tensor([
+            [1.0,  0.0,  0.0],
+            [0.0, -1.0,  0.0],
+            [0.0,  0.0, -1.0]
+        ], dtype=dtype, device=device)
+    
+        # =========================
+        # 3. Generar C2 por conjugación
+        # =========================
+        for k in range(n):
+            theta = 2 * math.pi * k / n
+            c, s = math.cos(theta), math.sin(theta)
+    
+            Rz = torch.tensor([
+                [c, -s, 0.0],
+                [s,  c, 0.0],
+                [0.0, 0.0, 1.0]
+            ], dtype=dtype, device=device)
+    
+            C2k = Rz @ C2x @ Rz.T
+            ops.append(C2k)
+    
+        sym_ops = torch.stack(ops)  # (2n, 3, 3)
+    
+        return sym_ops
+    
+    
+    @torch.no_grad()
+    def precompute_blob_table(self, radius = 1.9, table_size = 10000, beta = 15.0, device = "cuda"):
+        
+        device = torch.device(device)
+    
+        # ✔ dominio XMIPP correcto: cubo 3D → diagonal máxima
+        max_r2 = 3.0 * radius * radius
+    
+        r2 = torch.linspace(0.0, max_r2, table_size, device=device)
+    
+        r = torch.sqrt(r2)
+    
+        inside = torch.clamp(1.0 - (r / radius) ** 2, 0.0, 1.0)
+    
+        table = torch.i0(beta * torch.sqrt(inside))
+        table = table / torch.i0(torch.tensor(beta, device=device))
+    
+        return table
+    
+    @torch.no_grad()
+    def precompute_blob_table_corregir(self, Xdim, oversamp, radius=1.9, beta=15.0, table_size=10000, device="cuda"):
+    
+    
+        device = torch.device(device)
+    
+        k_max = torch.sqrt(torch.tensor(3.0, device=device)) * (Xdim / 2.0)
+        delta = k_max / (table_size - 1)
+        k = torch.arange(table_size, device=device, dtype=torch.float32) * delta
+    
+        radius_fourier = radius / (oversamp * Xdim)
+    
+        w = 2.0 * torch.pi * k * radius_fourier
+    
+        z = torch.sqrt(beta**2 - w**2 + 0j)
+        blob_ft = torch.sinh(z) / z
+    
+        # ✔ normalización (más estable que sinh(beta)/beta)
+        iw0 = 1.0 / (torch.sinh(torch.tensor(beta, device=device)) / beta)
+        blob_ft = blob_ft.real * iw0
+    
+        # ✔ volumen discreto
+        # padXdim3 = (oversamp * Xdim) ** 3
+        # blob_ft = blob_ft * padXdim3
+    
+        return blob_ft
+    
+    @torch.no_grad()
+    def reconstruct_volume(self, mmap, rotations, sym, resol, sampling, volume_size, radius=1.9,
+                                       oversamp=2.0, batch_size=32):
+        
+        device = torch.device(self.cuda)
+    
+        N, H, W = mmap.data.shape
+        D = volume_size
+        
+        f_px = (1.0 / resol) * sampling
+        if f_px > 0.5:
+            f_px = 0.5
+        scale = f_px / 0.5
+    
+        G = int(oversamp * D)# * scale)
+        G += (G % 2 == 0)
+        G2 = G * G
+    
+        rotations = rotations.to(device)
+        blob_table = self.precompute_blob_table().to(device)
+        # blob_table = blob_table.to(device)
+    
+        # =========================
+        # SIMETRÍA
+        # =========================
+        sym_ops = self.generate_symmetry(sym, device=device)
+        n_sym = sym_ops.shape[0]
+    
+        print(f"→ Simetría: {sym} ({n_sym} ops)")
+        print("Matrices:")
+        print(sym_ops)
+    
+        # -------------------------
+        # Fourier grid 2D
+        # -------------------------
+        freq = torch.fft.fftshift(torch.fft.fftfreq(H, device=device))
+        uy, ux = torch.meshgrid(freq, freq, indexing="ij")
+    
+        k2 = ux**2 + uy**2
+        valid_mask = (k2.reshape(-1) <= f_px**2)
+    
+        coords2d = torch.stack(
+            [ux.reshape(-1), uy.reshape(-1), torch.zeros(H * H, device=device)],
+            dim=0,
+        )[:, valid_mask].contiguous().unsqueeze(0)
+    
+        n_valid = coords2d.shape[-1]
+    
+        # -------------------------
+        # volumen
+        # -------------------------
+        vol_f = torch.zeros((G, G, G), dtype=torch.complex64, device=device)
+        weight = torch.zeros((G, G, G), dtype=torch.float32, device=device)
+    
+        # -------------------------
+        # blob
+        # -------------------------
+        max_r2 = 3.0 * radius * radius
+        iDelta = (blob_table.numel() - 1) / max_r2
+    
+        # offsets
+        o = torch.tensor([-1, 0, 1], device=device)
+        ox, oy, oz = torch.meshgrid(o, o, o, indexing="ij")
+        ox = ox.reshape(-1)
+        oy = oy.reshape(-1)
+        oz = oz.reshape(-1)
+    
+        ACC = 1e-8
+    
+        # =====================================================
+        # MAIN LOOP
+        # =====================================================
+        for start in range(0, N, batch_size):
+            end = min(start + batch_size, N)
+            b = end - start
+    
+            rot = rotations[start:end]  # (B,3,3)
+    
+    
+            # imgs = torch.as_tensor(mmap.data[start:end], device=device, dtype=torch.float32)
+            imgs = torch.as_tensor(np.array(mmap.data[start:end]), device=device, dtype=torch.float32)
+    
+            imgs = (imgs - imgs.mean(dim=(-2, -1), keepdim=True)) / (
+                imgs.std(dim=(-2, -1), keepdim=True) + 1e-8
+            )
+    
+            proj_fft = torch.fft.fftshift(
+                torch.fft.fft2(torch.fft.ifftshift(imgs, dim=(-2, -1)), norm="ortho"),
+                dim=(-2, -1),
+            )
+    
+            vals = proj_fft.reshape(b, -1)[:, valid_mask]  # (B, n_valid)
+    
+            # =====================================================
+            # 🔥 APLICAR SIMETRÍA CORRECTAMENTE
+            # =====================================================
+            if n_sym > 1:
+                # rot_total = rot @ sym
+                rot_sym = torch.einsum("bij,sjk->bsik", rot, sym_ops)
+                rot_sym = rot_sym.reshape(-1, 3, 3)  # (B*n_sym,3,3)
+    
+                coords3d = torch.bmm(
+                    rot_sym,
+                    coords2d.expand(rot_sym.shape[0], -1, -1)
+                )
+    
+                # 🔥 repetir valores (SIN dividir)
+                vals = vals[:, None, :].expand(b, n_sym, n_valid).reshape(-1)
+                # vals = vals.unsqueeze(1).repeat(1, n_sym, 1).reshape(-1)
+    
+            else:
+                coords3d = torch.bmm(rot, coords2d.expand(b, -1, -1))
+                vals = vals.reshape(-1)
+    
+            # -------------------------
+            # GRID
+            # -------------------------
+            grid = (coords3d + 0.5) * (G - 1)
+    
+            x = grid[:, 0].reshape(-1)
+            y = grid[:, 1].reshape(-1)
+            z = grid[:, 2].reshape(-1)
+    
+            x0 = x.floor().long()
+            y0 = y.floor().long()
+            z0 = z.floor().long()
+    
+            ix = x0[:, None] + ox
+            iy = y0[:, None] + oy
+            iz = z0[:, None] + oz
+    
+            ix.clamp_(0, G - 1)
+            iy.clamp_(0, G - 1)
+            iz.clamp_(0, G - 1)
+    
+            dx = x.unsqueeze(1) - ix
+            dy = y.unsqueeze(1) - iy
+            dz = z.unsqueeze(1) - iz
+    
+            r2 = dx * dx + dy * dy + dz * dz
+    
+            idx = (r2 * iDelta).round().long().clamp_(0, blob_table.numel() - 1)
+            w = blob_table[idx]
+    
+            flat = (iz * G2 + iy * G + ix).reshape(-1)
+            contrib = (vals.unsqueeze(1) * w).reshape(-1)
+    
+            vol_f.view(-1).index_add_(0, flat, contrib)
+            weight.view(-1).index_add_(0, flat, w.reshape(-1))
+            # weight.view(-1).index_add_(0, flat, (w / n_sym).reshape(-1))
+    
+        # -------------------------
+        # NORMALIZAR
+        # -------------------------    
+        pad2D = 1
+        corr2D_3D = (pad2D**2) / (H * (oversamp**3))
+        mask = weight > ACC
+        vol_f[mask] /= weight[mask]
+        vol_f[mask] *= corr2D_3D
+        vol_f[~mask] = 0.0
+    
+        
+        vol_f = self.enforce_hermitian_symmetry(vol_f)
+    
+        # -------------------------
+        # IFFT
+        # -------------------------
+        vol_real = torch.fft.ifftn(torch.fft.ifftshift(vol_f), norm="ortho").real
+        vol_real = torch.fft.fftshift(vol_real)
+        
+        pad = (G - D) // 2
+        vol_real =  vol_real[pad:pad + D, pad:pad + D, pad:pad + D]
+    
+        # ================= FINAL CORRECTION =================
+        
+        ipad_relation = (oversamp / pad2D) ** 3   # equivalente XMIPP
+        
+        # ---------- SINC² ----------
+        coords = torch.arange(-D//2, D//2 + (D % 2),
+                              device=device, dtype=torch.float32)
+        # coords = torch.fft.fftshift(torch.fft.fftfreq(D, device=device)) * D
+        
+        Z, Y, X = torch.meshgrid(coords, coords, coords, indexing='ij')
+        r = torch.sqrt(X**2 + Y**2 + Z**2)
+        
+        # XMIPP: sinc2(radius / (2*imgSize))
+        arg = r / (2.0 * D)
+        sinc = torch.where(
+            arg.abs() < 1e-8,
+            torch.ones_like(arg),
+            torch.sin(torch.pi * arg) / (torch.pi * arg)
+        )
+        
+        sinc2 = sinc ** 2
+        
+        
+        # ---------- Fourier blob ----------
+        blob_fourier_table = self.precompute_blob_table_corregir(Xdim = volume_size, oversamp=oversamp)
+        num_entries = blob_fourier_table.numel()
+        
+        k_max = torch.sqrt(torch.tensor(3.0, device=device)) * (D / 2.0)
+        delta = k_max / (num_entries - 1)
+        iDelta = 1.0 / delta
+        
+        idx = (r * iDelta).round().long().clamp(0, num_entries - 1)
+        blob_factor = blob_fourier_table[idx]
+        
+        
+        # ---------- Corrección final ----------
+        correction = ipad_relation * sinc2 * blob_factor
+        correction = torch.clamp(correction, min=1e-6)
+        
+        vol_real = vol_real / correction
+        
+        # mean_factor2 = sinc2.mean()
+        # vol_real = vol_real * mean_factor2
+        
+    
+        # # meanFactor2 (muy importante)
+        # mean_factor2 = sinc2.mean()
+        # vol_real = vol_real * mean_factor2
+        #
+        # # Normalización final suave (sin std)
+        # vol_real = vol_real - vol_real.mean()
+        # vol_real = torch.clamp(vol_real, min=0.0)
+    
+        return vol_real.contiguous()
+    
+    
+    @torch.no_grad()
+    def generate_library(self, angular_step_deg: float = 3.0,
+                                          n_psi: int = 1,
+                                          return_angles: bool = True):
+        """
+          Devuelve:
+            R: (N, 3, 3)
+            angles: (N, 3) → (rot, tilt, psi) en grados (opcional)
+        """
+        device = torch.device(self.cuda)
+        step = float(angular_step_deg)
+    
+        # ==================== TILT ====================
+        n_tilt = int(round(180.0 / step)) + 1
+        tilt_deg = torch.linspace(0.0, 180.0, n_tilt, device=device)
+        tilt_rad = tilt_deg * torch.pi / 180.0
+    
+        sin_t = torch.sin(tilt_rad)
+    
+        # ==================== ROT POR PARALELO ====================
+        n_rot_per_tilt = torch.where(
+            sin_t < 1e-6,
+            torch.ones_like(sin_t, dtype=torch.long),
+            torch.clamp(torch.round(360.0 / (step / sin_t)).long(), min=1)
+        )
+    
+        cum_nrot = torch.cumsum(n_rot_per_tilt, dim=0)
+        total_rot = cum_nrot[-1].item()
+    
+        # ==================== INDICES ====================
+        tilt_idx = torch.repeat_interleave(torch.arange(n_tilt, device=device), n_rot_per_tilt)
+    
+        rot_global_idx = torch.arange(total_rot, device=device)
+        start_idx = torch.cat([torch.tensor([0], device=device), cum_nrot[:-1]])
+        local_idx = rot_global_idx - start_idx[tilt_idx]
+    
+        # ==================== ÁNGULOS ====================
+        rot_deg = (local_idx.float() / n_rot_per_tilt[tilt_idx].float()) * 360.0
+        tilt_deg_exp = tilt_deg[tilt_idx]
+    
+        rot_rad = rot_deg * torch.pi / 180.0
+        tilt_rad_exp = tilt_deg_exp * torch.pi / 180.0
+    
+        # ==================== MATRICES (ZYZ, psi=0) ====================
+        c1 = torch.cos(rot_rad)
+        s1 = torch.sin(rot_rad)
+        c2 = torch.cos(tilt_rad_exp)
+        s2 = torch.sin(tilt_rad_exp)
+    
+        R = torch.zeros((total_rot, 3, 3), device=device)
+    
+        R[:, 0, 0] = c1 * c2
+        R[:, 0, 1] = -s1
+        R[:, 0, 2] = c1 * s2
+    
+        R[:, 1, 0] = s1 * c2
+        R[:, 1, 1] = c1
+        R[:, 1, 2] = s1 * s2
+    
+        R[:, 2, 0] = -s2
+        R[:, 2, 1] = 0.0
+        R[:, 2, 2] = c2
+    
+        # ==================== PSI ====================
+        if n_psi > 1:
+            psi_deg = torch.linspace(0.0, 360.0, n_psi, device=device)[:-1]
+            psi_rad = psi_deg * torch.pi / 180.0
+    
+            cos_p = torch.cos(psi_rad)
+            sin_p = torch.sin(psi_rad)
+    
+            R_psi = torch.zeros((len(psi_rad), 3, 3), device=device)
+            R_psi[:, 0, 0] = cos_p
+            R_psi[:, 0, 1] = -sin_p
+            R_psi[:, 1, 0] = sin_p
+            R_psi[:, 1, 1] = cos_p
+            R_psi[:, 2, 2] = 1.0
+    
+            R = torch.einsum('bij,njk->bnik', R, R_psi).reshape(-1, 3, 3)
+    
+            # Expandir ángulos
+            rot_deg = rot_deg.repeat_interleave(len(psi_rad))
+            tilt_deg_exp = tilt_deg_exp.repeat_interleave(len(psi_rad))
+            psi_deg = psi_deg.repeat(total_rot)
+    
+        else:
+            psi_deg = torch.zeros_like(rot_deg)
+    
+        print(f"Generadas {R.shape[0]:,} rotaciones")
+        print(f"   Angular step: {angular_step_deg}° | Psi samples: {n_psi}")
+    
+        if return_angles:
+            angles = torch.stack([psi_deg, rot_deg, tilt_deg_exp], dim=1)
+            return R, angles
+        else:
+            return R
+        
+        
+        
+    def generate_projections(self, vol: torch.Tensor, 
+                                     R: torch.Tensor, 
+                                     batch_size: int = 48)-> torch.Tensor:
+        """
+        Generador de proyecciones (Forward Projection).
+        """
+        device = torch.device(self.cuda)
+        # vol = vol.to(device)
+        # R = R.to(device)
+    
+        D = vol.shape[-1]
+        N = R.shape[0]
+        D_pad = D * 2
+        pad = (D_pad - D) // 2
+    
+        #print(f"Generando proyecciones  → D={D} | Batch={batch_size} | N={N}")
+    
+        # 1. Padding + FFT3D (una sola vez)
+        vol_padded = F.pad(vol.unsqueeze(0).unsqueeze(0), 
+                           (pad, pad, pad, pad, pad, pad), 
+                           mode='constant', value=0.0)
+        
+        vol_f = torch.fft.fftshift(torch.fft.fftn(
+            torch.fft.ifftshift(vol_padded, dim=(-3,-2,-1)), 
+            norm='ortho'
+        )).squeeze(0).squeeze(0)
+    
+        vol_f_real = vol_f.real.unsqueeze(0).unsqueeze(0)
+        vol_f_imag = vol_f.imag.unsqueeze(0).unsqueeze(0)
+    
+        # Grid base centrado
+        freqs = torch.linspace(-0.5, 0.5, D_pad, device=device)
+        uy, ux = torch.meshgrid(freqs, freqs, indexing='ij')
+        grid_2d = torch.stack([ux.flatten(), uy.flatten(), torch.zeros_like(ux.flatten())], dim=0)
+    
+        # Pre-alocación en CPU
+        projections = torch.zeros((N, D, D), dtype=torch.float32, device=device)
+    
+        for i in range(0, N, batch_size):
+            b = min(batch_size, N - i)
+            R_batch = R[i:i+b]
+    
+            # Rotar coordenadas
+            rotated_grid = torch.matmul(R_batch, grid_2d)
+            sampling_coords = (rotated_grid * 2.0).transpose(1, 2).reshape(b, D_pad, D_pad, 3)
+    
+            # Interpolación
+            s_real = F.grid_sample(vol_f_real.expand(b, -1, -1, -1, -1),
+                                   sampling_coords.unsqueeze(1),
+                                   mode='bilinear',
+                                   padding_mode='zeros',
+                                   align_corners=True).squeeze(1).squeeze(1)
+    
+            s_imag = F.grid_sample(vol_f_imag.expand(b, -1, -1, -1, -1),
+                                   sampling_coords.unsqueeze(1),
+                                   mode='bilinear',
+                                   padding_mode='zeros',
+                                   align_corners=True).squeeze(1).squeeze(1)
+    
+            slice_f = torch.complex(s_real, s_imag)
+    
+            # IFFT2 (sin ramp ni Wiener)
+            proj = torch.fft.fftshift(
+                torch.fft.ifft2(torch.fft.ifftshift(slice_f, dim=(-2,-1)), norm='ortho'),
+                dim=(-2,-1)
+            ).real
+    
+            # Crop al tamaño original
+            crop = (D_pad - D) // 2
+            proj = proj[:, crop:crop+D, crop:crop+D]
+    
+            projections[i:i+b] = proj.cpu()
+    
+    
+        return projections
+    
+    
+    def generate_random_angles_scipy(self, num_images, angle_range=(-180, 180)):
+        
+        rot = np.random.uniform(angle_range[0], angle_range[1], num_images)
+        tilt = np.random.uniform(angle_range[0], angle_range[1], num_images)
+        psi = np.zeros(num_images)
+    
+        # Convertir a tensor
+        angles = torch.stack([
+            torch.tensor(rot,  dtype=torch.float32),
+            torch.tensor(tilt, dtype=torch.float32),
+            torch.tensor(psi,  dtype=torch.float32)
+        ], dim=1)   # (N, 3)
+        # print(angles)
+    
+        # ====================== MATRICES DE ROTACIÓN ======================
+        rot_obj = R.from_euler('ZYZ', angles.numpy(), degrees=True)
+        rotations = torch.from_numpy(rot_obj.as_matrix()).float()   # (N, 3, 3)
+        print(rotations)
+    
+        return rotations
+    
+    
+    def generate_random_angles(self, num_images, angle_range=(-180, 180)):
+
+        device = self.cuda
+        angles_deg = torch.zeros((num_images, 3), device=device, dtype=torch.float32)
+        angles_deg[:, 0:2] = torch.rand((num_images, 2), device=device) * \
+                             (angle_range[1] - angle_range[0]) + angle_range[0]
+    
+        rad = torch.deg2rad(angles_deg)
+    
+        a, b, c = rad[:, 0], rad[:, 1], rad[:, 2]
+    
+        ca, sa = torch.cos(a), torch.sin(a)
+        cb, sb = torch.cos(b), torch.sin(b)
+        cc, sc = torch.cos(c), torch.sin(c)
+    
+        # Construcción directa de R = Rz(a) Ry(b) Rz(c)
+        R = torch.zeros((num_images, 3, 3), device=self.cuda)
+    
+        R[:, 0, 0] = ca*cb*cc - sa*sc
+        R[:, 0, 1] = -ca*cb*sc - sa*cc
+        R[:, 0, 2] = ca*sb
+    
+        R[:, 1, 0] = sa*cb*cc + ca*sc
+        R[:, 1, 1] = -sa*cb*sc + ca*cc
+        R[:, 1, 2] = sa*sb
+    
+        R[:, 2, 0] = -sb*cc
+        R[:, 2, 1] = sb*sc
+        R[:, 2, 2] = cb
+    
+        return R
+    
+            
+
+    
+    

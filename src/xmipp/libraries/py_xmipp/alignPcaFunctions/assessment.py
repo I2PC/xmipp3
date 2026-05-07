@@ -409,7 +409,120 @@ class evaluation:
         star.loc[:, "anglePsi"] = angles[:, 2]
    
         starfile.write(star, outXMD, overwrite=True)
- 
+        
+        
+    def estimatePose_no(self, angle_triplet, expStar, matchPair, shiftVec, nExp, apply_shifts):
+        
+        matchPair = matchPair.cpu().numpy()
+        
+        if apply_shifts:
+            self.getShifts(expStar, nExp)
+            expShifts = self.expShifts.cpu().numpy()
+        
+        #Detewrmine shifts
+        indices = torch.tensor(matchPair[:, 4], dtype=torch.long) 
+        shiftVec = torch.tensor(shiftVec, dtype=torch.float64)
+        angle = torch.tensor(matchPair[:, 3], dtype=torch.float64)
+        
+        
+        shift_x = shiftVec[indices, 0]
+        shift_y = shiftVec[indices, 1]
+        center = torch.tensor([0, 0])
+        newShiftX, newShiftY = self.inverse_transform_shift(angle, shift_x, shift_y, center) 
+    
+        # Adjustment of Psi angles
+        psi_adjusted = -matchPair[:, 3]    
+        psi_adjusted = np.where(psi_adjusted > 180, psi_adjusted - 360, psi_adjusted)
+              
+    
+        # Updating columns in the dataframe
+        angle_triplet = np.array(angle_triplet)
+        shiftVec = np.array(shiftVec)
+        psi = psi_adjusted + angle_triplet[matchPair[:, 1].astype(int), 0]
+        rot = angle_triplet[matchPair[:, 1].astype(int), 1]
+        tilt = angle_triplet[matchPair[:, 1].astype(int), 2]
+    
+        if apply_shifts:
+            shiftX = -shiftVec[matchPair[:, 4].astype(int), 0] + expShifts[:, 0]
+            shiftY = -shiftVec[matchPair[:, 4].astype(int), 1] + expShifts[:, 1]
+        else:
+            shiftX = newShiftX.cpu().numpy()
+            shiftY = newShiftY.cpu().numpy()
+
+    
+        star.loc[:, "sel"] = matchPair[:, 5]#.astype(np.int32)
+        star["sel"] = star["sel"].astype(int)
+        
+        #score
+        star.loc[:, "score"] = matchPair[:, 2]
+        
+        
+
+
+    def estimatePose(self, angle_triplet, expStar, matchPair_raw, shiftVec, nExp, apply_shifts):
+
+        # 1. Máscara y Filtrado (Columna 5 es el flag)
+        mask = matchPair_raw[:, 5] > 0.5
+        valid_indices = torch.where(mask)[0] # Mantenemos índices en GPU si es posible
+        
+        num_valid = valid_indices.size(0)
+        if num_valid == 0:
+            return valid_indices, torch.empty((0, 3, 3), device=self.cuda), \
+                   torch.empty((0,), device=self.cuda), torch.empty((0,), device=self.cuda)
+    
+        # Filtramos matchPair (usamos una versión local para cálculos de ángulos)
+        matchPair = matchPair_raw[mask] 
+    
+        # 2. Cálculos de Shifts Relativos (Inverse Transform)
+        indices_shift = matchPair[:, 4].long() 
+        shiftVec_tensor = torch.as_tensor(shiftVec, dtype=torch.float32, device=self.cuda)
+        angle_match = matchPair[:, 3].float()
+        
+        # Obtenemos los shifts X e Y correspondientes a cada match
+        s_x = shiftVec_tensor[indices_shift, 0]
+        s_y = shiftVec_tensor[indices_shift, 1]
+        center = torch.tensor([0, 0], dtype=torch.float32, device=self.cuda)
+        
+        # Aplicamos la transformación inversa
+        newShiftX, newShiftY = self.inverse_transform_shift(angle_match, s_x, s_y, center)
+    
+        # 3. Ángulos Finales y Matriz de Rotación
+        # Ajuste de Psi (en GPU para evitar saltos a CPU)
+        psi_adjusted = -matchPair[:, 3]
+        psi_adjusted = torch.where(psi_adjusted > 180, psi_adjusted - 360, psi_adjusted)
+        
+        angle_triplet_gpu = torch.as_tensor(angle_triplet, dtype=torch.float32, device=self.cuda)
+        idx_triplet = matchPair[:, 1].long()
+        
+        # Convención ZYZ: a=Rot, b=Tilt, c=Psi
+        f_rot = angle_triplet_gpu[idx_triplet, 0]
+        f_tilt = angle_triplet_gpu[idx_triplet, 1]
+        f_psi = psi_adjusted + angle_triplet_gpu[idx_triplet, 2]
+    
+        # Construcción de la matriz R (ZYZ)
+        a, b, c = torch.deg2rad(f_rot), torch.deg2rad(f_tilt), torch.deg2rad(f_psi)
+        ca, sa = torch.cos(a), torch.sin(a)
+        cb, sb = torch.cos(b), torch.sin(b)
+        cc, sc = torch.cos(c), torch.sin(c)
+    
+        R = torch.zeros((num_valid, 3, 3), device=self.cuda)
+        R[:, 0, 0], R[:, 0, 1], R[:, 0, 2] = ca*cb*cc - sa*sc, -ca*cb*sc - sa*cc, ca*sb
+        R[:, 1, 0], R[:, 1, 1], R[:, 1, 2] = sa*cb*cc + ca*sc, -sa*cb*sc + ca*cc, sa*sb
+        R[:, 2, 0], R[:, 2, 1], R[:, 2, 2] = -sb*cc, sb*sc, cb
+    
+        # 4. Shifts Finales (Filtrados y en GPU)
+        if apply_shifts:
+            self.getShifts(expStar, nExp) 
+            expShifts_filt = self.expShifts[mask] 
+            
+            shiftX_final = -s_x + expShifts_filt[:, 0]
+            shiftY_final = -s_y + expShifts_filt[:, 1]
+        else:
+            shiftX_final = newShiftX
+            shiftY_final = newShiftY
+    
+        return valid_indices, R, shiftX_final, shiftY_final
+         
             
             
             
