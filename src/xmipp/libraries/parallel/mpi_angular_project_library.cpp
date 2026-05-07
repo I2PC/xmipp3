@@ -136,7 +136,7 @@ public:
             {
                 std::random_device rd;
                 std::mt19937 gen(rd());
-                std::uniform_int_distribution<int> dist(0, std::numeric_limits<int>::max());
+                std::uniform_int_distribution dist(0, std::numeric_limits<int>::max());
                 my_seed = dist(gen);
             }
         }
