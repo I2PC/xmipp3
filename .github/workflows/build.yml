@@ -12,7 +12,8 @@ jobs:
         - 'ubuntu-24.04'
 
         cuda:
-        - {version: '12.6.0', method: 'network'} 
+        - {version: '13.1.0', method: 'network'}
+        - {version: '12.6.0', method: 'network'}
         - {version: 'None'}
 
         compiler:
@@ -47,6 +48,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
+          python -m pip install numpy 
           python -m pip install numpy xmipp3_installer==2.*
 
       - uses: Jimver/cuda-toolkit@master
