@@ -47,6 +47,7 @@ void ProgStatisticalMap::readParams()
     fn_oroot = getParam("--oroot");
     sampling_rate = getDoubleParam("--sampling_rate");
     significance_thr = getDoubleParam("--significance_thr");
+    signal_std_thr = getDoubleParam("--signal_std_thr");
 
     if (checkParam("--protein_mask") && checkParam("--protein_radius"))
     {
@@ -124,6 +125,7 @@ void ProgStatisticalMap::defineParams()
     addParamsLine("[--protein_mask <protein_mask=\"\">]       : Maks containing the ROI of the protein for analysis. Excluyent with --protein_radius.");
     addParamsLine("[--significance_thr <significance_thr=3>]  : Z-score threshold to consider a region significantly different.");
     addParamsLine("[--remove_dust_size <remove_dust_size=5>]  : Remove small components in the outlier detected regions. Usefull in very flexible and/or noisy domains. Expect less agressive more estable correction.");
+    addParamsLine("[--signal_std_thr <signal_std_thr=1.6>]    : Threshold number of sigma's (standard deviation) to consider voxels as signal. Modify if maps presents narrower/wider dynamic range.");
 }
 
 void ProgStatisticalMap::writeStatisticalMap() 
@@ -614,10 +616,6 @@ void ProgStatisticalMap::preprocessMap(FileName fnIn)
         }
     }
 
-    #ifdef DEBUG_PREPROCESS  
-    std::cout << "    Positive density mask created." << std::endl;
-    #endif
-
     // Normalize map on positive densities dividing by std
     V().computeAvgStdev_within_binary_mask(positiveMask, avg, std);
 
@@ -765,17 +763,32 @@ void ProgStatisticalMap::computeStatisticalMaps()
     } 
     else 
     {
+        
+        double avg_av, std_av;
+        avgVolume().computeAvgStdev_within_binary_mask(ROI_mask, avg_av, std_av);
+        std::cout << "    STd of avgVolume() in ROI_mask mask: " << std_av << std::endl;
+
         positiveMask.initZeros(Zdim, Ydim, Xdim);
 
         FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(avgVolume())
         {
-            // As maps are normalized to std=1 the comparison is direct
-            if (DIRECT_MULTIDIM_ELEM(avgVolume(), n) > 1 && DIRECT_MULTIDIM_ELEM(ROI_mask, n) > 0)
+            // Here we update positive mask on the average map so region definition is more robust
+            if (DIRECT_MULTIDIM_ELEM(avgVolume(), n) > signal_std_thr*std_av && DIRECT_MULTIDIM_ELEM(ROI_mask, n) > 0)
             {
                 DIRECT_MULTIDIM_ELEM(positiveMask, n) = 1;
             }
         }
-    } 
+    }
+
+    #ifdef DEBUG_OUTPUT_FILES
+    Image<int> saveImage;
+    std::string debugFileFn = fn_oroot + "positive_mask.mrc";
+
+    saveImage() = positiveMask;
+    saveImage.write(debugFileFn);
+
+    std::cout << "    Positive mask saved at: " << debugFileFn << std::endl;
+    #endif   
 }
 
 void ProgStatisticalMap::calculateAvgDiffMap()
@@ -956,6 +969,15 @@ void ProgStatisticalMap::calculateZscoreMADMap()
     std::cout << "    Calculating coincident mask..." << std::endl;
     #endif
 
+    // Normalize map on positive densities dividing by std
+    double avg_v, std_v;
+    V().computeAvgStdev_within_binary_mask(positiveMask, avg_v, std_v);
+    std::cout << "    std of V() in postive mask: " << std_v << std::endl;
+
+    double avg_av, std_av;
+    avgVolume().computeAvgStdev_within_binary_mask(positiveMask, avg_av, std_av);
+    std::cout << "    std of avgVolume() in postive mask: " << std_av << std::endl;
+
     FOR_ALL_DIRECT_ELEMENTS_IN_MULTIDIMARRAY(V())
     {
         if (DIRECT_MULTIDIM_ELEM(positiveMask,n) > 0)
@@ -965,7 +987,7 @@ void ProgStatisticalMap::calculateZscoreMADMap()
             
             // Reward signal intensity
             double localSigma = sqrt(mapMAD*mapMAD + DIRECT_MULTIDIM_ELEM(stdVolume(),n)*DIRECT_MULTIDIM_ELEM(stdVolume(),n));
-            bool intesity = DIRECT_MULTIDIM_ELEM(V(),n) > significance_thr * localSigma && DIRECT_MULTIDIM_ELEM(avgVolume(),n) > significance_thr * localSigma;
+            bool intesity = DIRECT_MULTIDIM_ELEM(V(),n) > signal_std_thr * std_v && DIRECT_MULTIDIM_ELEM(avgVolume(),n) > signal_std_thr * std_av;
 
             if (intesity && consistency)
             {
@@ -1063,11 +1085,18 @@ void ProgStatisticalMap::weightMap()
     const size_t N_BOOT_DEFAULT = 2000; 
     const double CI_ALPHA       = 0.05;
 
-    // FOR TESTING) Cargar máscara diferente (igual que antes)
-    // Image<int> readMask;
+    // FOR TESTING) Cargar máscara diferente
+    Image<int> readMask;
+    
+    // Tripamal
     // readMask.read("/home/fpdeisidro/testBench/publication_FSCoh+StatMaps/Tripamal_PO/fullOccDifferentMask.mrc");
     // readMask.read("/home/fpdeisidro/testBench/publication_FSCoh+StatMaps/Tripamal_PO/StatisticalMaps_TM_localAlignment_BestResultsSoFar/100_postprocess_rescaled_differentMask.mrc");
-    // differentMask = readMask();
+    // readMask.read("/home/fpdeisidro/testBench/publication_FSCoh+StatMaps/Tripamal_PO_DB/StatisticalMaps_paper/P0_100_differentMask.mrc");
+    
+    // Betagal
+    readMask.read("/home/fpdeisidro/testBench/publication_FSCoh+StatMaps/Betagal_PO/StatisticalMaps_paper/00100_postprocess_rescaled_ali_differentMask.mrc");
+
+    differentMask = readMask();
 
     // 1) Define background region (as the dilated region from different mask)
     double epsilon = 1e-6;

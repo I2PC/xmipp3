@@ -47,17 +47,18 @@
 
 class ProgStatisticalMap: public XmippProgram
 {
- public:
+ public:  
     // Input params
     FileName fn_mapPool;                    // Input metadata with map pool for analysis
     FileName fn_mapPool_statistical;        // Input metadata with map pool for statistical map calculation
-    FileName fn_oroot;                      // Location for saving output maps
+    FileName fn_oroot;                      // Location for saving output mapss
     FileName fn_mask;                       // Protein mask filename
     double sampling_rate;                   // Sampling rate of input maps
     double protein_radius;                  // Protein radius
     double significance_thr;                // Significance Z-score threshold
     bool remove_small_components;           // Apply remove small components in the different mask.
     int remove_small_components_size;       // Minimum size components in the different mask.
+    double signal_std_thr;                  // Sigma threshold to consider signal
 
     // Side info variables
     FileName fn_out_avg_map;
