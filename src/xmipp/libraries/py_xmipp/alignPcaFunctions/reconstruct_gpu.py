@@ -5,6 +5,7 @@
  *
   ***************************************************************************/
 """
+from xmippPyModules.alignPcaFunctions.assessment import *
 import numpy as np
 import torch
 import time
@@ -182,13 +183,14 @@ class reconstruct:
         return blob_ft
     
     @torch.no_grad()
-    def reconstruct_volume(self, mmap, rotations, sym, resol, sampling, volume_size, radius=1.9,
-                                       oversamp=2.0, batch_size=32):
+    def reconstruct_volume(self, mmap, sym, resol, sampling, volume_size, rotations, shifts = None, radius=1.9,
+                            oversamp=2.0, batch_size=32):
         
         device = torch.device(self.cuda)
     
         N, H, W = mmap.data.shape
         D = volume_size
+        
         
         f_px = (1.0 / resol) * sampling
         if f_px > 0.5:
@@ -209,9 +211,9 @@ class reconstruct:
         sym_ops = self.generate_symmetry(sym, device=device)
         n_sym = sym_ops.shape[0]
     
-        print(f"→ Simetría: {sym} ({n_sym} ops)")
-        print("Matrices:")
-        print(sym_ops)
+        # print(f"→ Simetría: {sym} ({n_sym} ops)")
+        # print("Matrices:")
+        # print(sym_ops)
     
         # -------------------------
         # Fourier grid 2D
@@ -262,15 +264,21 @@ class reconstruct:
     
             # imgs = torch.as_tensor(mmap.data[start:end], device=device, dtype=torch.float32)
             imgs = torch.as_tensor(np.array(mmap.data[start:end]), device=device, dtype=torch.float32)
+            # imgs = mmap.data[start:end]
     
             imgs = (imgs - imgs.mean(dim=(-2, -1), keepdim=True)) / (
                 imgs.std(dim=(-2, -1), keepdim=True) + 1e-8
             )
     
             proj_fft = torch.fft.fftshift(
-                torch.fft.fft2(torch.fft.ifftshift(imgs, dim=(-2, -1)), norm="ortho"),
+                torch.fft.fft2(torch.fft.ifftshift(imgs, dim=(-2, -1)), norm="forward"),
                 dim=(-2, -1),
             )
+            
+            if shifts is not None:
+                batch_shifts = shifts[start:end].to(device)
+                proj_fft = self.apply_fourier_shift(proj_fft, ux, uy, batch_shifts)
+                
     
             vals = proj_fft.reshape(b, -1)[:, valid_mask]  # (B, n_valid)
     
@@ -348,7 +356,7 @@ class reconstruct:
         # -------------------------
         # IFFT
         # -------------------------
-        vol_real = torch.fft.ifftn(torch.fft.ifftshift(vol_f), norm="ortho").real
+        vol_real = torch.fft.ifftn(torch.fft.ifftshift(vol_f), norm="forward").real
         vol_real = torch.fft.fftshift(vol_real)
         
         pad = (G - D) // 2
@@ -409,6 +417,75 @@ class reconstruct:
     
         return vol_real.contiguous()
     
+    def apply_fourier_shift(self, proj_fft, ux, uy, shifts):
+        
+        shifts = shifts.to(torch.float32)
+        ux = ux.to(torch.float32)
+        uy = uy.to(torch.float32)
+
+        arg = -2j * torch.pi * (ux[None, :, :] * shifts[:, 0, None, None] + 
+                                uy[None, :, :] * shifts[:, 1, None, None])
+        
+        phase_shift = torch.exp(arg)
+        return proj_fft * phase_shift
+    
+    
+    # @torch.no_grad()
+    # def euler_zyz_to_matrix(self, psi, rot, tilt, degrees=True):
+    #     """
+    #     Convención:
+    #         R = Rz(rot) @ Ry(tilt) @ Rz(psi)
+    #
+    #     Parámetros:
+    #     ----------
+    #     psi, rot, tilt : Tensor o array-like
+    #
+    #     Devuelve
+    #     --------
+    #     R : (N,3,3)
+    #         Matrices de rotación.
+    #     """
+    #
+    #     psi = torch.as_tensor(psi, dtype=torch.float32, device=self.cuda)
+    #     rot = torch.as_tensor(rot, dtype=torch.float32, device=self.cuda)
+    #     tilt = torch.as_tensor(tilt, dtype=torch.float32, device=self.cuda)
+    #
+    #     if degrees:
+    #         psi  = torch.deg2rad(psi)
+    #         rot  = torch.deg2rad(rot)
+    #         tilt = torch.deg2rad(tilt)
+    #
+    #     ca = torch.cos(rot)
+    #     sa = torch.sin(rot)
+    #
+    #     cb = torch.cos(tilt)
+    #     sb = torch.sin(tilt)
+    #
+    #     cc = torch.cos(psi)
+    #     sc = torch.sin(psi)
+    #
+    #     n = psi.shape[0]
+    #
+    #     R = torch.empty((n, 3, 3), dtype=torch.float32, device=self.cuda)
+    #
+    #     # Fila 1
+    #     R[:, 0, 0] = ca * cb * cc - sa * sc
+    #     R[:, 0, 1] = -ca * cb * sc - sa * cc
+    #     R[:, 0, 2] = ca * sb
+    #
+    #     # Fila 2
+    #     R[:, 1, 0] = sa * cb * cc + ca * sc
+    #     R[:, 1, 1] = -sa * cb * sc + ca * cc
+    #     R[:, 1, 2] = sa * sb
+    #
+    #     # Fila 3
+    #     R[:, 2, 0] = -sb * cc
+    #     R[:, 2, 1] = sb * sc
+    #     R[:, 2, 2] = cb
+    #
+    #     return R
+    #
+
     
     @torch.no_grad()
     def generate_library(self, angular_step_deg: float = 3.0,
@@ -417,7 +494,7 @@ class reconstruct:
         """
           Devuelve:
             R: (N, 3, 3)
-            angles: (N, 3) → (rot, tilt, psi) en grados (opcional)
+            angles: (N, 3) → (psi, rot, tilt) en grados (opcional)
         """
         device = torch.device(self.cuda)
         step = float(angular_step_deg)
@@ -425,9 +502,8 @@ class reconstruct:
         # ==================== TILT ====================
         n_tilt = int(round(180.0 / step)) + 1
         tilt_deg = torch.linspace(0.0, 180.0, n_tilt, device=device)
-        tilt_rad = tilt_deg * torch.pi / 180.0
-    
-        sin_t = torch.sin(tilt_rad)
+
+        sin_t = torch.sin(torch.deg2rad(tilt_deg))
     
         # ==================== ROT POR PARALELO ====================
         n_rot_per_tilt = torch.where(
@@ -450,6 +526,72 @@ class reconstruct:
         rot_deg = (local_idx.float() / n_rot_per_tilt[tilt_idx].float()) * 360.0
         tilt_deg_exp = tilt_deg[tilt_idx]
     
+        # ==================== PSI ====================
+        if n_psi > 1:
+            psi_deg = torch.linspace(0.0, 360.0, n_psi, device=device)[:-1]
+    
+            rot_deg = rot_deg.repeat_interleave(n_psi)
+            tilt_deg_exp = tilt_deg_exp.repeat_interleave(n_psi)
+            psi_deg = psi_deg.repeat(total_rot)
+        else:
+            psi_deg = torch.zeros_like(rot_deg)
+    
+        # ==================== MATRICES (USANDO FUNCIÓN UNIVERSAL) ====================
+        assess = evaluation()
+        R = assess.euler_zyz_to_matrix(
+            psi=psi_deg,
+            rot=rot_deg,
+            tilt=tilt_deg_exp,
+            degrees=True
+        )
+    
+        # print(f"Generadas {R.shape[0]:,} rotaciones")
+        # print(f"   Angular step: {angular_step_deg}° | Psi samples: {n_psi}")
+    
+        if return_angles:
+            angles = torch.stack([psi_deg, rot_deg, tilt_deg_exp], dim=1)
+            return R, angles
+        else:
+            return R
+        
+    
+    @torch.no_grad()
+    def generate_library_180(self, angular_step_deg: float = 3.0,
+                                          n_psi: int = 1,
+                                          return_angles: bool = True):
+        device = torch.device(self.cuda)
+        step = float(angular_step_deg)
+    
+        # ==================== TILT (0 a 180) ====================
+        n_tilt = int(round(180.0 / step)) + 1
+        tilt_deg = torch.linspace(0.0, 180.0, n_tilt, device=device)
+        tilt_rad = tilt_deg * torch.pi / 180.0
+        sin_t = torch.sin(tilt_rad)
+    
+        # ==================== ROT POR PARALELO ====================
+        n_rot_per_tilt = torch.where(
+            sin_t < 1e-6,
+            torch.ones_like(sin_t, dtype=torch.long),
+            torch.clamp(torch.round(360.0 / (step / sin_t)).long(), min=1)
+        )
+    
+        cum_nrot = torch.cumsum(n_rot_per_tilt, dim=0)
+        total_rot = cum_nrot[-1].item()
+    
+        # ==================== INDICES ====================
+        tilt_idx = torch.repeat_interleave(torch.arange(n_tilt, device=device), n_rot_per_tilt)
+        rot_global_idx = torch.arange(total_rot, device=device)
+        start_idx = torch.cat([torch.tensor([0], device=device), cum_nrot[:-1]])
+        local_idx = rot_global_idx - start_idx[tilt_idx]
+    
+        # ==================== ÁNGULOS (AJUSTE -180 a 180) ====================
+        rot_deg = (local_idx.float() / n_rot_per_tilt[tilt_idx].float()) * 360.0
+        
+        # 🔥 Transformar de [0, 360) a (-180, 180]
+        rot_deg = torch.where(rot_deg > 180.0, rot_deg - 360.0, rot_deg)
+        
+        tilt_deg_exp = tilt_deg[tilt_idx]
+    
         rot_rad = rot_deg * torch.pi / 180.0
         tilt_rad_exp = tilt_deg_exp * torch.pi / 180.0
     
@@ -460,24 +602,25 @@ class reconstruct:
         s2 = torch.sin(tilt_rad_exp)
     
         R = torch.zeros((total_rot, 3, 3), device=device)
-    
         R[:, 0, 0] = c1 * c2
         R[:, 0, 1] = -s1
         R[:, 0, 2] = c1 * s2
-    
         R[:, 1, 0] = s1 * c2
         R[:, 1, 1] = c1
         R[:, 1, 2] = s1 * s2
-    
         R[:, 2, 0] = -s2
         R[:, 2, 1] = 0.0
         R[:, 2, 2] = c2
     
-        # ==================== PSI ====================
+        # ==================== PSI (AJUSTE -180 a 180) ====================
         if n_psi > 1:
-            psi_deg = torch.linspace(0.0, 360.0, n_psi, device=device)[:-1]
+            # Generamos de 0 a 360 y luego remapeamos
+            psi_deg = torch.linspace(0.0, 360.0, n_psi + 1, device=device)[:-1]
+            
+            # 🔥 Transformar de [0, 360) a (-180, 180]
+            psi_deg = torch.where(psi_deg > 180.0, psi_deg - 360.0, psi_deg)
+            
             psi_rad = psi_deg * torch.pi / 180.0
-    
             cos_p = torch.cos(psi_rad)
             sin_p = torch.sin(psi_rad)
     
@@ -490,7 +633,7 @@ class reconstruct:
     
             R = torch.einsum('bij,njk->bnik', R, R_psi).reshape(-1, 3, 3)
     
-            # Expandir ángulos
+            # Expandir ángulos para el return
             rot_deg = rot_deg.repeat_interleave(len(psi_rad))
             tilt_deg_exp = tilt_deg_exp.repeat_interleave(len(psi_rad))
             psi_deg = psi_deg.repeat(total_rot)
@@ -498,10 +641,8 @@ class reconstruct:
         else:
             psi_deg = torch.zeros_like(rot_deg)
     
-        print(f"Generadas {R.shape[0]:,} rotaciones")
-        print(f"   Angular step: {angular_step_deg}° | Psi samples: {n_psi}")
-    
         if return_angles:
+            # Según tu código anterior: [psi, rot, tilt]
             angles = torch.stack([psi_deg, rot_deg, tilt_deg_exp], dim=1)
             return R, angles
         else:
@@ -533,7 +674,8 @@ class reconstruct:
         
         vol_f = torch.fft.fftshift(torch.fft.fftn(
             torch.fft.ifftshift(vol_padded, dim=(-3,-2,-1)), 
-            norm='ortho'
+            # norm='ortho'
+            norm='forward'
         )).squeeze(0).squeeze(0)
     
         vol_f_real = vol_f.real.unsqueeze(0).unsqueeze(0)
@@ -572,7 +714,7 @@ class reconstruct:
     
             # IFFT2 (sin ramp ni Wiener)
             proj = torch.fft.fftshift(
-                torch.fft.ifft2(torch.fft.ifftshift(slice_f, dim=(-2,-1)), norm='ortho'),
+                torch.fft.ifft2(torch.fft.ifftshift(slice_f, dim=(-2,-1)), norm='forward'),
                 dim=(-2,-1)
             ).real
     
@@ -580,6 +722,11 @@ class reconstruct:
             crop = (D_pad - D) // 2
             proj = proj[:, crop:crop+D, crop:crop+D]
     
+            #Normalization    
+            mean = proj.mean(dim=(-2, -1), keepdim=True)
+            std = proj.std(dim=(-2, -1), keepdim=True)
+            proj = (proj - mean) / (std + 1e-8)
+
             projections[i:i+b] = proj.cpu()
     
     

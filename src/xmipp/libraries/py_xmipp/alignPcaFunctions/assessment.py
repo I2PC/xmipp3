@@ -408,58 +408,11 @@ class evaluation:
         star.loc[:, "angleTilt"] = angles[:, 1]
         star.loc[:, "anglePsi"] = angles[:, 2]
    
-        starfile.write(star, outXMD, overwrite=True)
-        
-        
-    def estimatePose_no(self, angle_triplet, expStar, matchPair, shiftVec, nExp, apply_shifts):
-        
-        matchPair = matchPair.cpu().numpy()
-        
-        if apply_shifts:
-            self.getShifts(expStar, nExp)
-            expShifts = self.expShifts.cpu().numpy()
-        
-        #Detewrmine shifts
-        indices = torch.tensor(matchPair[:, 4], dtype=torch.long) 
-        shiftVec = torch.tensor(shiftVec, dtype=torch.float64)
-        angle = torch.tensor(matchPair[:, 3], dtype=torch.float64)
-        
-        
-        shift_x = shiftVec[indices, 0]
-        shift_y = shiftVec[indices, 1]
-        center = torch.tensor([0, 0])
-        newShiftX, newShiftY = self.inverse_transform_shift(angle, shift_x, shift_y, center) 
-    
-        # Adjustment of Psi angles
-        psi_adjusted = -matchPair[:, 3]    
-        psi_adjusted = np.where(psi_adjusted > 180, psi_adjusted - 360, psi_adjusted)
-              
-    
-        # Updating columns in the dataframe
-        angle_triplet = np.array(angle_triplet)
-        shiftVec = np.array(shiftVec)
-        psi = psi_adjusted + angle_triplet[matchPair[:, 1].astype(int), 0]
-        rot = angle_triplet[matchPair[:, 1].astype(int), 1]
-        tilt = angle_triplet[matchPair[:, 1].astype(int), 2]
-    
-        if apply_shifts:
-            shiftX = -shiftVec[matchPair[:, 4].astype(int), 0] + expShifts[:, 0]
-            shiftY = -shiftVec[matchPair[:, 4].astype(int), 1] + expShifts[:, 1]
-        else:
-            shiftX = newShiftX.cpu().numpy()
-            shiftY = newShiftY.cpu().numpy()
-
-    
-        star.loc[:, "sel"] = matchPair[:, 5]#.astype(np.int32)
-        star["sel"] = star["sel"].astype(int)
-        
-        #score
-        star.loc[:, "score"] = matchPair[:, 2]
-        
+        starfile.write(star, outXMD, overwrite=True)       
         
 
 
-    def estimatePose(self, angle_triplet, expStar, matchPair_raw, shiftVec, nExp, apply_shifts):
+    def estimatePose_v0(self, angle_triplet, expStar, matchPair_raw, shiftVec, nExp, apply_shifts):
 
         # 1. Máscara y Filtrado (Columna 5 es el flag)
         mask = matchPair_raw[:, 5] > 0.5
@@ -491,13 +444,18 @@ class evaluation:
         psi_adjusted = -matchPair[:, 3]
         psi_adjusted = torch.where(psi_adjusted > 180, psi_adjusted - 360, psi_adjusted)
         
+        angle_triplet = torch.where(angle_triplet > 180, angle_triplet - 360, angle_triplet)
         angle_triplet_gpu = torch.as_tensor(angle_triplet, dtype=torch.float32, device=self.cuda)
         idx_triplet = matchPair[:, 1].long()
         
         # Convención ZYZ: a=Rot, b=Tilt, c=Psi
-        f_rot = angle_triplet_gpu[idx_triplet, 0]
-        f_tilt = angle_triplet_gpu[idx_triplet, 1]
-        f_psi = psi_adjusted + angle_triplet_gpu[idx_triplet, 2]
+        # f_rot = angle_triplet_gpu[idx_triplet, 0]
+        # f_tilt = angle_triplet_gpu[idx_triplet, 1]
+        # f_psi = psi_adjusted + angle_triplet_gpu[idx_triplet, 2]
+        f_psi = psi_adjusted + angle_triplet_gpu[idx_triplet, 0]
+        f_rot = angle_triplet_gpu[idx_triplet, 1]
+        f_tilt = angle_triplet_gpu[idx_triplet, 2]
+        print(f_psi, f_rot, f_tilt)
     
         # Construcción de la matriz R (ZYZ)
         a, b, c = torch.deg2rad(f_rot), torch.deg2rad(f_tilt), torch.deg2rad(f_psi)
@@ -520,8 +478,177 @@ class evaluation:
         else:
             shiftX_final = newShiftX
             shiftY_final = newShiftY
+            
+        shifts_final = torch.stack([shiftX_final, shiftY_final], dim=1)
     
-        return valid_indices, R, shiftX_final, shiftY_final
+        return valid_indices, R, shifts_final
+    
+    
+    @torch.no_grad()
+    def euler_zyz_to_matrix(self, psi, rot, tilt, degrees=True):
+        """
+        Convención:
+            R = Rz(rot) @ Ry(tilt) @ Rz(psi)
+            
+        Parámetros:
+        ----------
+        psi, rot, tilt : Tensor o array-like
+
+        Devuelve
+        --------
+        R : (N,3,3)
+            Matrices de rotación.
+        """
+    
+        psi = torch.as_tensor(psi, dtype=torch.float32, device=self.cuda)
+        rot = torch.as_tensor(rot, dtype=torch.float32, device=self.cuda)
+        tilt = torch.as_tensor(tilt, dtype=torch.float32, device=self.cuda)
+    
+        if degrees:
+            psi  = torch.deg2rad(psi)
+            rot  = torch.deg2rad(rot)
+            tilt = torch.deg2rad(tilt)
+    
+        ca = torch.cos(rot)
+        sa = torch.sin(rot)
+    
+        cb = torch.cos(tilt)
+        sb = torch.sin(tilt)
+    
+        cc = torch.cos(psi)
+        sc = torch.sin(psi)
+    
+        n = psi.shape[0]
+    
+        R = torch.empty((n, 3, 3), dtype=torch.float32, device=self.cuda)
+    
+        # Fila 1
+        R[:, 0, 0] = ca * cb * cc - sa * sc
+        R[:, 0, 1] = -ca * cb * sc - sa * cc
+        R[:, 0, 2] = ca * sb
+    
+        # Fila 2
+        R[:, 1, 0] = sa * cb * cc + ca * sc
+        R[:, 1, 1] = -sa * cb * sc + ca * cc
+        R[:, 1, 2] = sa * sb
+    
+        # Fila 3
+        R[:, 2, 0] = -sb * cc
+        R[:, 2, 1] = sb * sc
+        R[:, 2, 2] = cb
+    
+        return R
+    
+    
+    
+    def estimatePose(self, angle_triplet, expStar, matchPair_raw, shiftVec, nExp, apply_shifts):
+        """
+        Estima la pose final de las partículas filtrando por el flag de mejor match.
+        
+        Arumentos:
+            angle_triplet: Tensor (N_ref, 3) con [rot, tilt, psi] de la librería.
+            matchPair_raw: Tensor (N_exp, 6) donde la col 5 es el flag de mejor match.
+            shiftVec: Array/Tensor con los vectores de traslación de la búsqueda.
+            apply_shifts: Booleano para decidir qué corrección de shift aplicar.
+        """
+        
+        # 1. Filtramos solo los mejores matches (Flag en columna 5)
+        mask = matchPair_raw[:, 5] > 0.5
+        valid_indices = torch.where(mask)[0]
+        
+        num_valid = valid_indices.size(0)
+        if num_valid == 0:
+            return (valid_indices, 
+                    torch.empty((0, 3, 3), device=self.cuda), 
+                    torch.empty((0, 2), device=self.cuda))
+    
+        # Filtramos los datos necesarios
+        matchPair = matchPair_raw[mask]
+        
+        # 2. Gestión de SHIFTS
+        indices_shift = matchPair[:, 4].long() 
+        shiftVec_tensor = torch.as_tensor(shiftVec, dtype=torch.float32, device=self.cuda)
+        
+        s_x = shiftVec_tensor[indices_shift, 0]
+        s_y = shiftVec_tensor[indices_shift, 1]
+        
+        if apply_shifts:
+            # Si aplicamos shifts externos (de expStar)
+            self.getShifts(expStar, nExp) 
+            expShifts_filt = self.expShifts[mask] 
+            shiftX_final = -s_x + expShifts_filt[:, 0]
+            shiftY_final = -s_y + expShifts_filt[:, 1]
+        else:
+            # Usamos la transformación inversa de los shifts de búsqueda
+            angle_match = matchPair[:, 3].float()
+            center = torch.tensor([0, 0], dtype=torch.float32, device=self.cuda)
+            shiftX_final, shiftY_final = self.inverse_transform_shift(angle_match, s_x, s_y, center)
+        
+        shifts_final = torch.stack([shiftX_final, shiftY_final], dim=1)
+    
+        # 3. Cálculo de ÁNGULOS (Convención ZYZ coherente con generate_library)
+        # psi_adjusted viene del matching (giro in-plane)
+        psi_adjusted = -matchPair[:, 3]
+        psi_adjusted = torch.where(psi_adjusted > 180, psi_adjusted - 360, psi_adjusted)
+        # psi_adjusted = torch.where(psi_adjusted > 180, 360 -psi_adjusted, psi_adjusted)
+        
+        # Obtenemos los ángulos base de la librería [rot, tilt, psi]
+        idx_triplet = matchPair[:, 1].long()
+        lib_angles = torch.as_tensor(angle_triplet, dtype=torch.float32, device=self.cuda)[idx_triplet]
+        
+        # Mapeo de ángulos para la fórmula ZYZ:
+        # alpha (a) = ROT, beta (b) = TILT, gamma (c) = PSI_LIB + PSI_MATCH
+        f_rot   = lib_angles[:, 1]
+        f_tilt  = lib_angles[:, 2] 
+        f_psi   = lib_angles[:, 0] + psi_adjusted
+        print(f_psi, f_rot, f_tilt)
+    
+        # 4. Construcción analítica de la Matriz R
+        R = self.euler_zyz_to_matrix(
+            psi=f_psi,
+            rot=f_rot,
+            tilt=f_tilt,
+            degrees=True
+        )
+    
+        return valid_indices, R, shifts_final   
+    
+    
+    def determineR(self, angle_triplet):
+
+        lib_angles = torch.as_tensor(angle_triplet, dtype=torch.float32, device=self.cuda)
+        
+        # Mapeo de ángulos para la fórmula ZYZ:
+        # alpha (a) = ROT, beta (b) = TILT, gamma (c) = PSI_LIB + PSI_MATCH
+        f_rot   = lib_angles[:, 1]
+        f_tilt  = lib_angles[:, 2]
+        f_psi   = lib_angles[:, 0] 
+        # print(f_psi, f_rot, f_tilt)
+    
+        # 4. Construcción analítica de la Matriz R
+        a, b, c = torch.deg2rad(f_rot), torch.deg2rad(f_tilt), torch.deg2rad(f_psi)
+        ca, sa = torch.cos(a), torch.sin(a)
+        cb, sb = torch.cos(b), torch.sin(b)
+        cc, sc = torch.cos(c), torch.sin(c)
+    
+        R = torch.zeros((lib_angles.shape[0], 3, 3), device=self.cuda)
+        
+        # Fila 1
+        R[:, 0, 0] = ca * cb * cc - sa * sc
+        R[:, 0, 1] = -ca * cb * sc - sa * cc
+        R[:, 0, 2] = ca * sb
+        
+        # Fila 2
+        R[:, 1, 0] = sa * cb * cc + ca * sc
+        R[:, 1, 1] = -sa * cb * sc + ca * cc
+        R[:, 1, 2] = sa * sb
+        
+        # Fila 3
+        R[:, 2, 0] = -sb * cc
+        R[:, 2, 1] = sb * sc
+        R[:, 2, 2] = cb
+    
+        return R  
          
             
             

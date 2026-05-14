@@ -461,6 +461,13 @@ class BnBgpu:
             normalized_images[i] = img_centered * soft_mask
             
         return normalized_images
+    
+    
+    def zscore_normalization(self, images):
+        mean = images.mean(dim=(-2, -1), keepdim=True)
+        std = images.std(dim=(-2, -1), keepdim=True)
+        images = (images - mean) / (std + 1e-8)
+        return images
             
 
     
