@@ -33,6 +33,7 @@
 #include <fstream>
 #include <iomanip>
 #include <random>
+#include <limits>
 #include "core/xmipp_image_generic.h"
 
 #include <reconstruction/angular_project_library.h>
@@ -133,8 +134,10 @@ public:
             //random numbers must be the same in all nodes
             if(perturb_projection_vector!=0)
             {
-                srand(getpid());
-                my_seed = rand();
+                std::random_device rd;
+                std::mt19937 gen(rd());
+                std::uniform_int_distribution dist(0, std::numeric_limits<int>::max());
+                my_seed = dist(gen);
             }
         }
 #ifdef  DEBUGTIME

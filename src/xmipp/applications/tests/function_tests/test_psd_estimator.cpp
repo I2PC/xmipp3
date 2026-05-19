@@ -41,7 +41,7 @@ public:
 
         // test 'original' half
         for (size_t y = 0; y < settings.sDim().y(); ++y) {
-            for (size_t x = 0; x < settings.fDim().x(); ++x) {
+            for (size_t x = 0; x < settings.sDim().x(); ++x) {
                 auto indexIn = y * settings.fDim().x() + x;
                 auto indexOut = y * settings.sDim().x() + x;
                 ASSERT_EQ(in[indexIn], out[indexOut]);

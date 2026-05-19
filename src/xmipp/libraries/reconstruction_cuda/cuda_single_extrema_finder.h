@@ -53,7 +53,7 @@ public:
     CudaExtremaFinder(CudaExtremaFinder& o) = delete;
     CudaExtremaFinder& operator=(const CudaExtremaFinder& other) = delete;
     CudaExtremaFinder const & operator=(CudaExtremaFinder &&o) = delete;
-    CudaExtremaFinder(CudaExtremaFinder &&o) {
+    CudaExtremaFinder(CudaExtremaFinder&& o) noexcept {
         m_loadStream = o.m_loadStream;
         m_workStream = o.m_workStream;
 
