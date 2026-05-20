@@ -214,6 +214,7 @@ class reconstruct:
         # print(f"→ Simetría: {sym} ({n_sym} ops)")
         # print("Matrices:")
         # print(sym_ops)
+        # print(n_sym)
     
         # -------------------------
         # Fourier grid 2D

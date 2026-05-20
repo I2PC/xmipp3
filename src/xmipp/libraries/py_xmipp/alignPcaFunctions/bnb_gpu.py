@@ -468,6 +468,48 @@ class BnBgpu:
         std = images.std(dim=(-2, -1), keepdim=True)
         images = (images - mean) / (std + 1e-8)
         return images
+    
+    
+            
+    def search_space(self, iter, rot, sh, msh):
+        
+        if iter == 0:
+            angle, shift, maxShift = rot, sh, msh
+        elif iter == 8:
+            angle, shift, maxShift = 6, 3, 12
+        elif iter == 13:
+            angle, shift, maxShift = 5, 3, 12
+        elif iter == 16:
+            angle, shift, maxShift = 5, 3, 12
+            
+        return(angle, shift, maxShift)
+    
+    
+    def reconstruct_parameters(self, iter, maxRes, filter):
+        
+        if iter == 0:
+            volRes, filtRes, angleGallery = 20, 20, 12
+        elif iter == 8:
+            volRes, filtRes, angleGallery = 16, 16, 8
+        elif iter == 13:
+            volRes, filtRes, angleGallery = maxRes, filter, 6
+        elif iter == 16:
+            volRes, filtRes, angleGallery = maxRes, filter, 5
+            
+        return(volRes, filtRes, angleGallery)
+
+
+            
+    def parameters2(self, iter, maxRes, filter):
+        
+        if iter == 9:
+            volRes, filtRes, angleGallery, angle, shift, maxShift = 16, 16, 8, 6, 3, 12
+        elif iter == 14:
+            volRes, filtRes, angleGallery, angle, shift, maxShift = maxRes, filter, 6, 5, 3, 12
+        elif iter == 17:
+            volRes, filtRes, angleGallery, angle, shift, maxShift = maxRes, filter, 5, 5, 3, 12
+            
+        return(volRes, filtRes, angleGallery, angle, shift, maxShift)
             
 
     

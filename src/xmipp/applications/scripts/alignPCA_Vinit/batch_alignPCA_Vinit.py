@@ -15,6 +15,7 @@ from xmippPyModules.alignPcaFunctions.bnb_gpu import *
 from xmippPyModules.alignPcaFunctions.reconstruct_gpu import *
 from xmippPyModules.alignPcaFunctions.assessment import *
 from builtins import iter
+from _weakref import ref
 
 
 def read_images(mrcfilename):
@@ -119,41 +120,26 @@ if __name__=="__main__":
     cuda = torch.device('cuda') 
 
     
-    #Basename for multiple references
-    # if numCl > 1:
-    #     prjFile_base = os.path.join(os.path.dirname(prjFile), os.path.splitext(os.path.basename(prjFile))[0].split('_class')[0])
-    #     output_base = os.path.join(os.path.dirname(output), os.path.splitext(os.path.basename(output))[0].split("_class")[0])
-
-    
     #Read Experimental Images
     mmap = mrcfile.mmap(expFile, permissive=True)
     nExp = mmap.data.shape[0]
     dim = mmap.data.shape[1]
     Ntrain = nExp
-    nIter = 10
+    nIter = 20
     
     
     #Create initial references
-    # assess = evaluation()
     R = reconstruct()
     angular_step = 12
     transf, angle_triplet = R.generate_library(angular_step)
-    # print(angle_triplet)
-    # transf2 = assess.determineR(angle_triplet)
-    # err = torch.max(torch.abs(transf - transf2))
-    # print(err)
-    # exit()
-    # print("------------------")
     
-    # n_proj = transf.shape[0] 
-    # all_refs_cpu = torch.zeros((numCl, n_proj, dim, dim), device='cpu', dtype=torch.float32, pin_memory=True)
     all_refs_cpu = [None] * numCl
     
     if initVol:
         for i in range(numCl):
             zeroVol = load_vol(initVol)
             ref = R.generate_projections(zeroVol, transf)
-            all_refs_cpu[i] = ref.detach().cpu().pin_memory()
+            all_refs_cpu[i] = ref.detach().cpu()#.pin_memory()
             # zeroVol = R.reconstruct_volume(ref, "C1", 10, sampling, dim, transf)
             del zeroVol, ref
     else:    
@@ -161,31 +147,46 @@ if __name__=="__main__":
             random_angles = R.generate_random_angles(nExp)
             zeroVol = R.reconstruct_volume(mmap, "C1", 20, sampling, dim, random_angles)
             ref = R.generate_projections(zeroVol, transf)
-            all_refs_cpu[i] = ref.detach().cpu().pin_memory()
+            all_refs_cpu[i] = ref.detach().cpu()#.pin_memory()
             del zeroVol, ref
         
     
     # file = output+"_zerovol.mrc"
     # save_vol(zeroVol.cpu(), file, sampling) 
-    file = output+"_zeroref.mrcs" 
-    save_proj(all_refs_cpu[0], file, sampling) 
+    # file = output+"_zeroref.mrcs" 
+    # save_proj(all_refs_cpu[0], file, sampling) 
     # exit()
     
-    #pca
     nBand = 1
-    pca = PCAgpu(nBand)
-    maxRes = 12
-    freqBn, cvecs, coef = pca.calculatePCAbasis(mmap, Ntrain, nBand, dim, sampling, maxRes, 
-                                                minRes=530, per_eig=per_eig_value, batchPCA=True)
-
-    grid_flat = flatGrid(freqBn, nBand)
-
-        
     bnb = BnBgpu(nBand)
     assess = evaluation()
     
     
-    #Precomputed rotation and shift   
+    #Reading experimental images (solo una vez)
+    expImages = read_images(expFile)
+    # texp = torch.from_numpy(expImages).pin_memory().to(cuda, non_blocking=True)
+    texp = torch.from_numpy(expImages).to(cuda)#.pin_memory().to(cuda)
+    del expImages
+    if radius:
+        texp *= bnb.create_mask(texp, radius)
+    texp = bnb.zscore_normalization(texp)
+    
+    resultado_tensor = torch.cat([texp, all_refs_cpu[0].to(cuda)], dim=0)
+    Ntrain = resultado_tensor.shape[0]
+    
+    #pca
+    # nBand = 1
+    pca = PCAgpu(nBand)
+    maxRes = 20
+    freqBn, cvecs, coef = pca.calculatePCAbasis(resultado_tensor, Ntrain, nBand, dim, sampling, maxRes, 
+                                                minRes=530, per_eig=per_eig_value, batchPCA=True)
+
+    grid_flat = flatGrid(freqBn, nBand)
+    del(resultado_tensor)
+
+    
+    
+    # #Precomputed rotation and shift   
     angSet = (-amax, amax, ang)
     shiftSet = (-maxshift, maxshift+shiftMove, shiftMove)
     vectorRot, vectorshift = bnb.setRotAndShift(angSet, shiftSet)
@@ -199,39 +200,34 @@ if __name__=="__main__":
     whitening = bnb.compute_radial_whitening_filter(Texp_whitening)
     del Im_whitening, Texp_whitening
     whitening = 1
+            
+    next_angle_triplet = None
         
-
-
-    #Reading experimental images (solo una vez)
-    expImages = read_images(expFile)
-    texp = torch.from_numpy(expImages).pin_memory().to(cuda, non_blocking=True)
-    texp = bnb.zscore_normalization(texp)
-    del expImages
-    if radius:
-        texp *= bnb.create_mask(texp, radius)
-    
-    
-    #Precalculate projection angles
-    # angular_step = 5
-    # transf, angle_triplet = R.generate_library(angular_step)
-    # n_proj = transf.shape[0] 
-    # all_refs_cpu = torch.zeros((numCl, n_proj, dim, dim), device='cpu', dtype=torch.float32, pin_memory=True)
-    
+    for current_iter in range(nIter):
+        print("----------Iter %s------------" %current_iter, flush=True)
         
-    for iter in range(nIter):
-        print("----------Iter %s------------" %iter, flush=True)
+        #Precomputed rotation and shift  
+        if current_iter in (0, 8, 13, 16): 
+            volRes, filtRes, angular_step = bnb.reconstruct_parameters(current_iter, highRes, 8)
+            ang, shiftMove, maxshift = bnb.search_space(current_iter, ang, shiftMove, maxshift) 
+            angSet = (-amax, amax, ang)
+            shiftSet = (-maxshift, maxshift+shiftMove, shiftMove)
+            vectorRot, vectorshift = bnb.setRotAndShift(angSet, shiftSet)
+            vectorRot.sort()         
+            nShift = len(vectorshift)
+            
     
         matches = [None] * numCl
+        
         for i in range(numCl):    
             #Reading references particles 
                    
-            tref = all_refs_cpu[i].to(cuda, non_blocking=True)
+            tref = all_refs_cpu[i].to(cuda)#, non_blocking=True)
             if radius:
                 tref = tref * bnb.create_mask(tref, radius)
-            # del(prjImages)
-        
+            tref = bnb.zscore_normalization(tref) 
+       
             batch_projRef = bnb.create_batchExp(tref, whitening, freqBn, coef, cvecs) 
-            
             
             matches[i] = torch.full((nExp, 5), float("Inf"), device = cuda)
             
@@ -245,27 +241,53 @@ if __name__=="__main__":
                 del(batch_projExp) 
                 # del(batch_projRef)
             
-            # print(matches[i])
             matches[i] = bnb.match_batch_label_minScore(matches[i])
-            print(matches[i])
+            # print(matches[i])
             # exit()
             
             score = matches[i][:, 2].mean()
             print("mean score = %s" %score.item())
             
             if not save_class: 
-                valid_indices, rotM, shiftM = assess.estimatePose(angle_triplet, expStar, matches[i], vectorshift, nExp, apply_shifts)
-            print(shiftM)
+                valid_indices, rotM, shiftM = assess.estimatePose(
+                    angle_triplet, expStar, matches[i], vectorshift, 
+                    nExp, apply_shifts, filter_matches=(current_iter > 4)
+                )
+
             mmap_filtrado = mmap.data[valid_indices.cpu().numpy()].astype('float32')
-            vol = R.reconstruct_volume(mmap_filtrado, "C1", 10, sampling, dim, rotM, shifts=shiftM)
-            # vol = R.reconstruct_volume(mmap_filtrado, "C1", 10, sampling, dim, rotM)
+
+            vol = R.reconstruct_volume(mmap_filtrado, "C1", volRes, sampling, dim, rotM, shifts=shiftM)
+            # vol = R.reconstruct_volume(mmap_filtrado, "C1", volRes, sampling, dim, rotM)
+            
+            if i == 0 and current_iter in (8, 13, 16):
+                transf, next_angle_triplet = R.generate_library(angular_step)
+                
             ref = R.generate_projections(vol, transf)
-            all_refs_cpu[i] = ref.detach().cpu().pin_memory()
-            file = output+"_%s_%s.mrc"%(iter+1,i)
+            all_refs_cpu[i] = ref.detach().cpu()#.pin_memory()
+            file = output+"_%s_%s.mrc"%(current_iter+1,i)
             save_vol(vol.cpu(), file, sampling)
+            del tref, vol, ref
             # fileProj = output+"ref_%s_%s.mrcs"%(iter+1,i)
             # save_vol(all_refs_cpu[0], fileProj, sampling)
+        
+        if next_angle_triplet is not None:
+            angle_triplet = next_angle_triplet 
+            next_angle_triplet = None 
+            #Actualizo PCA
+            del freqBn, coef, grid_flat, cvecs 
+            resultado_tensor = torch.cat([texp, all_refs_cpu[0].to(cuda)], dim=0)
+            Ntrain = resultado_tensor.shape[0]  
+            freqBn, cvecs, coef = pca.calculatePCAbasis(
+                resultado_tensor, Ntrain, nBand, dim, sampling, volRes,
+                minRes=530, per_eig=per_eig_value, batchPCA=True
+            )
+            grid_flat = flatGrid(freqBn, nBand)
+            del resultado_tensor
     exit()
+    
+    
+    
+    
         # file = output+"_zeroref.mrcs" 
         # save_proj(all_refs_cpu[0], file, sampling) 
     
@@ -282,8 +304,7 @@ if __name__=="__main__":
 
 
 
-
-
+        
 
 
 

@@ -541,7 +541,7 @@ class evaluation:
     
     
     
-    def estimatePose(self, angle_triplet, expStar, matchPair_raw, shiftVec, nExp, apply_shifts):
+    def estimatePose(self, angle_triplet, expStar, matchPair_raw, shiftVec, nExp, apply_shifts, filter_matches=True):
         """
         Estima la pose final de las partículas filtrando por el flag de mejor match.
         
@@ -553,8 +553,13 @@ class evaluation:
         """
         
         # 1. Filtramos solo los mejores matches (Flag en columna 5)
-        mask = matchPair_raw[:, 5] > 0.5
-        valid_indices = torch.where(mask)[0]
+        if filter_matches:
+            mask = matchPair_raw[:, 5] > 0.5
+            valid_indices = torch.where(mask)[0]
+        else:
+            mask = torch.ones(matchPair_raw.shape[0], dtype=torch.bool, device=matchPair_raw.device)
+            valid_indices = torch.arange(matchPair_raw.shape[0], device=matchPair_raw.device)
+            
         
         num_valid = valid_indices.size(0)
         if num_valid == 0:
@@ -601,7 +606,6 @@ class evaluation:
         f_rot   = lib_angles[:, 1]
         f_tilt  = lib_angles[:, 2] 
         f_psi   = lib_angles[:, 0] + psi_adjusted
-        print(f_psi, f_rot, f_tilt)
     
         # 4. Construcción analítica de la Matriz R
         R = self.euler_zyz_to_matrix(

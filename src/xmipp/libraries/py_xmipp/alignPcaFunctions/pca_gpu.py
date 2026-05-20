@@ -259,14 +259,13 @@ class PCAgpu:
         self.errorVariance(self.Bvals, self.Bvar, per_eig)
         for n in range(self.nBand):
             #Using truncation and no error
-            # trunc = self.Bvecs[0].size(dim=1)*per_eig
+            trunc = self.Bvecs[0].size(dim=1)*per_eig
             # print("eigenvector %s ---- percentage %s" %(int(self.eigs[n]+1), "{:.2f}".format(self.perc[n])))
-            #self.Bvecs[n] = self.Bvecs[n][:,:(int(trunc+1))]
+            self.Bvecs[n] = self.Bvecs[n][:,:(int(trunc+1))]
             
             #Reshaping Eigenvectors
-            print(f"eigenvector {int(self.eigs[n]+1)} ---- percentage {self.perc[n]:.2f}")
-            
-            self.Bvecs[n] = self.Bvecs[n][:,:(int(self.eigs[n]+1))]
+            # print(f"eigenvector {int(self.eigs[n]+1)} ---- percentage {self.perc[n]:.2f}")
+            # self.Bvecs[n] = self.Bvecs[n][:,:(int(self.eigs[n]+1))]
             print(self.Bvecs[n].shape, flush=True)
             
         del (band)
@@ -314,7 +313,7 @@ class PCAgpu:
         return augmented_data
     
     
-    def calculatePCAbasis(self, mexp, Ntrain, nBand, dim, sampling, maxRes, minRes, per_eig, batchPCA):
+    def calculatePCAbasis(self, Img, Ntrain, nBand, dim, sampling, maxRes, minRes, per_eig, batchPCA):
         
         freq_band = self.precalculateBands(nBand, dim, sampling, maxRes, minRes) 
         #torch.save(freq_band, output + "_bands.pt")
@@ -335,12 +334,14 @@ class PCAgpu:
             if (endBatch > Ntrain):
                 endBatch = Ntrain
             
-            expImages = mexp.data[initBatch:endBatch].astype(np.float32)#.copy()
-            Texp = torch.from_numpy(expImages).float().to(self.cuda)
+            # expImages = mexp.data[initBatch:endBatch].astype(np.float32)#.copy()
+            # Texp = torch.from_numpy(expImages).float().to(self.cuda)
+            Texp = Img[initBatch:endBatch]
             radius = 60
             Texp = Texp * bnb.create_mask(Texp, radius)
+            Texp = bnb.zscore_normalization(Texp)
     
-            del(expImages)
+            # del(expImages)
 
             
             for augm in range(10):
