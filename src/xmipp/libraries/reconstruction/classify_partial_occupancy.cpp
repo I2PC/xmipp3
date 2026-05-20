@@ -143,21 +143,71 @@ void ProgClassifyPartialOccupancy::defineParams()
 	I().setXmippOrigin();
  }
 
- void ProgClassifyPartialOccupancy::writeParticle(MDRow &rowOut, double avg, double std, double zScore) 
- {
-	#ifdef DEBUG_WRITE_PARICLE
-	std::cout << "-------------- writing output particle" << std::endl;
-	std::cout << "Final ll_I: " << avg << " --- Final ll_IsubP: " << std << " --- Final delta_ll: " << zScore << std::endl;
-	std::cout << "fnImgI: " << fnImgI << std::endl;
-	std::cout << "-------------- " << std::endl;
-	#endif
+void ProgClassifyPartialOccupancy::writeParticle(MDRow &rowOut, Metrics &metrics_I, Metrics &metrics_IsubP)
+{
+    #ifdef DEBUG_WRITE_PARICLE
+    std::cout << "-------------- writing output particle" << std::endl;
+    std::cout << "fnImgI: " << fnImgI << std::endl;
 
-	rowOut.setValue(MDL_IMAGE, fnImgI); 
-	rowOut.setValue(MDL_AVG, avg); 
-	rowOut.setValue(MDL_STDDEV, std); 
-	rowOut.setValue(MDL_ZSCORE, zScore); 
- }
+    std::cout << "LIKELIHOOD   I: " << metrics_I.likelihood
+              << " | SUBP: " << metrics_IsubP.likelihood
+              << " | DELTA: " << metrics_I.likelihood - metrics_IsubP.likelihood << std::endl;
 
+    std::cout << "ENTROPY      I: " << metrics_I.entropy
+              << " | SUBP: " << metrics_IsubP.entropy
+              << " | DELTA: " << metrics_I.entropy - metrics_IsubP.entropy << std::endl;
+
+    std::cout << "KULLBACK     I: " << metrics_I.kullback_lieber
+              << " | SUBP: " << metrics_IsubP.kullback_lieber
+              << " | DELTA: " << metrics_I.kullback_lieber - metrics_IsubP.kullback_lieber << std::endl;
+
+    std::cout << "RADIAL LL    I: " << metrics_I.radial_likelihood
+              << " | SUBP: " << metrics_IsubP.radial_likelihood
+              << " | DELTA: " << metrics_I.radial_likelihood - metrics_IsubP.radial_likelihood << std::endl;
+
+    std::cout << "CROSS ENT    I: " << metrics_I.cross_entropy
+              << " | SUBP: " << metrics_IsubP.cross_entropy
+              << " | DELTA: " << metrics_I.cross_entropy - metrics_IsubP.cross_entropy << std::endl;
+
+    std::cout << "ENERGY       I: " << metrics_I.energy
+              << " | SUBP: " << metrics_IsubP.energy
+              << " | DELTA: " << metrics_I.energy - metrics_IsubP.energy << std::endl;
+
+    std::cout << "-------------- " << std::endl;
+    #endif
+
+    rowOut.setValue(MDL_IMAGE, fnImgI);
+
+    // Likelihood
+    rowOut.setValue(MDL_LIKELIHODD_I,     metrics_I.likelihood);
+    rowOut.setValue(MDL_LIKELIHODD_SUBP,  metrics_IsubP.likelihood);
+    rowOut.setValue(MDL_LIKELIHODD_DELTA, metrics_I.likelihood - metrics_IsubP.likelihood);
+
+    // Entropy
+    rowOut.setValue(MDL_ENTROPY_I,     metrics_I.entropy);
+    rowOut.setValue(MDL_ENTROPY_SUBP,  metrics_IsubP.entropy);
+    rowOut.setValue(MDL_ENTROPY_DELTA, metrics_I.entropy - metrics_IsubP.entropy);
+
+    // Kullback-Leibler
+    rowOut.setValue(MDL_KULLBACK_LIEBER_I,     metrics_I.kullback_lieber);
+    rowOut.setValue(MDL_KULLBACK_LIEBER_SUBP,  metrics_IsubP.kullback_lieber);
+    rowOut.setValue(MDL_KULLBACK_LIEBER_DELTA, metrics_I.kullback_lieber - metrics_IsubP.kullback_lieber);
+
+    // Radial Likelihood
+    rowOut.setValue(MDL_RADIAL_LIKELIHOOD_I,     metrics_I.radial_likelihood);
+    rowOut.setValue(MDL_RADIAL_LIKELIHOOD_SUBP,  metrics_IsubP.radial_likelihood);
+    rowOut.setValue(MDL_RADIAL_LIKELIHOOD_DELTA, metrics_I.radial_likelihood - metrics_IsubP.radial_likelihood);
+
+    // Cross Entropy
+    rowOut.setValue(MDL_CROSS_ENTROPY_I,     metrics_I.cross_entropy);
+    rowOut.setValue(MDL_CROSS_ENTROPY_SUBP,  metrics_IsubP.cross_entropy);
+    rowOut.setValue(MDL_CROSS_ENTROPY_DELTA, metrics_I.cross_entropy - metrics_IsubP.cross_entropy);
+
+    // Energy
+    rowOut.setValue(MDL_ENERGY_I,     metrics_I.energy);
+    rowOut.setValue(MDL_ENERGY_SUBP,  metrics_IsubP.energy);
+    rowOut.setValue(MDL_ENERGY_DELTA, metrics_I.energy - metrics_IsubP.energy);
+}
 
 // Main methods ===================================================================
 void ProgClassifyPartialOccupancy::preProcess() 
@@ -269,12 +319,12 @@ void ProgClassifyPartialOccupancy::processImage(const FileName &fnImg, const Fil
 	// M.write(fnImgOut.substr(0, dotPos) + "_PmaskRoi_Norm.mrcs");
 	#endif
 
-	double ll_I = 0;
-	double ll_IsubP = 0;
+	
+	Metrics metrics_I, metrics_IsubP;
 
-	compareRegions(ll_I, ll_IsubP, fnImgOut);
+	compareRegions(metrics_I, metrics_IsubP, fnImgOut);
 
-	writeParticle(rowOut, ll_I, ll_IsubP, (ll_I-ll_IsubP)); 
+	writeParticle(rowOut, metrics_I, metrics_IsubP); 
 }
 
 void ProgClassifyPartialOccupancy::processParticle(const MDRow &rowprocess, int sizeImg) 
@@ -684,8 +734,12 @@ void ProgClassifyPartialOccupancy::noiseEstimation()
 
 // Este metodo aisla cada region de interes segun la mascara proyectada y luego las analiza individualmetne 
 // comparando la region sustrayendo la proyeccion del volumen de referencia vs la region itself
-void ProgClassifyPartialOccupancy::compareRegions(double &ll_I, double &ll_IsubP, const FileName &fnImgOut)
+void ProgClassifyPartialOccupancy::compareRegions(Metrics &metrics_I, Metrics &metrics_IsubP, const FileName &fnImgOut)
 {	
+	// -- Initialize structs empty
+	metrics_I = {};
+	metrics_IsubP = {};
+
 	// -- Detect ligand regions
 	binarizeMask(PmaskRoi);
 	MultidimArray<double> PmaskRoiLabel;
@@ -729,7 +783,11 @@ void ProgClassifyPartialOccupancy::compareRegions(double &ll_I, double &ll_IsubP
 	saveImage.write(fnImgOut.substr(0, dotPos) + "_IsubP.mrcs");
 	#endif
 
-	// Calcualte metrics for both images in Real space
+	// -- Calculate occupancy metrics
+	std::cout << "--------------------------------------------------------------------- " 	<< std::endl;
+	std::cout << "Calculating metrics for image: "<< fnImgI << std::endl;
+
+	// ---- Real space metrics
 	double avg_I = 0;
 	double std_I = 0;
 	double zScore_I = 0;
@@ -741,25 +799,15 @@ void ProgClassifyPartialOccupancy::compareRegions(double &ll_I, double &ll_IsubP
 
 	computeParticleStats(I(), avg_I, std_I, zScore_I, energy_I);
 	computeParticleStats(IsubP(), avg_IsubP, std_IsubP, zScore_IsubP, energy_IsubP);
-	ll_I += energy_I;
-	ll_IsubP += energy_IsubP;
+	
+	metrics_I.energy     += energy_I;
+	metrics_IsubP.energy += energy_IsubP;
 
-	#ifdef DEBUG_METRICS
-	std::cout << "Final ll_I: " << ll_I << std::endl;
-	std::cout << "Final ll_IsubP: " << ll_IsubP << std::endl;
-	std::cout << "Final diff ll_I - ll_IsubP: " << ll_I - ll_IsubP << std::endl;
-	#endif	
-
-	return;
-
-	std::cout << "--------------------------------------------------------------------- " 	<< std::endl;
-	std::cout << fnImgI << std::endl;
-
-	// Analyze each ligand region independently
-	for (size_t value = 0; value < numLig; ++value) 
+	// ---- Frequency space metrics
+	for (size_t value = 0; value < numLig; ++value)		// Analyze each ligand region independently
 	{
 		#ifdef DEBUG_REGIONS_COMPARISON
-		std::cout << "Analyzign ligand region " << int(value +1) << std::endl;
+		std::cout << "Analizign ligand region " << int(value +1) << std::endl;
 		#endif
 
 		// Cropping regions
@@ -838,28 +886,63 @@ void ProgClassifyPartialOccupancy::compareRegions(double &ll_I, double &ll_IsubP
 		transformerI.FourierTransform(centeredLigand, fftI, false);
 		transformerIsubP.FourierTransform(centeredLigandSubP, fftIsubP, false);
 		
-		double ll_I_it = 0;
-		double ll_IsubP_it = 0;
+		double likelihood_I_it = 0;
+		double likelihood_IsubP_it = 0;
+        double entropy_I_it = 0;
+        double entropy_IsubP_it = 0;
+        double kullback_lieber_I_it = 0;
+        double kullback_lieber_IsubP_it = 0;
+        double radial_likelihood_I_it = 0;
+        double radial_likelihood_IsubP_it = 0;
+        double cross_entropy_I_it = 0;
+        double cross_entropy_IsubP_it = 0;
 
 		// Calcualte metrics for both regions
-		// logLikelihood(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
-		// radialLogLikelihood(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
-		// entropy(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
-		// kullbackLeibler(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
-		// crossEntropy(ll_I_it, ll_IsubP_it, fftI, fftIsubP);
+		logLikelihood(likelihood_I_it, likelihood_IsubP_it, fftI, fftIsubP);
+		entropy(entropy_I_it, entropy_IsubP_it, fftI, fftIsubP);
+		kullbackLeibler(kullback_lieber_I_it, kullback_lieber_IsubP_it, fftI, fftIsubP);
+		radialLogLikelihood(radial_likelihood_I_it, radial_likelihood_IsubP_it, fftI, fftIsubP);
+		crossEntropy(cross_entropy_I_it, cross_entropy_IsubP_it, fftI, fftIsubP);
 
 		// Accumulate for all regions
-		ll_I	 += ll_I_it;
-		ll_IsubP += ll_IsubP_it;
+		metrics_I.likelihood     		+= likelihood_I_it;
+		metrics_IsubP.likelihood 		+= likelihood_IsubP_it;
+		metrics_I.entropy     			+= entropy_I_it;
+		metrics_IsubP.entropy 			+= entropy_IsubP_it;
+		metrics_I.kullback_lieber     	+= kullback_lieber_I_it;
+		metrics_IsubP.kullback_lieber 	+= kullback_lieber_IsubP_it;
+		metrics_I.radial_likelihood     += radial_likelihood_I_it;
+		metrics_IsubP.radial_likelihood += radial_likelihood_IsubP_it;
+		metrics_I.cross_entropy     	+= cross_entropy_I_it;
+		metrics_IsubP.cross_entropy 	+= cross_entropy_IsubP_it;
 	}
 
-	// ll_I *= energy_I;
-	// ll_IsubP *= energy_IsubP;
-
 	#ifdef DEBUG_METRICS
-	std::cout << "Final ll_I: " << ll_I << std::endl;
-	std::cout << "Final ll_IsubP: " << ll_IsubP << std::endl;
-	std::cout << "Final diff ll_I - ll_IsubP: " << ll_I - ll_IsubP << std::endl;
+	std::cout << "================ METRICS I =================" << std::endl;
+	std::cout << "Likelihood:        " << metrics_I.likelihood << std::endl;
+	std::cout << "Entropy:           " << metrics_I.entropy << std::endl;
+	std::cout << "Kullback-Leibler:  " << metrics_I.kullback_lieber << std::endl;
+	std::cout << "Radial Likelihood: " << metrics_I.radial_likelihood << std::endl;
+	std::cout << "Cross Entropy:     " << metrics_I.cross_entropy << std::endl;
+	std::cout << "Energy:            " << metrics_I.energy << std::endl;
+
+	std::cout << "================ METRICS IsubP =============" << std::endl;
+	std::cout << "Likelihood:        " << metrics_IsubP.likelihood << std::endl;
+	std::cout << "Entropy:           " << metrics_IsubP.entropy << std::endl;
+	std::cout << "Kullback-Leibler:  " << metrics_IsubP.kullback_lieber << std::endl;
+	std::cout << "Radial Likelihood: " << metrics_IsubP.radial_likelihood << std::endl;
+	std::cout << "Cross Entropy:     " << metrics_IsubP.cross_entropy << std::endl;
+	std::cout << "Energy:            " << metrics_IsubP.energy << std::endl;
+
+	std::cout << "================ DIFFERENCE (I - IsubP) ====" << std::endl;
+	std::cout << "Likelihood:        " << metrics_I.likelihood - metrics_IsubP.likelihood << std::endl;
+	std::cout << "Entropy:           " << metrics_I.entropy - metrics_IsubP.entropy << std::endl;
+	std::cout << "Kullback-Leibler:  " << metrics_I.kullback_lieber - metrics_IsubP.kullback_lieber << std::endl;
+	std::cout << "Radial Likelihood: " << metrics_I.radial_likelihood - metrics_IsubP.radial_likelihood << std::endl;
+	std::cout << "Cross Entropy:     " << metrics_I.cross_entropy - metrics_IsubP.cross_entropy << std::endl;
+	std::cout << "Energy:            " << metrics_I.energy - metrics_IsubP.energy << std::endl;
+
+	std::cout << "============================================================" << std::endl;
 	#endif
 }
 

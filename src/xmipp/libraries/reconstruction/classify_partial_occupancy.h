@@ -127,6 +127,15 @@ class ProgClassifyPartialOccupancy: public XmippMetadataProgram
     };
     struct AdjustParams adjustParams; 
 
+    struct Metrics  // metrics to assess occupancy
+    {
+        double likelihood;
+        double entropy;
+        double kullback_lieber;
+        double radial_likelihood;
+        double cross_entropy;
+        double energy;
+    };
 
     int rank; // for MPI version
     FourierProjector *projector;
@@ -169,7 +178,7 @@ public:
     void show() const override;
     /// Read and write methods
     void readParticle(const MDRow &rowIn);
-    void writeParticle(MDRow &rowOut, double, double, double);
+    void writeParticle(MDRow &rowOut, Metrics &metrics_I, Metrics &metrics_IsubP);
 
     // ----------------------- MAIN METHODS ------------------------------
     void preProcess() override;
@@ -181,7 +190,7 @@ public:
     void unitCellExtraction();
     void frequencyCharacterization();
     void noiseEstimation();
-    void compareRegions(double &ll_I, double &ll_IsubP, const FileName &fnImgOut);
+    void compareRegions(Metrics &metrics_I, Metrics &metrics_IsubP, const FileName &fnImgOut);
     void logLikelihood(double &ll_I_it,
                        double &ll_IsubP_it, 
                        MultidimArray<std::complex<double>> fftI,
