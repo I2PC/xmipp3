@@ -258,6 +258,8 @@ if __name__=="__main__":
 
             vol = R.reconstruct_volume(mmap_filtrado, "C1", volRes, sampling, dim, rotM, shifts=shiftM)
             # vol = R.reconstruct_volume(mmap_filtrado, "C1", volRes, sampling, dim, rotM)
+            if current_iter < 7:
+                vol = R.mask_otsu(vol)
             
             if i == 0 and current_iter in (8, 13, 16):
                 transf, next_angle_triplet = R.generate_library(angular_step)

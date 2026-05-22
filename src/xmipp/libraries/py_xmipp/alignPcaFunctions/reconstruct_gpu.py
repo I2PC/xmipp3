@@ -788,6 +788,119 @@ class reconstruct:
     
         return R
     
+    
+    import torch
+    
+
+    def mask_otsu_0(self, volume, num_bins=256):
+        """
+        Calcula el umbral de Otsu para un volumen (o set de imágenes) 
+        y pone a cero todos los valores por debajo de ese umbral.
+
+        """
+        device = volume.device
+        dtype = volume.dtype
+        
+        # 1. Aplanamos el volumen para analizar sus intensidades
+        flat_vol = volume.flatten()
+        
+        # 2. Calculamos el histograma de forma nativa en PyTorch
+        min_val, max_val = flat_vol.min(), flat_vol.max()
+        hist = torch.histc(flat_vol, bins=num_bins, min=min_val, max=max_val)
+        
+        # Centros de los bins (los valores de gris correspondientes)
+        bin_centers = torch.linspace(min_val, max_val, num_bins, device=device, dtype=dtype)
+        
+        # 3. Algoritmo de Otsu Vectorizado
+        # Probabilidades de cada bin
+        weight1 = torch.cumsum(hist, dim=0)
+        weight2 = flat_vol.numel() - weight1
+        
+        # Medias acumuladas
+        mean1 = torch.cumsum(hist * bin_centers, dim=0) / (weight1 + 1e-10)
+        mean2 = (mean1[-1] * flat_vol.numel() - torch.cumsum(hist * bin_centers, dim=0)) / (weight2 + 1e-10)
+        
+        # Varianza inter-clase (queremos maximizar esto)
+        variance_between = weight1 * weight2 * (mean1 - mean2) ** 2
+        
+        # El umbral óptimo es el que maximiza la varianza
+        idx_max = torch.argmax(variance_between)
+        otsu_threshold = bin_centers[idx_max]
+        
+        # 4. Aplicamos la máscara: todo lo menor al umbral se vuelve 0
+        # filtered_volume = torch.where_(volume >= otsu_threshold, volume, torch.zeros_like(volume))
+        filtered_volume = volume.where(volume >= otsu_threshold, torch.zeros_like(volume))
+        
+        # print(f"-> Umbral de Otsu calculado: {otsu_threshold.item():.4f}")
+        return filtered_volume
+    
+    
+    def mask_otsu(self, volume, num_bins=256, sigma=2.0):
+        """
+        Calcula el umbral de Otsu, genera una máscara y le aplica una 
+        caída suave (soft-edge) en los bordes usando un filtro Gaussiano 3D.
+        
+        Argumentos:
+            volume: Tensor 3D (Z, Y, X) en la GPU.
+            num_bins: Resolución del histograma para Otsu.
+            sigma: Controla qué tan suave/ancha es la caída en los bordes (por defecto 2.0).
+        """
+        device = volume.device
+        dtype = volume.dtype
+        
+        # 1. CALCULO DEL UMBRAL DE OTSU (Igual que antes)
+        flat_vol = volume.flatten()
+        min_val, max_val = flat_vol.min(), flat_vol.max()
+        hist = torch.histc(flat_vol, bins=num_bins, min=min_val, max=max_val)
+        bin_centers = torch.linspace(min_val, max_val, num_bins, device=device, dtype=dtype)
+        
+        weight1 = torch.cumsum(hist, dim=0)
+        weight2 = flat_vol.numel() - weight1
+        
+        mean1 = torch.cumsum(hist * bin_centers, dim=0) / (weight1 + 1e-10)
+        mean2 = (mean1[-1] * flat_vol.numel() - torch.cumsum(hist * bin_centers, dim=0)) / (weight2 + 1e-10)
+        
+        variance_between = weight1 * weight2 * (mean1 - mean2) ** 2
+        idx_max = torch.argmax(variance_between)
+        otsu_threshold = bin_centers[idx_max]
+        
+        # 2. CREAR MÁSCARA BINARIA (0 o 1)
+        # 1 donde supera el umbral, 0 donde no
+        mask = (volume >= otsu_threshold).to(dtype)
+        
+        # 3. CREAR UN KÉRNEL GAUSSIANO 3D NATIVO PARA EL SUAVIZADO
+        # Definimos el tamaño del bloque del filtro basado en sigma
+        radius = int(3 * sigma)
+        kernel_size = 2 * radius + 1
+        
+        # Coordenadas de la rejilla del filtro 3D
+        coords = torch.arange(-radius, radius + 1, device=device, dtype=dtype)
+        z, y, x = torch.meshgrid(coords, coords, coords, indexing='ij')
+        dist_sq = z**2 + y**2 + x**2
+        
+        # Ecuación Gaussiana 3D
+        kernel = torch.exp(-dist_sq / (2 * sigma**2))
+        kernel = kernel / kernel.sum() # Normalizamos para que no altere la escala del volumen
+        
+        # Adecuamos las dimensiones del kernel para F.conv3d -> (out_channels, in_channels, Z, Y, X)
+        kernel = kernel.unsqueeze(0).unsqueeze(0)
+        
+        # 4. APLICAR CONVOLUCIÓN 3D PARA CREAR LA CAÍDA SUAVE
+        # Añadimos dimensiones de Batch y Channel a la máscara -> (1, 1, Z, Y, X)
+        mask_padded = mask.unsqueeze(0).unsqueeze(0)
+        
+        # Usamos padding para mantener el tamaño exacto del volumen original
+        soft_mask = F.conv3d(mask_padded, kernel, padding=radius)
+        
+        # Quitamos las dimensiones extra para regresar al tamaño original (Z, Y, X)
+        soft_mask = soft_mask.squeeze(0).squeeze(0)
+        
+        # 5. MULTIPLICAR EL VOLUMEN POR LA MÁSCARA SUAVE
+        # Conserva intacto el interior, pone a cero el fondo lejano y suaviza la frontera
+        filtered_volume = volume * soft_mask
+        
+        return filtered_volume
+    
             
 
     
