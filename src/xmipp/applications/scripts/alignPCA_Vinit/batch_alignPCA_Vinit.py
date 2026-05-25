@@ -86,12 +86,14 @@ if __name__=="__main__":
     # parser.add_argument("-stRef", "--starRef", help="star file for reference images", required=True)
     parser.add_argument("-radius", type=int, help="radius for circular mask (in pixels)")       
     parser.add_argument("--apply_shifts",  action="store_true", help="Apply starfile shifts to experimental images")
+    parser.add_argument("--posit",  action="store_true", help="Apply relu function")
     parser.add_argument("-nCl", "--numCl", type=int, default=1, help="number of classes for initial model")
     parser.add_argument("--save_class",  action="store_true", help="Save the corresponding class in output xmd")
     #For training
     parser.add_argument("-t", "--training", help="number of image for training", required=True)
     parser.add_argument("-hr", "--highres", help="highest resolution to consider", required=True)
     parser.add_argument("-p", "--perc", help="PCA percentage (between 0-1)", required=True)
+    
     
     args = parser.parse_args()
     
@@ -107,6 +109,7 @@ if __name__=="__main__":
     expStar = args.sartExp
     # prjStar = args.starRef 
     radius = args.radius
+    posit = args.posit
     apply_shifts = args.apply_shifts
     numCl = args.numCl
     save_class = args.save_class
@@ -170,6 +173,9 @@ if __name__=="__main__":
     if radius:
         texp *= bnb.create_mask(texp, radius)
     texp = bnb.zscore_normalization(texp)
+    #posit
+    if posit:
+        texp = torch.relu(texp)
     
     resultado_tensor = torch.cat([texp, all_refs_cpu[0].to(cuda)], dim=0)
     Ntrain = resultado_tensor.shape[0]
@@ -260,13 +266,18 @@ if __name__=="__main__":
             # vol = R.reconstruct_volume(mmap_filtrado, "C1", volRes, sampling, dim, rotM)
             if current_iter < 7:
                 vol = R.mask_otsu(vol)
+                
+            vol = R.apply_spherical_mask(vol, radius)
+            #posit
+            if posit:
+                vol = torch.relu(vol)
             
             if i == 0 and current_iter in (8, 13, 16):
                 transf, next_angle_triplet = R.generate_library(angular_step)
                 
             ref = R.generate_projections(vol, transf)
             all_refs_cpu[i] = ref.detach().cpu()#.pin_memory()
-            file = output+"_%s_%s.mrc"%(current_iter+1,i)
+            file = output+"_iter%s_class%s.mrc"%(current_iter+1,i)
             save_vol(vol.cpu(), file, sampling)
             del tref, vol, ref
             # fileProj = output+"ref_%s_%s.mrcs"%(iter+1,i)

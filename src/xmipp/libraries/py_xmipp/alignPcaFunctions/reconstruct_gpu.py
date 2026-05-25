@@ -901,6 +901,25 @@ class reconstruct:
         
         return filtered_volume
     
+
+
+    def apply_spherical_mask(self, vol, radius):
+    
+        dim = vol.shape[0] 
+        device = vol.device
+        
+        center = dim / 2.0 - 0.5
+        
+        coordinates = torch.arange(dim, dtype=torch.float32, device=device)
+        
+        grid_z, grid_y, grid_x = torch.meshgrid(coordinates, coordinates, coordinates, indexing='ij')
+        
+        squared_distances = (grid_z - center)**2 + (grid_y - center)**2 + (grid_x - center)**2
+        
+        mask_3d = squared_distances <= (radius ** 2)
+        
+        return vol * mask_3d
+        
             
 
     
