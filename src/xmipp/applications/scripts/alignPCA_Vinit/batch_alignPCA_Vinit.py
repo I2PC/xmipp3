@@ -146,6 +146,8 @@ if __name__=="__main__":
     if initVol:
         for i in range(numCl):
             zeroVol = load_vol(initVol)
+            if posit:
+                zeroVol = torch.relu(zeroVol)
             ref = R.generate_projections(zeroVol, transf)
             all_refs_cpu[i] = ref.detach().cpu()#.pin_memory()
             # zeroVol = R.reconstruct_volume(ref, "C1", 10, sampling, dim, transf)
@@ -154,6 +156,8 @@ if __name__=="__main__":
         for i in range(numCl):
             random_angles = R.generate_random_angles(nExp)
             zeroVol = R.reconstruct_volume(mmap, "C1", 20, sampling, dim, random_angles)
+            if posit:
+                zeroVol = torch.relu(zeroVol)
             ref = R.generate_projections(zeroVol, transf)
             all_refs_cpu[i] = ref.detach().cpu()#.pin_memory()
             del zeroVol, ref
@@ -237,8 +241,8 @@ if __name__=="__main__":
             if radius:
                 tref = tref * bnb.create_mask(tref, radius)
             tref = bnb.zscore_normalization(tref) 
-            if posit:
-                tref = torch.relu(tref)
+            # if posit:
+            #     tref = torch.relu(tref)
        
             batch_projRef = bnb.create_batchExp(tref, whitening, freqBn, coef, cvecs) 
             
