@@ -485,18 +485,18 @@ class BnBgpu:
         return(angle, shift, maxShift)
     
     
-    def reconstruct_parameters(self, iter, maxRes, filter):
+    def reconstruct_parameters(self, iter, pcaRes, filter):
         
         if iter == 0:
-            volRes, filtRes, angleGallery = 20, 20, 12
+            pcaRes, volRes, angleGallery = 20, 20, 12
         elif iter == 8:
-            volRes, filtRes, angleGallery = 16, 16, 8
+            pcaRes, volRes, angleGallery = 16, 16, 8
         elif iter == 13:
-            volRes, filtRes, angleGallery = maxRes, filter, 6
+            pcaRes, volRes, angleGallery = pcaRes, filter, 6
         elif iter == 16:
-            volRes, filtRes, angleGallery = maxRes, filter, 5
+            pcaRes, volRes, angleGallery = pcaRes, filter, 5
             
-        return(volRes, filtRes, angleGallery)
+        return(pcaRes, volRes, angleGallery)
 
 
             

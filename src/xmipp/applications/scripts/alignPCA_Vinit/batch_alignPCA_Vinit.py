@@ -84,7 +84,8 @@ if __name__=="__main__":
     parser.add_argument("-o", "--output", help="Root directory for the output files", required=True)
     parser.add_argument("-stExp", "--sartExp", help="star file for experimental images", required=True)
     # parser.add_argument("-stRef", "--starRef", help="star file for reference images", required=True)
-    parser.add_argument("-radius", type=int, help="radius for circular mask (in pixels)")       
+    parser.add_argument("-radius", type=int, help="radius for circular mask (in pixels)")  
+    parser.add_argument("-vr", "--volRes", type=float, default=8.0, help="Final volume resolution (A)")     
     parser.add_argument("--apply_shifts",  action="store_true", help="Apply starfile shifts to experimental images")
     parser.add_argument("--posit",  action="store_true", help="Apply relu function")
     parser.add_argument("-nCl", "--numCl", type=int, default=1, help="number of classes for initial model")
@@ -109,6 +110,7 @@ if __name__=="__main__":
     expStar = args.sartExp
     # prjStar = args.starRef 
     radius = args.radius
+    volRes = args.volRes
     posit = args.posit
     apply_shifts = args.apply_shifts
     numCl = args.numCl
@@ -121,7 +123,10 @@ if __name__=="__main__":
     torch.cuda.is_available()
     torch.cuda.current_device()
     cuda = torch.device('cuda') 
-
+    
+    
+    if volRes <= 1 / (2*sampling):
+        volRes = 1 / (2*sampling) + 0.5
     
     #Read Experimental Images
     mmap = mrcfile.mmap(expFile, permissive=True)
@@ -214,7 +219,7 @@ if __name__=="__main__":
         
         #Precomputed rotation and shift  
         if current_iter in (0, 8, 13, 16): 
-            volRes, filtRes, angular_step = bnb.reconstruct_parameters(current_iter, highRes, 8)
+            pcaRes, filtRes, angular_step = bnb.reconstruct_parameters(current_iter, highRes, volRes)
             ang, shiftMove, maxshift = bnb.search_space(current_iter, ang, shiftMove, maxshift) 
             angSet = (-amax, amax, ang)
             shiftSet = (-maxshift, maxshift+shiftMove, shiftMove)
@@ -264,8 +269,8 @@ if __name__=="__main__":
 
             mmap_filtrado = mmap.data[valid_indices.cpu().numpy()].astype('float32')
 
-            vol = R.reconstruct_volume(mmap_filtrado, "C1", volRes, sampling, dim, rotM, shifts=shiftM)
-            # vol = R.reconstruct_volume(mmap_filtrado, "C1", volRes, sampling, dim, rotM)
+            vol = R.reconstruct_volume(mmap_filtrado, "C1", filtRes, sampling, dim, rotM, shifts=shiftM)
+            # vol = R.reconstruct_volume(mmap_filtrado, "C1", filtRes, sampling, dim, rotM)
             if current_iter < 7:
                 vol = R.mask_otsu(vol)
                 
@@ -293,7 +298,7 @@ if __name__=="__main__":
             resultado_tensor = torch.cat([texp, all_refs_cpu[0].to(cuda)], dim=0)
             Ntrain = resultado_tensor.shape[0]  
             freqBn, cvecs, coef = pca.calculatePCAbasis(
-                resultado_tensor, Ntrain, nBand, dim, sampling, volRes,
+                resultado_tensor, Ntrain, nBand, dim, sampling, pcaRes,
                 minRes=530, per_eig=per_eig_value, batchPCA=True
             )
             grid_flat = flatGrid(freqBn, nBand)
