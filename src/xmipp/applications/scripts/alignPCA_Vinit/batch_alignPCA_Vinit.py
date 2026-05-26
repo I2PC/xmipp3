@@ -232,6 +232,8 @@ if __name__=="__main__":
             if radius:
                 tref = tref * bnb.create_mask(tref, radius)
             tref = bnb.zscore_normalization(tref) 
+            if posit:
+                tref = torch.relu(tref)
        
             batch_projRef = bnb.create_batchExp(tref, whitening, freqBn, coef, cvecs) 
             
