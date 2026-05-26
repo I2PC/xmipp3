@@ -186,6 +186,9 @@ if __name__=="__main__":
     if posit:
         texp = torch.relu(texp)
     
+    file = output+"_exp.mrcs" 
+    save_proj(texp, file, sampling) 
+    
     resultado_tensor = torch.cat([texp, all_refs_cpu[0].to(cuda)], dim=0)
     Ntrain = resultado_tensor.shape[0]
     
@@ -241,6 +244,10 @@ if __name__=="__main__":
             if radius:
                 tref = tref * bnb.create_mask(tref, radius)
             tref = bnb.zscore_normalization(tref) 
+            
+            file = output+"_ref.mrcs" 
+            save_proj(tref, file, sampling) 
+            exit()
             # if posit:
             #     tref = torch.relu(tref)
        
@@ -275,13 +282,13 @@ if __name__=="__main__":
 
             vol = R.reconstruct_volume(mmap_filtrado, "C1", filtRes, sampling, dim, rotM, shifts=shiftM)
             # vol = R.reconstruct_volume(mmap_filtrado, "C1", filtRes, sampling, dim, rotM)
+            #posit
+            if posit:
+                vol = torch.relu(vol)
             if current_iter < 7:
                 vol = R.mask_otsu(vol)
                 
             vol = R.apply_spherical_mask(vol, radius)
-            #posit
-            if posit:
-                vol = torch.relu(vol)
             
             if i == 0 and current_iter in (8, 13, 16):
                 transf, next_angle_triplet = R.generate_library(angular_step)
