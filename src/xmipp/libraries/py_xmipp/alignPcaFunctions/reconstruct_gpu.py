@@ -195,7 +195,7 @@ class reconstruct:
         f_px = (1.0 / resol) * sampling
         if f_px > 0.5:
             f_px = 0.5
-        scale = f_px / 0.5
+        # scale = f_px / 0.5
     
         G = int(oversamp * D)# * scale)
         G += (G % 2 == 0)
@@ -919,6 +919,53 @@ class reconstruct:
         mask_3d = squared_distances <= (radius ** 2)
         
         return vol * mask_3d
+    
+    
+    def filter_3d(self, volume, sampling_rate, resolution_cutoff, width=0.05):
+
+        device = volume.device
+        dtype = volume.dtype
+        nz, ny, nx = volume.shape
+    
+        vol_fft = torch.fft.fftshift(torch.fft.fftn(volume, norm="forward"))
+    
+
+        freq_z = torch.fft.fftshift(torch.fft.fftfreq(nz, d=1.0, device=device, dtype=dtype))
+        freq_y = torch.fft.fftshift(torch.fft.fftfreq(ny, d=1.0, device=device, dtype=dtype))
+        freq_x = torch.fft.fftshift(torch.fft.fftfreq(nx, d=1.0, device=device, dtype=dtype))
+    
+        f_z, f_y, f_x = torch.meshgrid(freq_z, freq_y, freq_x, indexing='ij')
+        
+ 
+        radius = torch.sqrt(f_z**2 + f_y**2 + f_x**2) / sampling_rate
+    
+        # 3. Definir los parámetros del filtro Raised Cosine
+        # Frecuencia crítica en base a la resolución dada (f = 1 / Resolución)
+        f_cutoff = 1.0 / resolution_cutoff
+        
+        # Definimos dónde empieza a caer el coseno (f_in) y dónde llega a cero (f_out)
+        f_in = f_cutoff - (width / (2 * sampling_rate))
+        f_out = f_cutoff + (width / (2 * sampling_rate))
+    
+        # Construir la máscara matemática del Raised Cosine
+
+        mask = torch.ones_like(radius)
+    
+        # Zona de transición: Caída suave del coseno
+        # Fórmula: 0.5 * (1 + cos(pi * (f - f_in) / (f_out - f_in)))
+        transition_mask = radius >= f_in
+        cos_part = 0.5 * (1.0 + torch.cos(math.pi * (radius - f_in) / (f_out - f_in)))
+        mask = torch.where(transition_mask, cos_part, mask)
+    
+        # Zona exterior: Todo a cero por encima de f_out
+        mask = torch.where(radius > f_out, torch.zeros_like(mask), mask)
+    
+        filtered_fft = vol_fft * mask
+        
+        filtered_volume = torch.fft.ifftn(torch.fft.ifftshift(filtered_fft), norm="forward")
+    
+        # Retornamos la parte real (las pequeñas partes imaginarias son ruido numérico flotante)
+        return filtered_volume.real
         
             
 

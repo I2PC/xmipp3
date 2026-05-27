@@ -283,6 +283,7 @@ if __name__=="__main__":
 
             vol = R.reconstruct_volume(mmap_filtrado, "C1", filtRes, sampling, dim, rotM, shifts=shiftM)
             # vol = R.reconstruct_volume(mmap_filtrado, "C1", filtRes, sampling, dim, rotM)
+            vol = R.filter_3d(vol, sampling, filtRes)
             #posit
             if posit:
                 vol = torch.relu(vol)
