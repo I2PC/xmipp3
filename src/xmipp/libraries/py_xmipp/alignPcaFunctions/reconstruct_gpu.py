@@ -267,9 +267,9 @@ class reconstruct:
             imgs = torch.as_tensor(np.array(mmap.data[start:end]), device=device, dtype=torch.float32)
             # imgs = mmap.data[start:end]
     
-            imgs = (imgs - imgs.mean(dim=(-2, -1), keepdim=True)) / (
-                imgs.std(dim=(-2, -1), keepdim=True) + 1e-8
-            )
+            # imgs = (imgs - imgs.mean(dim=(-2, -1), keepdim=True)) / (
+            #     imgs.std(dim=(-2, -1), keepdim=True) + 1e-8
+            # )
     
             proj_fft = torch.fft.fftshift(
                 torch.fft.fft2(torch.fft.ifftshift(imgs, dim=(-2, -1)), norm="forward"),
@@ -284,7 +284,7 @@ class reconstruct:
             vals = proj_fft.reshape(b, -1)[:, valid_mask]  # (B, n_valid)
     
             # =====================================================
-            # 🔥 APLICAR SIMETRÍA CORRECTAMENTE
+            #  APLICAR SIMETRÍA CORRECTAMENTE
             # =====================================================
             if n_sym > 1:
                 # rot_total = rot @ sym
@@ -296,7 +296,7 @@ class reconstruct:
                     coords2d.expand(rot_sym.shape[0], -1, -1)
                 )
     
-                # 🔥 repetir valores (SIN dividir)
+                #repetir valores (SIN dividir)
                 vals = vals[:, None, :].expand(b, n_sym, n_valid).reshape(-1)
                 # vals = vals.unsqueeze(1).repeat(1, n_sym, 1).reshape(-1)
     
@@ -724,9 +724,9 @@ class reconstruct:
             proj = proj[:, crop:crop+D, crop:crop+D]
     
             #Normalization    
-            mean = proj.mean(dim=(-2, -1), keepdim=True)
-            std = proj.std(dim=(-2, -1), keepdim=True)
-            proj = (proj - mean) / (std + 1e-8)
+            # mean = proj.mean(dim=(-2, -1), keepdim=True)
+            # std = proj.std(dim=(-2, -1), keepdim=True)
+            # proj = (proj - mean) / (std + 1e-8)
 
             projections[i:i+b] = proj.cpu()
     

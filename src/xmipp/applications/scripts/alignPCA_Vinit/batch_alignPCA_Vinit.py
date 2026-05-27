@@ -179,9 +179,9 @@ if __name__=="__main__":
     # texp = torch.from_numpy(expImages).pin_memory().to(cuda, non_blocking=True)
     texp = torch.from_numpy(expImages).to(cuda)#.pin_memory().to(cuda)
     del expImages
+    texp = bnb.zscore_normalization(texp)
     if radius:
         texp *= bnb.create_mask(texp, radius)
-    texp = bnb.zscore_normalization(texp)
     #posit
     if posit:
         texp = torch.relu(texp)
@@ -241,13 +241,14 @@ if __name__=="__main__":
             #Reading references particles 
                    
             tref = all_refs_cpu[i].to(cuda)#, non_blocking=True)
+            tref = bnb.zscore_normalization(tref)
             if radius:
                 tref = tref * bnb.create_mask(tref, radius)
-            tref = bnb.zscore_normalization(tref) 
+             
             
             file = output+"_ref.mrcs" 
             save_proj(tref, file, sampling) 
-            exit()
+            # exit()
             # if posit:
             #     tref = torch.relu(tref)
        
