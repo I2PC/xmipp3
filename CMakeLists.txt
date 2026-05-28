@@ -93,12 +93,7 @@ if(${XMIPP_USE_CUDA})
       # 1. Define base architectures supported by almost everyone (Turing, Ampere)
       set(XMIPP_CUDA_ARCHS 75 86)
 
-      # 2. Conditionally add Pascal (compute_60) ONLY if CUDA is older than 12.0
-      if(CMAKE_CUDA_COMPILER_VERSION VERSION_LESS_EQUAL "12.0.0")
-        list(APPEND XMIPP_CUDA_ARCHS 60)
-      endif()
-
-      # 3. Add newer architectures for CUDA 11.8+ (Ada, Hopper)
+      # 2. Add newer architectures for CUDA 11.8+ (Ada, Hopper)
       if(CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL "11.8.0")
         list(APPEND XMIPP_CUDA_ARCHS 89 90)
       endif()
