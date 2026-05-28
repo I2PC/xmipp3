@@ -269,11 +269,11 @@ class PCAgpu:
             print(self.Bvecs[n].shape, flush=True)
             
         del (band)
-        # del self.Bmean, self.Bvar, self.Bvals, self.covariance, self.mean
+        del self.Bmean, self.Bvar, self.Bvals, self.covariance, self.mean
         torch.cuda.empty_cache()
 
-        return(self.Bmean, self.Bvals, self.Bvecs)
-        # return(self.Bvecs)
+        # return(self.Bmean, self.Bvals, self.Bvecs)
+        return(self.Bvecs)
     
     
     
