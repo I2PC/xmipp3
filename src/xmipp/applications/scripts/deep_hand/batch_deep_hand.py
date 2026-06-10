@@ -3,12 +3,12 @@
 import numpy as np
 import torch
 import sys, os
+from xmipp_base import XmippScript
 import xmippLib
 
 from torch import nn
 from torch import optim
 
-from xmipp_base import XmippScript
 
 class EM3DNet(nn.Module):
     """ 3D CNN to estiamte labels from a set of boxes."""
@@ -345,8 +345,8 @@ class ScriptDeepHand(XmippScript):
         pipeline = HaPi(self.getParam('--alphaModel'), self.getParam('--handModel'))
 
         # Obtain Volume and Mask
-        Vf = xmippLib.Image(self.getParam('--pathVf')).getData()
-        Vmask = xmippLib.Image(self.getParam('--pathVmask')).getData()
+        Vf = pyxmipp3.Image(self.getParam('--pathVf')).getData()
+        Vmask = pyxmipp3.Image(self.getParam('--pathVmask')).getData()
 
         # Predict hand
         hand = pipeline.predict(Vf, Vmask, float(self.getParam('--alphaThr')), 2048)
