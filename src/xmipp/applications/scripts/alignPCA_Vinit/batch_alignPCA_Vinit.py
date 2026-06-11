@@ -77,6 +77,7 @@ if __name__=="__main__":
     parser.add_argument("-i", "--exp", help="input mrc file for experimental images", required=True)
     parser.add_argument("-r", "--refVol", help="input reference volume")
     parser.add_argument("-s", "--sampling", type=float, help="pixel size of the images", required=True)
+    parser.add_argument("-sym", "--symmetry", type=str, default="C1", help="Symmetry group") 
     parser.add_argument("-a", "--ang", type=float, help="rotation angle (in degree)", required=True)
     parser.add_argument("-amax", "--angmax", type=float, default=180.0, help="maximum rotation angle (in degree, default = 180)")
     parser.add_argument("-sh", "--shift", type=float, help="shift (px)", required=True)
@@ -102,6 +103,7 @@ if __name__=="__main__":
     # prjFile = args.ref
     initVol = args.refVol
     sampling = args.sampling
+    sym = args.symmetry
     ang = args.ang
     amax = args.angmax
     shiftMove = args.shift
@@ -139,7 +141,7 @@ if __name__=="__main__":
     #Create initial references
     R = reconstruct()
     angular_step = 12
-    transf, angle_triplet = R.generate_library(angular_step)
+    transf, angle_triplet = R.generate_library_sym(angular_step, sym=sym)
     
     all_refs_cpu = [None] * numCl
     
@@ -150,12 +152,12 @@ if __name__=="__main__":
                 zeroVol = torch.relu(zeroVol)
             ref = R.generate_projections(zeroVol, transf)
             all_refs_cpu[i] = ref.detach().cpu()#.pin_memory()
-            # zeroVol = R.reconstruct_volume(ref, "C1", 10, sampling, dim, transf)
+            # zeroVol = R.reconstruct_volume_sym(ref, "C1", 10, sampling, dim, transf)
             del zeroVol, ref
     else:    
         for i in range(numCl):
             random_angles = R.generate_random_angles(nExp)
-            zeroVol = R.reconstruct_volume(mmap, "C1", 20, sampling, dim, random_angles)
+            zeroVol = R.reconstruct_volume_sym(mmap, sym, 20, sampling, dim, random_angles)
             if posit:
                 zeroVol = torch.relu(zeroVol)
             ref = R.generate_projections(zeroVol, transf)
@@ -281,8 +283,8 @@ if __name__=="__main__":
 
             mmap_filtrado = mmap.data[valid_indices.cpu().numpy()].astype('float32')
 
-            vol = R.reconstruct_volume(mmap_filtrado, "C1", filtRes, sampling, dim, rotM, shifts=shiftM)
-            # vol = R.reconstruct_volume(mmap_filtrado, "C1", filtRes, sampling, dim, rotM)
+            vol = R.reconstruct_volume_sym(mmap_filtrado, sym, filtRes, sampling, dim, rotM, shifts=shiftM)
+            # vol = R.reconstruct_volume_sym(mmap_filtrado, "C1", filtRes, sampling, dim, rotM)
             vol = R.filter_3d(vol, sampling, filtRes)
             #posit
             if posit:
@@ -293,7 +295,7 @@ if __name__=="__main__":
             vol = R.apply_spherical_mask(vol, radius)
             
             if i == 0 and current_iter in (8, 13, 16):
-                transf, next_angle_triplet = R.generate_library(angular_step)
+                transf, next_angle_triplet = R.generate_library_sym(angular_step, sym=sym)
                 
             ref = R.generate_projections(vol, transf)
             all_refs_cpu[i] = ref.detach().cpu()#.pin_memory()
