@@ -53,7 +53,7 @@ public :
 
     CudaRotPolarEstimator(CudaRotPolarEstimator& o) = delete;
     CudaRotPolarEstimator& operator=(const CudaRotPolarEstimator& other) = delete;
-    CudaRotPolarEstimator(CudaRotPolarEstimator &&o) {
+    CudaRotPolarEstimator(CudaRotPolarEstimator&& o) noexcept {
         m_mainStream = o.m_mainStream;
         m_backgroundStream = o.m_backgroundStream;
         m_samples = o.m_samples;
