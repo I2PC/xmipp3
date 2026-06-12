@@ -50,11 +50,11 @@ class Descent
 public:
     /**
      * Constructor
-     * Parameter: _initial
-     * Parameter: _final
+     * Parameter: _initialVal
+     * Parameter: _finalVal
      */
-    Descent(const double _initial = 1, const double _final = 0)
-            : initial(_initial), final(_final)
+    Descent(const double _initialVal = 1, const double _finalVal = 0)
+            : initialVal(_initialVal), finalVal(_finalVal)
     {}
     ;
 
@@ -124,8 +124,8 @@ public:
 
 
 protected:
-    double initial;
-    double final;
+    double initialVal;
+    double finalVal;
 };
 
 //---------------------------------------------------------------------------

@@ -32,6 +32,7 @@
 #include <thrust/for_each.h>
 #include <thrust/remove.h>
 #include <thrust/execution_policy.h>
+#include <thrust/iterator/counting_iterator.h>
 
 #include "cuda_asserts.h"
 #include "cuda_vec2.h"
