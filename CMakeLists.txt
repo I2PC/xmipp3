@@ -92,8 +92,10 @@ if(${XMIPP_USE_CUDA})
 
       # 1. Define base architectures supported by almost everyone (Turing, Ampere)		
 	if(${CUDA_ARCHITECTURE_LEGACY} "True")
+	  message("CUDA_ARCHITECTURE_LEGACY True. XMIPP_CUDA_ARCHS 52 61 75")
 	  set(XMIPP_CUDA_ARCHS 52 61 75)
 	else()
+	  message("XMIPP_CUDA_ARCHS 61 75 86 89 90")
 	  set(XMIPP_CUDA_ARCHS 61 75 86 89 90)
 	endif()
 	  
