@@ -91,10 +91,10 @@ if(${XMIPP_USE_CUDA})
       string(APPEND CMAKE_CUDA_FLAGS " --expt-extended-lambda")
 
       # 1. Define base architectures supported by almost everyone (Turing, Ampere)		
-	if(CMAKE_CUDA_COMPILER_VERSION VERSION_LESS "12.5.0")
-	  set(XMIPP_CUDA_ARCHS 52 61 75 86 89)
+	if(${CUDA_ARCHITECTURE_LEGACY} "True")
+	  set(XMIPP_CUDA_ARCHS 52 61 75)
 	else()
-	  set(XMIPP_CUDA_ARCHS 75 86 89 90)
+	  set(XMIPP_CUDA_ARCHS 61 75 86 89 90)
 	endif()
 	  
       if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.18")
