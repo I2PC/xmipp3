@@ -97,6 +97,11 @@ if(${XMIPP_USE_CUDA})
 		list(APPEND XMIPP_CUDA_ARCHS 61)
 	  endif()
 
+		
+	  if(CMAKE_CUDA_COMPILER_VERSION VERSION_LESS "12.5.0")
+		list(APPEND XMIPP_CUDA_ARCHS 52)
+	  endif()
+	  
       if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.18")
         # Modern CMake approach: Just pass the list
         set(CMAKE_CUDA_ARCHITECTURES ${XMIPP_CUDA_ARCHS})
