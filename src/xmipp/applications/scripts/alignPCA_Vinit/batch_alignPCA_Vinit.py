@@ -198,7 +198,7 @@ if __name__=="__main__":
     #pca
     # nBand = 1
     pca = PCAgpu(nBand)
-    maxRes = 20
+    maxRes = 8
     freqBn, cvecs, coef = pca.calculatePCAbasis(resultado_tensor, Ntrain, nBand, dim, sampling, maxRes, 
                                                 minRes=530, per_eig=per_eig_value, batchPCA=True)
 
