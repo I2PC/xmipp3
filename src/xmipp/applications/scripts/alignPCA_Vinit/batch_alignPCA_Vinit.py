@@ -78,10 +78,10 @@ if __name__=="__main__":
     parser.add_argument("-r", "--refVol", help="input reference volume")
     parser.add_argument("-s", "--sampling", type=float, help="pixel size of the images", required=True)
     parser.add_argument("-sym", "--symmetry", type=str, default="C1", help="Symmetry group") 
-    parser.add_argument("-a", "--ang", type=float, help="rotation angle (in degree)", required=True)
-    parser.add_argument("-amax", "--angmax", type=float, default=180.0, help="maximum rotation angle (in degree, default = 180)")
-    parser.add_argument("-sh", "--shift", type=float, help="shift (px)", required=True)
-    parser.add_argument("-msh", "--maxshift", type=float,help="maximum shift (px)", required=True)
+    # parser.add_argument("-a", "--ang", type=float, help="rotation angle (in degree)", required=True)
+    # parser.add_argument("-amax", "--angmax", type=float, default=180.0, help="maximum rotation angle (in degree, default = 180)")
+    # parser.add_argument("-sh", "--shift", type=float, help="shift (px)", required=True)
+    # parser.add_argument("-msh", "--maxshift", type=float,help="maximum shift (px)", required=True)
     parser.add_argument("-o", "--output", help="Root directory for the output files", required=True)
     parser.add_argument("-stExp", "--sartExp", help="star file for experimental images", required=True)
     # parser.add_argument("-stRef", "--starRef", help="star file for reference images", required=True)
@@ -104,10 +104,11 @@ if __name__=="__main__":
     initVol = args.refVol
     sampling = args.sampling
     sym = args.symmetry
-    ang = args.ang
-    amax = args.angmax
-    shiftMove = args.shift
-    maxshift = args.maxshift
+    # ang = args.ang
+    # amax = args.angmax
+    amax = 180.0
+    # shiftMove = args.shift
+    # maxshift = args.maxshift
     output = args.output
     expStar = args.sartExp
     # prjStar = args.starRef 
@@ -207,11 +208,11 @@ if __name__=="__main__":
     
     
     # #Precomputed rotation and shift   
-    angSet = (-amax, amax, ang)
-    shiftSet = (-maxshift, maxshift+shiftMove, shiftMove)
-    vectorRot, vectorshift = bnb.setRotAndShift(angSet, shiftSet)
-    vectorRot.sort()         
-    nShift = len(vectorshift)
+    # angSet = (-amax, amax, ang)
+    # shiftSet = (-maxshift, maxshift+shiftMove, shiftMove)
+    # vectorRot, vectorshift = bnb.setRotAndShift(angSet, shiftSet)
+    # vectorRot.sort()         
+    # nShift = len(vectorshift)
     
     
     #Precalculate whitening 
@@ -229,7 +230,9 @@ if __name__=="__main__":
         #Precomputed rotation and shift  
         if current_iter in (0, 8, 13, 16): 
             pcaRes, filtRes, angular_step = bnb.reconstruct_parameters(current_iter, highRes, volRes)
-            ang, shiftMove, maxshift = bnb.search_space(current_iter, ang, shiftMove, maxshift) 
+            # ang, shiftMove, maxshift = bnb.search_space(current_iter, ang, shiftMove, maxshift) 
+            ang, shiftMove, maxshift = bnb.search_space(current_iter, sampling)
+            print(ang, shiftMove, maxshift)
             angSet = (-amax, amax, ang)
             shiftSet = (-maxshift, maxshift+shiftMove, shiftMove)
             vectorRot, vectorshift = bnb.setRotAndShift(angSet, shiftSet)

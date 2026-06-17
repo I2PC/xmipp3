@@ -471,7 +471,7 @@ class BnBgpu:
     
     
             
-    def search_space(self, iter, rot, sh, msh):
+    def search_space_old(self, iter, rot, sh, msh):
         
         if iter == 0:
             angle, shift, maxShift = rot, sh, msh
@@ -481,6 +481,19 @@ class BnBgpu:
             angle, shift, maxShift = 5, 3, 12
         elif iter == 16:
             angle, shift, maxShift = 5, 3, 12
+            
+        return(angle, shift, maxShift)
+    
+    def search_space(self, iter, sampling):
+        
+        if iter == 0:
+            angle, shift, maxShift = 8, 6/sampling, 24/sampling
+        elif iter == 8:
+            angle, shift, maxShift = 6, 6/sampling, 24/sampling
+        elif iter == 13:
+            angle, shift, maxShift = 5, 6/sampling, 24/sampling
+        elif iter == 16:
+            angle, shift, maxShift = 5, 6/sampling, 24/sampling
             
         return(angle, shift, maxShift)
     
