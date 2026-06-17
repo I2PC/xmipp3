@@ -501,9 +501,11 @@ class BnBgpu:
     def reconstruct_parameters(self, iter, pcaRes, filter):
         
         if iter == 0:
-            pcaRes, volRes, angleGallery = 20, 20, 12
+            # pcaRes, volRes, angleGallery = 20, 20, 12
+            pcaRes, volRes, angleGallery = 8, 20, 12
         elif iter == 8:
-            pcaRes, volRes, angleGallery = 16, 16, 8
+            # pcaRes, volRes, angleGallery = 16, 16, 8
+            pcaRes, volRes, angleGallery = 8, 16, 8
         elif iter == 13:
             pcaRes, volRes, angleGallery = pcaRes, filter, 6
         elif iter == 16:
