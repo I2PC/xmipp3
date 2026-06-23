@@ -2,6 +2,7 @@ import re
 from collections import OrderedDict
 from distutils.spawn import find_executable
 
+from xmipp_base import *
 from xmippLib import *
 import os
 import sys
