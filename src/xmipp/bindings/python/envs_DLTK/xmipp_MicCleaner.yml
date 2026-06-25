@@ -5,11 +5,10 @@ channels:
 dependencies:
   - python=3.9
   - libstdcxx-ng # To be compatible with scipion env
-  - cudatoolkit=11.8
-  - cudnn=8.9.*
   - pip
   - pip:
-    - micrograph-cleaner-em==1.0.2
+    - micrograph-cleaner-em==1.0.2 # It include tensorflow[and-cuda]>=2.16 => CUDA 12.9
+    - tensorflow[and-cuda]==2.16.1 #CUDA 12.2
 
 
 
