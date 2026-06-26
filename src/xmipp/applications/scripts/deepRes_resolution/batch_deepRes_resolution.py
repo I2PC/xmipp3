@@ -25,13 +25,14 @@
  ***************************************************************************/
 """
 
+import os, sys
+import argparse
+from xmipp_base import XmippScript
+import xmippLib
+
 from keras.models import load_model
 from keras.utils import Sequence
 import numpy as np
-import sys
-import argparse
-import xmippLib
-from xmipp_base import XmippScript
 
 # The method accepts as input a 3D crioEM map and the mask
 # both with sampling rate of 1 A/pixel for network 1 or 0.5 A/pixel for network 2
