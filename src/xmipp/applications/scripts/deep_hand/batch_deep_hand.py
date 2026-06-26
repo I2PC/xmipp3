@@ -345,8 +345,8 @@ class ScriptDeepHand(XmippScript):
         pipeline = HaPi(self.getParam('--alphaModel'), self.getParam('--handModel'))
 
         # Obtain Volume and Mask
-        Vf = pyxmipp3.Image(self.getParam('--pathVf')).getData()
-        Vmask = pyxmipp3.Image(self.getParam('--pathVmask')).getData()
+        Vf = xmippLib.Image(self.getParam('--pathVf')).getData()
+        Vmask = xmippLib.Image(self.getParam('--pathVmask')).getData()
 
         # Predict hand
         hand = pipeline.predict(Vf, Vmask, float(self.getParam('--alphaThr')), 2048)
