@@ -9,12 +9,11 @@ channels:
 dependencies:
   - python=3.8
   - libstdcxx-ng
-  - cudatoolkit=11.0
-  - cudnn=8.0
-
+  - cudatoolkit=11.2
+  - cudnn=8.1
   - pip
   - pip:
-      - tensorflow==2.4.1
+      - tensorflow==2.10.1
       - numpy==1.19.5
       - h5py==2.10.0
       - scikit-learn==0.22
