@@ -25,7 +25,6 @@
  ***************************************************************************/
 """
 from xmipp_base import *
-from xmipp_base import XmippScript
 import xmippLib
 from xmippPyModules.deepLearningToolkitUtils.utils import (checkIf_tf_keras_installed,
                                                                          updateEnviron)

@@ -30,8 +30,12 @@ import argparse
 from xmipp_base import XmippScript
 import xmippLib
 
-from keras.models import load_model
-from keras.utils import Sequence
+from tensorflow.keras.models import load_model
+from tensorflow.keras.utils import Sequence
+import tensorflow as tf
+
+tf.compat.v1.disable_eager_execution()
+
 import numpy as np
 
 # The method accepts as input a 3D crioEM map and the mask
@@ -129,7 +133,7 @@ class VolumeManager(Sequence):
             # print (count   ,    self.x   ,   self.y  ,  self.z)
             ok = self.advance()
             count += 1
-        batchX = np.asarray(batchX).astype("float32")
+        batchX = np.asarray(batchX, dtype=np.float32)
         # tf.print(f'count = {count}', output_stream=sys.stdout)
 
         batchX = batchX.reshape(count, batchX.shape[1], batchX.shape[2],
@@ -230,7 +234,7 @@ def main(fnModel, fnVolIn, fnMask, sampling, fnVolOut):
     model = load_model(fnModel)
     # tf.print(f'load_model', output_stream=sys.stdout)
     Vmanager = VolumeManager(fnVolIn, fnMask)
-    Y = model.predict_generator(Vmanager, steps=Vmanager.st)
+    Y = model.predict(Vmanager, steps=Vmanager.st)
 
     if fnModel == XmippScript.getModel("deepRes", "model_w13.h5"):
         model = 1
