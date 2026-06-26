@@ -9,16 +9,12 @@ channels:
 dependencies:
   - python=3.8
   - libstdcxx-ng
-
-  # GPU stack moderno compatible con TF 2.4
   - cudatoolkit=11.0
   - cudnn=8.0
 
-  # TensorFlow moderno pero con compatibilidad TF1
-  - tensorflow=2.4
-
   - pip
   - pip:
+      - tensorflow==2.4.1
       - numpy==1.19.5
       - h5py==2.10.0
       - scikit-learn==0.22
