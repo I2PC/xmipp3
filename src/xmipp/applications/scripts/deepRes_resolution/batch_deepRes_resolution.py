@@ -134,10 +134,9 @@ class VolumeManager(Sequence):
             ok = self.advance()
             count += 1
         batchX = np.asarray(batchX, dtype=np.float32)
+        batchX = batchX[..., np.newaxis]
         # tf.print(f'count = {count}', output_stream=sys.stdout)
-
-        batchX = batchX.reshape(count, batchX.shape[1], batchX.shape[2],
-                                batchX.shape[3], 1)
+        #batchX = batchX.reshape(count, batchX.shape[1], batchX.shape[2], batchX.shape[3], 1)
 
         # tf.print(f'batchX.shape = {batchX.shape}', output_stream=sys.stdout)
 
@@ -234,7 +233,7 @@ def main(fnModel, fnVolIn, fnMask, sampling, fnVolOut):
     model = load_model(fnModel)
     # tf.print(f'load_model', output_stream=sys.stdout)
     Vmanager = VolumeManager(fnVolIn, fnMask)
-    Y = model.predict(Vmanager, steps=Vmanager.st)
+    Y = model.predict(Vmanager, steps=Vmanager.st, verbose=0)
 
     if fnModel == XmippScript.getModel("deepRes", "model_w13.h5"):
         model = 1
