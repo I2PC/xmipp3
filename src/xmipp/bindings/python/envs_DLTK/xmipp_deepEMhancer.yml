@@ -10,6 +10,8 @@ dependencies:
   - numba
   - h5py
   - libstdcxx-ng # To be compatible with scipion env
-  - pyxmipp3
+  - pip
+  - pip:
+      - pyxmipp3
 
 
