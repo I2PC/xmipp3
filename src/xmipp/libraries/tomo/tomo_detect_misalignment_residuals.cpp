@@ -278,15 +278,25 @@ void ProgTomoDetectMisalignmentResiduals::generateResidualStatiscticsFile()
 	std::cout << "Running residual statistical analysis..." << std::endl;
 
 	// Compose commnad with realtive path to script
-    char path[PATH_MAX], scriptPath[2048];
-    ssize_t len = readlink("/proc/self/exe", path, sizeof(path) - 1);
-    path[len] = '\0';  // Null-terminate
+	char path[PATH_MAX];
 
-    char *pos = strstr(path, "/dist/");
-    if (pos) *pos = '\0';  // Cut at "/dist/"
+	ssize_t len = readlink("/proc/self/exe", path, sizeof(path) - 1);
+	if (len < 0)
+	    throw std::runtime_error("Cannot determine executable path");
 
-    snprintf(scriptPath, sizeof(scriptPath), "%s/src/xmipp/applications/scripts/tomo_misalignment_resid_statistics/batch_tomo_misalignment_resid_statistics.py", path);
+	std::string root(path, len);
 
+	// Remove everything from "/dist/" onwards
+	std::size_t pos = root.find("/dist/");
+	if (pos != std::string::npos)
+	    root.erase(pos);
+
+	std::string scriptPath =
+	    root +
+	    "/src/xmipp/applications/scripts/"
+	    "tomo_misalignment_resid_statistics/"
+	    "batch_tomo_misalignment_resid_statistics.py";
+	
 	size_t lastindex = fnOut.find_last_of("\\/");
 	std::string rawname = fnOut.substr(0, lastindex);
 
@@ -296,9 +306,9 @@ void ProgTomoDetectMisalignmentResiduals::generateResidualStatiscticsFile()
 	std::string cmd;
 
 	#ifdef DEBUG_RESIDUAL_STATISTICS_FILE
-		cmd = "python3 " + std::string(scriptPath) + " -i " + fnResidualInfo + " -o " + fnStats + " --debug";
+		cmd = "python3 " + scriptPath + " -i " + fnResidualInfo + " -o " + fnStats + " --debug";
 	#else
-		cmd = "python3 " + std::string(scriptPath) + " -i " + fnResidualInfo + " -o " + fnStats;
+		cmd = "python3 " + scriptPath + " -i " + fnResidualInfo + " -o " + fnStats;
 	#endif
 
     std::cout << "Running command: " << cmd << std::endl;
