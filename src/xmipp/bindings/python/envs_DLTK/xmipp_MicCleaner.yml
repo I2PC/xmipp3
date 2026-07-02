@@ -7,6 +7,7 @@ dependencies:
   - libstdcxx-ng # To be compatible with scipion env
   - pip
   - pip:
+    - pyxmipp3
     - micrograph-cleaner-em==1.0.2 # It include tensorflow[and-cuda]>=2.16 => CUDA 12.9
     - tensorflow[and-cuda]==2.16.1 #CUDA 12.2
 
