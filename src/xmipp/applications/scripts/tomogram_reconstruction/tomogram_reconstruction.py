@@ -34,9 +34,8 @@ import re
 import scipy as sp
 import tigre
 from tigre.utilities.im3Dnorm import im3DNORM
-
-import xmippLib
 from xmipp_base import XmippScript
+import xmippLib
 
 
 class TomogramReconstruction(XmippScript):
