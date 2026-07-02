@@ -9,3 +9,4 @@ dependencies:
   - pip
   - pip:
       - jax[cuda12]==0.8
+      - pyxmipp3

@@ -21,3 +21,4 @@ dependencies:
   - pip
   - pip:
       - numpy==1.23
+      - pyxmipp3

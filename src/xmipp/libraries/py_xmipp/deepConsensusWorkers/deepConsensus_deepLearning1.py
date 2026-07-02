@@ -39,7 +39,6 @@ import xmippLib
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import backend as K
-
 from .deepConsensus_networkDef import main_network, DESIRED_INPUT_SIZE
 tf_intarnalError= tf.errors.InternalError
 

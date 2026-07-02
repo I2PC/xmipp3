@@ -5,6 +5,7 @@ import numpy as np
 from operator import itemgetter
 import os
 import sys
+from xmipp_base import XmippScript
 import xmippLib
 from time import time
 from scipy.ndimage import shift, rotate

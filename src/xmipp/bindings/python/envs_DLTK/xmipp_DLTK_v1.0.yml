@@ -13,3 +13,4 @@ dependencies:
       - numpy==1.22
       - absl-py<0.12
       - protobuf==3.20.3
+      - pyxmipp3

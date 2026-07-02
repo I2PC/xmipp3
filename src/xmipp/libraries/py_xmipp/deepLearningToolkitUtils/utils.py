@@ -19,7 +19,7 @@ def checkIf_tf_keras_installed():
   :return:
   '''
   try:
-    import tensorflow, keras
+    import tensorflow as tf
   except ImportError as e:
     print(e)
     raise ValueError(BAD_IMPORT_MSG)

@@ -10,5 +10,8 @@ dependencies:
   - numpy
   - tigre
   - libstdcxx-ng # To be compatible with scipion env
+  - pip
+  - pip:
+      - pyxmipp3
 
 
