@@ -93,7 +93,7 @@ if(${XMIPP_USE_CUDA})
       # 1. Define base architectures supported by almost everyone (Turing, Ampere)
       set(XMIPP_CUDA_ARCHS 75 86)
 		
-	  if(CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL "12.0.0")
+	  if(CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL "11.8.0")
 		list(APPEND XMIPP_CUDA_ARCHS 89 90)
 	  endif()
 	  
