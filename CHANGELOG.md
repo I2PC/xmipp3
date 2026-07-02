@@ -1,3 +1,19 @@
+## Release 6.0.0 - Cas9 
+   ### Xmipp Programs 
+   - Programs fixed
+      - Fix shift assignment in align_volume when mirroring
+   ### Installation and user guide
+   - Avoiding the link to xmippLib because pyXmipp3 replace that requirement
+   - Updated environment DLTK: xmipp_MicCleaner forced tensorflow[and-cuda]==2.16.1
+   - Remove conditional addition of Pascal architecture (61)
+   - Adding pyxmipp3 in the DLTK environments
+   - Upgrading xmipp_DLTK_v0.3 environment‎ from TensorFlow 1.15 to 2.4 and refactoring ‎deepConsensus_deepLearning1.py, deepConsensus_networkDef.py, deepLearningToolkitUtils/utils.py‎ and batch_deepRes_resolution.py‎
+
+   ### More Xmipp  
+   - Fix CUDA 12 Thrust missing include
+   - Fix several codesmells
+
+
 ## Release 5.0.0 - Beta-gal 
    ### Xmipp Programs 
    - New programs
