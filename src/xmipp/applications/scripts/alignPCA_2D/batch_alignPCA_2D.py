@@ -179,6 +179,7 @@ if __name__=="__main__":
         
             Im_zero = mmap.data[indices].astype(np.float32)
             Texp_zero = torch.as_tensor(Im_zero, device=cuda)
+            Texp_zero = bnb.zscore_normalization(Texp_zero)
             Texp_zero *= bnb.create_circular_mask(Texp_zero)
         
             pca_zero = bnb.create_batchExp(Texp_zero, freqBn, coef, cvecs)
@@ -229,6 +230,7 @@ if __name__=="__main__":
             
             expImages = mmap.data[initBatch:endBatch].astype(np.float32)
             Texp = torch.from_numpy(expImages).float().to(cuda)
+            Texp = bnb.zscore_normalization(Texp)
                   
             if i < initStep:          
                 batch_projExp_cpu.append( bnb.batchExpToCpu(Texp, freqBn, coef, cvecs) )           
@@ -320,8 +322,8 @@ if __name__=="__main__":
     
                     
                     # save classes
-                    # file = output+"_%s_%s_%s.mrcs"%(initBatch,iter+1,cycles)
-                    # save_images(cl.cpu().detach().numpy(), sampling, file)
+                    file = output+"_%s_%s_%s.mrcs"%(initBatch,iter+1,cycles)
+                    save_images(cl.cpu().detach().numpy(), sampling, file)
     
     
                     if cycles == num_cycles-1 and mode == "create_classes" and iter == niter-1:

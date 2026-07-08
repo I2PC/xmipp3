@@ -305,6 +305,7 @@ class PCAgpu:
             
             expImages = mexp.data[initBatch:endBatch].astype(np.float32)#.copy()
             Texp = torch.from_numpy(expImages).float().to(self.cuda)
+            Texp = bnb.zscore_normalization(Texp)
             Texp = Texp * bnb.create_circular_mask(Texp)
     
             del(expImages)
