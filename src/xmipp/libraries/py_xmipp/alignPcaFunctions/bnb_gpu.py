@@ -12,6 +12,7 @@ import torchvision.transforms.functional as T
 import torch.nn.functional as F
 import kornia
 import math
+import random
 
 
 class BnBgpu:
@@ -469,6 +470,78 @@ class BnBgpu:
         images = (images - mean) / (std + 1e-8)
         return images
     
+    def background_contrast_normalization(self, imgs, bg_radius=0.85):
+        """
+        Iguala el contraste tomando como referencia el ruido de fondo (solvente).
+        bg_radius: Radio (0 a 1) a partir del cual todo se considera fondo/esquinas.
+        """
+        H, W = imgs.shape[-2], imgs.shape[-1]
+        device = imgs.device
+        
+        # Crear máscara circular (1 en las esquinas/fondo, 0 en el centro donde está la proteína)
+        y, x = torch.meshgrid(torch.linspace(-1, 1, H, device=device), 
+                              torch.linspace(-1, 1, W, device=device), indexing='ij')
+        r = torch.sqrt(x**2 + y**2)
+        bg_mask = (r > bg_radius).float()
+        
+        # Calcular media y std solo en la zona del fondo
+        num_bg_pixels = bg_mask.sum()
+        bg_mean = (imgs * bg_mask).sum(dim=(-2, -1), keepdim=True) / num_bg_pixels
+        
+        bg_variance = (((imgs - bg_mean) * bg_mask).pow(2)).sum(dim=(-2, -1), keepdim=True) / num_bg_pixels
+        bg_std = torch.sqrt(bg_variance + 1e-8)
+        
+        # Normalizar TODA la imagen usando la referencia del fondo
+        return (imgs - bg_mean) / bg_std
+    
+    def percentile_contrast_normalization(self, imgs, low_p=1.0, high_p=99.0):
+        """
+        Iguala el contraste estirando el rango dinámico entre dos percentiles robustos.
+        Imgs: Tensor de PyTorch (B, H, W) o (B, C, H, W)
+        """
+        # Aplanar las dimensiones espaciales para calcular percentiles por imagen
+        flat = imgs.flatten(start_dim=-2)
+        
+        # Calcular los percentiles robustos (convertimos p a fracción de 0 a 1)
+        q_low = torch.quantile(flat, low_p / 100.0, dim=-1, keepdim=True).unsqueeze(-1)
+        q_high = torch.quantile(flat, high_p / 100.0, dim=-1, keepdim=True).unsqueeze(-1)
+        
+        # Escalado lineal al rango [0, 1] basado en esos percentiles
+        imgs_norm = (imgs - q_low) / (q_high - q_low + 1e-8)
+        
+        # Recortamos (clip/clamp) para que los pocos píxeles fuera de los percentiles no distorsionen
+        return torch.clamp(imgs_norm, 0.0, 1.0)
+    
+    def contrast_cv(self, images):
+        """
+        Calcula el coeficiente de variación (CV) de la desviación estándar
+        entre partículas.
+        """
+    
+        # std de cada partícula
+        particle_stds = images.std(dim=(-2, -1))
+    
+        # Si hay canales, promediamos sobre ellos
+        if particle_stds.ndim > 1:
+            particle_stds = particle_stds.mean(dim=-1)
+    
+        mean_std = particle_stds.mean()
+        std_std = particle_stds.std()
+    
+        cv = std_std / (mean_std + 1e-8)
+    
+        return cv, mean_std, std_std
+    
+    def contrast_outliers(self, images):
+        particle_std = images.std(dim=(-2, -1))
+    
+        mean_std = particle_std.mean()
+        std_std = particle_std.std()
+    
+        zscore = (particle_std - mean_std) / (std_std + 1e-8)
+    
+        return particle_std, zscore
+    
     
             
     def search_space_old(self, iter, rot, sh, msh):
@@ -484,7 +557,7 @@ class BnBgpu:
             
         return(angle, shift, maxShift)
     
-    def search_space(self, iter, sampling):
+    def search_space_old(self, iter, sampling):
         
         if iter == 0:
             angle, shift, maxShift = 8, 6/sampling, 24/sampling
@@ -497,18 +570,70 @@ class BnBgpu:
             
         return(angle, shift, maxShift)
     
+    #Probar el jitter
+    def search_space(self, iter, sampling):
+        # 1. Valores base según la iteración
+        if iter < 4:
+            base_angle, base_shift, maxShift = 8.0, 6.0/sampling, 24.0/sampling
+        elif iter < 8:
+            base_angle, base_shift, maxShift = 8.0, 6.0/sampling, 24.0/sampling
+        elif iter < 13:
+            base_angle, base_shift, maxShift = 6.0, 6.0/sampling, 24.0/sampling
+        else:
+            base_angle, base_shift, maxShift = 5.0, 6.0/sampling, 24.0/sampling
+            
+        # 2. Aplicamos Jitter decreciente (enfriamiento)
+        if iter < 8:
+            # Exploración fuerte
+            angle_jitter = random.uniform(-0.5, 0.5)
+            # El shift varía ligeramente (p.ej., entre -8% y +8% de su valor base)
+            shift_jitter = random.uniform(-0.08, 0.08) * base_shift
+        elif iter < 13:
+            # Ajuste medio
+            angle_jitter = random.uniform(-0.2, 0.2)
+            shift_jitter = random.uniform(-0.03, 0.03) * base_shift
+        else:
+            # Refinamiento puro y congelado
+            angle_jitter = 0.0
+            shift_jitter = 0.0
+            
+        angle = base_angle + angle_jitter
+        shift = base_shift + shift_jitter
+        
+        return (angle, shift, maxShift)
     
-    def reconstruct_parameters(self, iter, pcaRes, filter):
+    
+    def reconstruct_parameters_old(self, iter, pcaRes, filter):
         
         if iter == 0:
-            # pcaRes, volRes, angleGallery = 20, 20, 12
-            pcaRes, volRes, angleGallery = 8, 20, 12
+            pcaRes, volRes, angleGallery = 20, 20, 12
+            # pcaRes, volRes, angleGallery = 8, 20, 12
         elif iter == 8:
-            # pcaRes, volRes, angleGallery = 16, 16, 8
-            pcaRes, volRes, angleGallery = 8, 16, 8
+            pcaRes, volRes, angleGallery = 16, 16, 8
+            # pcaRes, volRes, angleGallery = 8, 16, 8
         elif iter == 13:
             pcaRes, volRes, angleGallery = pcaRes, filter, 6
         elif iter == 16:
+            pcaRes, volRes, angleGallery = pcaRes, filter, 5
+            
+        return(pcaRes, volRes, angleGallery)
+    
+    
+    def reconstruct_parameters(self, iter, pcaRes, filter):
+        
+        if iter < 3:
+            pcaRes, volRes, angleGallery = 40, 40, 12
+        elif iter < 5:
+            pcaRes, volRes, angleGallery = 30, 30, 6
+        elif iter < 8:
+            pcaRes, volRes, angleGallery = 20, 20, 12
+            # pcaRes, volRes, angleGallery = 8, 20, 12
+        elif iter < 13:
+            pcaRes, volRes, angleGallery = 16, 16, 8
+            # pcaRes, volRes, angleGallery = 8, 16, 8
+        elif iter == 16:
+            pcaRes, volRes, angleGallery = pcaRes, filter, 6
+        else:
             pcaRes, volRes, angleGallery = pcaRes, filter, 5
             
         return(pcaRes, volRes, angleGallery)

@@ -11,6 +11,7 @@ import torch.nn.functional as F
 import kornia
 import random
 import math
+import mrcfile
 
 
 
@@ -23,6 +24,17 @@ class BnBgpu:
         torch.cuda.is_available()
         torch.cuda.current_device()
         self.cuda = torch.device('cuda:0')  
+        
+    def save_images(self, data, voxel, outfilename):
+        data = data.astype('float32')
+        
+        if data.ndim == 2:
+            data = np.expand_dims(data, axis=0)
+            
+        with mrcfile.new(outfilename, overwrite=True) as mrc:
+            mrc.set_data(data)
+            mrc.voxel_size = (voxel, voxel, 1)
+            mrc.update_header_stats()
     
     
     #the angle is a triplet
@@ -605,7 +617,10 @@ class BnBgpu:
                         newCL[n] = torch.cat([part_A, part_B], dim=0)
         
         
-        clk = self.averages_createClasses(mmap, iter, newCL)       
+        clk = self.averages_createClasses(mmap, iter, newCL) 
+        if iter == 17:
+            file = "averages_originals.mrcs"
+            self.save_images(clk.cpu().detach().numpy(), sampling, file)
 
         if iter > -1:
             # cut = (25 if iter < 5 else 20) if sampling < 3 else (35 if iter < 5 else 30)

@@ -14,8 +14,8 @@ from xmippPyModules.alignPcaFunctions.pca_gpu import *
 from xmippPyModules.alignPcaFunctions.bnb_gpu import *
 from xmippPyModules.alignPcaFunctions.reconstruct_gpu import *
 from xmippPyModules.alignPcaFunctions.assessment import *
-from builtins import iter
-from _weakref import ref
+# from builtins import iter
+# from _weakref import ref
 
 
 def read_images(mrcfilename):
@@ -127,6 +127,8 @@ if __name__=="__main__":
     torch.cuda.current_device()
     cuda = torch.device('cuda') 
     
+    whitening = 1
+    
     
     if volRes <= 1 / (2*sampling):
         volRes = 1 / (2*sampling) + 0.5
@@ -158,7 +160,11 @@ if __name__=="__main__":
     else:    
         for i in range(numCl):
             random_angles = R.generate_random_angles(nExp)
-            zeroVol = R.reconstruct_volume_sym(mmap, sym, 20, sampling, dim, random_angles)
+            zeroVol = R.reconstruct_volume_sym(mmap, sym, 60, sampling, dim, random_angles)
+            # zeroVol = (zeroVol - zeroVol.mean()) / (zeroVol.std() + 1e-8)
+            zeroVol = R.filter_3d(zeroVol, sampling, 60.0)
+            # zeroVol = R.generate_random_ellipsoid(dim, radius=dim//2, device=cuda)
+            # zeroVol = R.generate_scaffolding_seed(mmap, R, sym, sampling, dim, cuda)
             if posit:
                 zeroVol = torch.relu(zeroVol)
             ref = R.generate_projections(zeroVol, transf)
@@ -182,29 +188,29 @@ if __name__=="__main__":
     # texp = torch.from_numpy(expImages).pin_memory().to(cuda, non_blocking=True)
     texp = torch.from_numpy(expImages).to(cuda)#.pin_memory().to(cuda)
     del expImages
+
     texp = bnb.zscore_normalization(texp)
+    # texp = bnb.percentile_contrast_normalization(texp)
     if radius:
         texp *= bnb.create_mask(texp, radius)
     #posit
     if posit:
         texp = torch.relu(texp)
     
-    file = output+"_exp.mrcs" 
-    save_proj(texp, file, sampling) 
+    # file = output+"_exp.mrcs" 
+    # save_proj(texp, file, sampling) 
     
-    resultado_tensor = torch.cat([texp, all_refs_cpu[0].to(cuda)], dim=0)
-    Ntrain = resultado_tensor.shape[0]
+    # resultado_tensor = torch.cat([texp, all_refs_cpu[0].to(cuda)], dim=0)
+    Ntrain = texp.shape[0]
     
     #pca
     # nBand = 1
     pca = PCAgpu(nBand)
-    maxRes = 8
-    freqBn, cvecs, coef = pca.calculatePCAbasis(resultado_tensor, Ntrain, nBand, dim, sampling, maxRes, 
+    maxRes = 20
+    freqBn, cvecs, coef = pca.calculatePCAbasis(texp, Ntrain, nBand, dim, sampling, maxRes, 
                                                 minRes=530, per_eig=per_eig_value, batchPCA=True)
 
     grid_flat = flatGrid(freqBn, nBand)
-    del(resultado_tensor)
-
     
     
     # #Precomputed rotation and shift   
@@ -214,13 +220,6 @@ if __name__=="__main__":
     # vectorRot.sort()         
     # nShift = len(vectorshift)
     
-    
-    #Precalculate whitening 
-    Im_whitening = mmap.data[:nExp].astype(np.float32)
-    Texp_whitening = torch.from_numpy(Im_whitening).float().to(cuda)
-    whitening = bnb.compute_radial_whitening_filter(Texp_whitening)
-    del Im_whitening, Texp_whitening
-    whitening = 1
             
     next_angle_triplet = None
         
@@ -228,16 +227,16 @@ if __name__=="__main__":
         print("----------Iter %s------------" %current_iter, flush=True)
         
         #Precomputed rotation and shift  
-        if current_iter in (0, 8, 13, 16): 
-            pcaRes, filtRes, angular_step = bnb.reconstruct_parameters(current_iter, highRes, volRes)
-            # ang, shiftMove, maxshift = bnb.search_space(current_iter, ang, shiftMove, maxshift) 
-            ang, shiftMove, maxshift = bnb.search_space(current_iter, sampling)
-            print(ang, shiftMove, maxshift)
-            angSet = (-amax, amax, ang)
-            shiftSet = (-maxshift, maxshift+shiftMove, shiftMove)
-            vectorRot, vectorshift = bnb.setRotAndShift(angSet, shiftSet)
-            vectorRot.sort()         
-            nShift = len(vectorshift)
+        # if current_iter in (0, 8, 13, 16): 
+        pcaRes, filtRes, angular_step = bnb.reconstruct_parameters(current_iter, highRes, volRes)
+        # ang, shiftMove, maxshift = bnb.search_space(current_iter, ang, shiftMove, maxshift) 
+        ang, shiftMove, maxshift = bnb.search_space(current_iter, sampling)
+        # print(ang, shiftMove, maxshift)
+        angSet = (-amax, amax, ang)
+        shiftSet = (-maxshift, maxshift+shiftMove, shiftMove)
+        vectorRot, vectorshift = bnb.setRotAndShift(angSet, shiftSet)
+        vectorRot.sort()         
+        nShift = len(vectorshift)
             
     
         matches = [None] * numCl
@@ -247,15 +246,15 @@ if __name__=="__main__":
                    
             tref = all_refs_cpu[i].to(cuda)#, non_blocking=True)
             tref = bnb.zscore_normalization(tref)
+            # tref = bnb.percentile_contrast_normalization(tref)
             if radius:
                 tref = tref * bnb.create_mask(tref, radius)
              
-            
-            file = output+"_ref.mrcs" 
-            save_proj(tref, file, sampling) 
+            # file = output+"ref_%s_%s.mrcs"%(current_iter+1,i)
+            # save_proj(tref, file, sampling)
             # exit()
-            # if posit:
-            #     tref = torch.relu(tref)
+            if posit:
+                tref = torch.relu(tref)
        
             batch_projRef = bnb.create_batchExp(tref, whitening, freqBn, coef, cvecs) 
             
@@ -275,29 +274,98 @@ if __name__=="__main__":
             # print(matches[i])
             # exit()
             
-            score = matches[i][:, 2].mean()
-            print("mean score = %s" %score.item())
-            
             if not save_class: 
                 valid_indices, rotM, shiftM = assess.estimatePose(
                     angle_triplet, expStar, matches[i], vectorshift, 
-                    nExp, apply_shifts, filter_matches=(current_iter > 4)
+                    nExp, apply_shifts, filter_matches=(current_iter > 16) #4
                 )
+                
+            score = matches[i][valid_indices, 2].mean()
+            print(f"num averages = {len(valid_indices)}, mean score = {score.item()}")
+            # print("mean score = %s" %score.item())
 
+            # mmap_filtrado = mmap.data[valid_indices.cpu().numpy()].astype('float32')
+            
+            if current_iter < 7:                
+                # 1. Definimos los grupos A y B SOLO una vez en la iteración 0
+                if current_iter == 0:
+                    num_valid = len(valid_indices)
+                    indices_locales = np.arange(num_valid)
+                    np.random.shuffle(indices_locales) # Barajamos una única vez
+            
+                    mitad = num_valid // 2
+                    globals()['indices_fijos_A'] = indices_locales[:mitad]
+                    globals()['indices_fijos_B'] = indices_locales[mitad:]
+                    # print(f"-> [Iter 0] Grupos fijos creados: Grupo A ({mitad}) y Grupo B ({num_valid - mitad})")
+            
+                # 2. Alternamos estrictamente recuperando los arrays del espacio global
+                if current_iter % 2 == 0:
+                    idx_para_ahora = globals().get('indices_fijos_A')
+                    # print(f"-> [Iter {current_iter}] Usando el 50% del GRUPO A (Fijo)")
+                else:
+                    idx_para_ahora = globals().get('indices_fijos_B')
+                    # print(f"-> [Iter {current_iter}] Usando el 50% del GRUPO B (El resto Fijo)")
+            
+                # Control de seguridad: si por alguna razón el script saltó la iteración 0
+                if idx_para_ahora is None:
+                    idx_para_ahora = np.arange(len(valid_indices))[:len(valid_indices) // 2]
+            
+                # Aplicamos la selección idéntica a los tensores
+                valid_indices = valid_indices[idx_para_ahora]
+                rotM = rotM[idx_para_ahora]
+                if shiftM is not None:
+                    shiftM = shiftM[idx_para_ahora]
+            
             mmap_filtrado = mmap.data[valid_indices.cpu().numpy()].astype('float32')
-
+            
             vol = R.reconstruct_volume_sym(mmap_filtrado, sym, filtRes, sampling, dim, rotM, shifts=shiftM)
-            # vol = R.reconstruct_volume_sym(mmap_filtrado, "C1", filtRes, sampling, dim, rotM)
+            # vol = (vol - vol.mean()) / (vol.std() + 1e-8)
+            
+            # if current_iter < 7:                
+            #     # 1. Definimos los grupos A y B SOLO una vez en la iteración 0 (Igual que antes)
+            #     if current_iter == 0:
+            #         num_valid = len(valid_indices)
+            #         indices_locales = np.arange(num_valid)
+            #         np.random.shuffle(indices_locales) # Barajamos una única vez
+            #
+            #         mitad = num_valid // 2
+            #         globals()['indices_fijos_A'] = indices_locales[:mitad]
+            #         globals()['indices_fijos_B'] = indices_locales[mitad:]
+            #
+            #     # 2. Recuperamos AMBOS grupos fijos en cada iteración
+            #     idx_A = globals().get('indices_fijos_A')
+            #     idx_B = globals().get('indices_fijos_B')
+            #
+            #     # --- Reconstrucción con el Grupo A ---
+            #     mmap_A = mmap.data[valid_indices[idx_A].cpu().numpy()].astype('float32')
+            #     vol = R.reconstruct_volume_sym(mmap_A, sym, filtRes, sampling, dim, rotM[idx_A], shifts=shiftM[idx_A] if shiftM is not None else None)
+            #
+            #     # --- Reconstrucción con el Grupo B ---
+            #     mmap_B = mmap.data[valid_indices[idx_B].cpu().numpy()].astype('float32')
+            #     vol_B = R.reconstruct_volume_sym(mmap_B, sym, filtRes, sampling, dim, rotM[idx_B], shifts=shiftM[idx_B] if shiftM is not None else None)
+            #
+            #     # --- Promedio In-Place (Máximo 2 volúmenes simultáneos) ---
+            #     vol.add_(vol_B)  # Sumamos B directamente sobre 'vol' (sin crear un tercer tensor)
+            #     del vol_B        # Borramos el volumen B de la GPU inmediatamente
+            #     vol.div_(2.0)    # Dividimos 'vol' entre 2 sobre sí mismo
+            #
+            # else:
+            #     # A partir de la iteración 7, usamos todas tus clases promedio juntas (Igual que antes)
+            #     mmap_filtrado = mmap.data[valid_indices.cpu().numpy()].astype('float32')
+            #     vol = R.reconstruct_volume_sym(mmap_filtrado, sym, filtRes, sampling, dim, rotM, shifts=shiftM)
+                
             vol = R.filter_3d(vol, sampling, filtRes)
             #posit
             if posit:
                 vol = torch.relu(vol)
-            if current_iter < 7:
-                vol = R.mask_otsu(vol)
+                
+            if current_iter > 1 and current_iter < 7:
+                vol = R.mask_otsu(vol, sigma=4.0, noise_level=0.0)
                 
             vol = R.apply_spherical_mask(vol, radius)
             
-            if i == 0 and current_iter in (8, 13, 16):
+            if i == 0 and current_iter in (3, 5, 8, 13, 16):
+                # print(f"ANGULAR STEP = {angular_step}")
                 transf, next_angle_triplet = R.generate_library_sym(angular_step, sym=sym)
                 
             ref = R.generate_projections(vol, transf)
@@ -305,22 +373,22 @@ if __name__=="__main__":
             file = output+"_iter%s_class%s.mrc"%(current_iter+1,i)
             save_vol(vol.cpu(), file, sampling)
             del tref, vol, ref
-            # fileProj = output+"ref_%s_%s.mrcs"%(iter+1,i)
-            # save_vol(all_refs_cpu[0], fileProj, sampling)
+            # fileProj = output+"ref_%s_%s.mrcs"%(current_iter+1,i)
+            # save_proj(all_refs_cpu[0], fileProj, sampling)
+            # exit()
         
         if next_angle_triplet is not None:
             angle_triplet = next_angle_triplet 
             next_angle_triplet = None 
             #Actualizo PCA
-            del freqBn, coef, grid_flat, cvecs 
-            resultado_tensor = torch.cat([texp, all_refs_cpu[0].to(cuda)], dim=0)
-            Ntrain = resultado_tensor.shape[0]  
-            freqBn, cvecs, coef = pca.calculatePCAbasis(
-                resultado_tensor, Ntrain, nBand, dim, sampling, pcaRes,
-                minRes=530, per_eig=per_eig_value, batchPCA=True
-            )
-            grid_flat = flatGrid(freqBn, nBand)
-            del resultado_tensor
+            if current_iter not in (3, 5):
+                del freqBn, coef, grid_flat, cvecs 
+                Ntrain = texp.shape[0]  
+                freqBn, cvecs, coef = pca.calculatePCAbasis(
+                    texp, Ntrain, nBand, dim, sampling, pcaRes,
+                    minRes=530, per_eig=per_eig_value, batchPCA=True
+                )
+                grid_flat = flatGrid(freqBn, nBand)
     exit()
     
     

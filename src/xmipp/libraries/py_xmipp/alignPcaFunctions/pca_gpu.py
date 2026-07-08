@@ -305,7 +305,8 @@ class PCAgpu:
         batch_size, size, size = images.size()
     
         degrees_range=(0, 360)
-        translate_range=(0.1, 0.1)
+        # translate_range=(0.1, 0.1)
+        translate_range=(0.03, 0.03)
         transform = T.RandomAffine(degrees=degrees_range, translate=translate_range)
         transformed_images = transform(images.clone().repeat(num_tr, 1, 1, 1))
         augmented_data = transformed_images.reshape(batch_size*num_tr, size, size)
@@ -354,6 +355,7 @@ class PCAgpu:
     
                 for n in range(nBand):
                     band[n] = torch.cat((band[n], bandBatch[n]), dim=0)
+                    del bandBatch[n]
             del(Texp, bandBatch)
         
         # mean, vals, vecs = self.trainingPCAonline(band, coef, per_eig, batchPCA)

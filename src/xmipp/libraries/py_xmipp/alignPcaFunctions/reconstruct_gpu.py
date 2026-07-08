@@ -1245,7 +1245,7 @@ class reconstruct:
         return filtered_volume
     
     
-    def mask_otsu(self, volume, num_bins=256, sigma=2.0):
+    def mask_otsu(self, volume, num_bins=256, sigma=2.0, noise_level=0.0):
         """
         Calcula el umbral de Otsu, genera una máscara y le aplica una 
         caída suave (soft-edge) en los bordes usando un filtro Gaussiano 3D.
@@ -1307,6 +1307,13 @@ class reconstruct:
         
         # 5. MULTIPLICAR EL VOLUMEN POR LA MÁSCARA SUAVE
         # Conserva intacto el interior, pone a cero el fondo lejano y suaviza la frontera
+        
+        if noise_level > 0.0:
+            std_vol = volume.std()
+            # Modificamos el volumen original añadiendo la perturbación
+            # volume = volume + (torch.randn_like(volume) * std_vol * noise_level)
+            volume += (torch.randn_like(volume) * std_vol * noise_level)
+        
         filtered_volume = volume * soft_mask
         
         return filtered_volume
@@ -1376,6 +1383,88 @@ class reconstruct:
     
         # Retornamos la parte real (las pequeñas partes imaginarias son ruido numérico flotante)
         return filtered_volume.real
+    
+    
+    def generate_random_ellipsoid(self, dim, radius, device):
+        """
+        Genera una semilla elipsoidal (patata) gaussiana con deformaciones
+        aleatorias en sus ejes para inicializaciones multi-referencia.
+        """
+        # 1. Creamos la cuadrícula 3D centrada
+        z, y, x = torch.meshgrid(
+            torch.linspace(-dim/2, dim/2, dim, device=device),
+            torch.linspace(-dim/2, dim/2, dim, device=device),
+            torch.linspace(-dim/2, dim/2, dim, device=device),
+            indexing='ij'
+        )
+        
+        # 2. Generamos factores de deformación al azar (entre 0.7 y 1.3)
+        fx = 0.7 + np.random.rand() * 0.6
+        fy = 0.7 + np.random.rand() * 0.6
+        fz = 0.7 + np.random.rand() * 0.6
+        
+        # 3. Calculamos la distancia elipsoidal modificada
+        distancia_elipsoide = torch.sqrt((x * fx)**2 + (y * fy)**2 + (z * fz)**2)
+        
+        # 4. Generamos el volumen suave con su deformación única
+        zeroVol = torch.exp(-((distancia_elipsoide) / radius)**2 * 5.0)
+        
+        return zeroVol
+    
+    
+    def generate_scaffolding_seed(self, mmap, R, sym, sampling, dim, device):
+        """
+        Genera un volumen inicial seleccionando 3 class averages al azar
+        y pasándoselas a reconstruct_volume_sym en orientaciones ortogonales puras.
+        """
+        import numpy as np
+        import torch
+        
+        # 1. Mini-clase wrapper para imitar la estructura que espera tu función (.data)
+        class DataWrapper:
+            def __init__(self, array):
+                self.data = array
+    
+        # 2. Elegimos 3 imágenes al azar sin repetir
+        n_images = mmap.data.shape[0]
+        chosen_indices = np.random.choice(n_images, size=3, replace=False)
+        
+        # Extraemos y envolvemos en nuestro wrapper
+        subset_images = mmap.data[chosen_indices].astype('float32')
+        wrapped_mmap = DataWrapper(subset_images)
+        
+        # 3. CONSTRUCCIÓN DE MATRICES ORTOGONALES (3, 3, 3)
+        # Tu función espera matrices de rotación reales de 3x3 para cada imagen.
+        # Definimos: Identidad (Frente), Rotación 90° en X (Perfil), Rotación 90° en Y (Planta)
+        r_frente = torch.tensor([[1.0, 0.0, 0.0],
+                                 [0.0, 1.0, 0.0],
+                                 [0.0, 0.0, 1.0]], dtype=torch.float32)
+        
+        r_perfil = torch.tensor([[1.0, 0.0, 0.0],
+                                 [0.0, 0.0, -1.0],
+                                 [0.0, 1.0, 0.0]], dtype=torch.float32)
+        
+        r_planta = torch.tensor([[0.0, 0.0, 1.0],
+                                 [0.0, 1.0, 0.0],
+                                 [-1.0, 0.0, 0.0]], dtype=torch.float32)
+        
+        # Empaquetamos las 3 matrices en un único tensor de lote (3, 3, 3)
+        ortho_rotations = torch.stack([r_frente, r_perfil, r_planta], dim=0).to(device)
+        
+        # 4. Llamamos a TU función respetando tus nombres de parámetros exactos
+        # Usamos resol=30 para que el andamio sea suave y conecte bien las masas
+        zeroVol = R.reconstruct_volume_sym(
+            mmap=wrapped_mmap,
+            sym=sym,
+            resol=30.0,
+            sampling=sampling,
+            volume_size=dim,
+            rotations=ortho_rotations,
+            shifts=None,
+            batch_size=3  # Procesamos las 3 imágenes juntas en un único bound
+        )
+        
+        return zeroVol
         
             
 
