@@ -470,6 +470,42 @@ class BnBgpu:
         images = (images - mean) / (std + 1e-8)
         return images
     
+    def gaussian_weighted_zscore_normalization(self, imgs, sigma=42):
+        """
+        Normaliza promedios de clase que tienen aplicada una máscara gaussiana.
+        Usa estadística ponderada para no destruir la atenuación de los bordes.
+        
+        imgs: Tensor de PyTorch (B, H, W)
+        sigma: Desviación estándar de la gaussiana (controla qué tan ancha es)
+        """
+        H, W = imgs.shape[-2], imgs.shape[-1]
+        device = imgs.device
+        
+        # 1. Recrear la máscara gaussiana (valores de 0 a 1)
+        y, x = torch.meshgrid(torch.linspace(-1, 1, H, device=device), 
+                              torch.linspace(-1, 1, W, device=device), indexing='ij')
+        r2 = x**2 + y**2
+        # El peso w será máximo (1.0) en el centro y caerá hacia 0 en las esquinas
+        weight_mask = torch.exp(-r2 / (2 * sigma**2))
+        
+        # Suma total de los pesos (el equivalente al 'número de píxeles')
+        sum_w = weight_mask.sum()
+        
+        # 2. Calcular la Media Ponderada por cada imagen en el batch
+        # Multiplicamos la imagen por los pesos para ponderar el centro
+        weighted_mean = (imgs * weight_mask).sum(dim=(-2, -1), keepdim=True) / sum_w
+        
+        # 3. Calcular la Varianza y STD Ponderadas
+        weighted_variance = ((imgs - weighted_mean).pow(2) * weight_mask).sum(dim=(-2, -1), keepdim=True) / sum_w
+        weighted_std = torch.sqrt(weighted_variance + 1e-8)
+        
+        # 4. Aplicar el Z-score ponderado
+        imgs_norm = (imgs - weighted_mean) / weighted_std
+        
+        # 5. Crucial: Volver a aplicar la máscara gaussiana
+        # Esto asegura que todo lo que se movió por la resta de la media vuelva a decaer a 0 puro
+        return imgs_norm * weight_mask
+    
     def background_contrast_normalization(self, imgs, bg_radius=0.85):
         """
         Iguala el contraste tomando como referencia el ruido de fondo (solvente).

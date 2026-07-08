@@ -189,7 +189,8 @@ if __name__=="__main__":
     texp = torch.from_numpy(expImages).to(cuda)#.pin_memory().to(cuda)
     del expImages
 
-    texp = bnb.zscore_normalization(texp)
+    # texp = bnb.zscore_normalization(texp)
+    texp = bnb.gaussian_weighted_zscore_normalization(texp)
     # texp = bnb.percentile_contrast_normalization(texp)
     if radius:
         texp *= bnb.create_mask(texp, radius)
@@ -245,7 +246,8 @@ if __name__=="__main__":
             #Reading references particles 
                    
             tref = all_refs_cpu[i].to(cuda)#, non_blocking=True)
-            tref = bnb.zscore_normalization(tref)
+            # tref = bnb.zscore_normalization(tref)
+            tref = bnb.gaussian_weighted_zscore_normalization(tref)
             # tref = bnb.percentile_contrast_normalization(tref)
             if radius:
                 tref = tref * bnb.create_mask(tref, radius)
