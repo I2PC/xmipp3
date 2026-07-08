@@ -664,35 +664,32 @@ class BnBgpu:
         # Esto asegura que todo lo que se movió por la resta de la media vuelva a decaer a 0 puro
         return imgs_norm * weight_mask
     
-    def correct_gaussian_restoration(self, averages, filtered, sigma, eps=1e-8):
+    def correct_gaussian_restoration(self, averages, filtered, mask, eps=1e-8):
         """
-        Corrige el contraste usando el método de restauración del usuario
-        pero respetando matemáticamente la máscara gaussiana para evitar halos.
+        Restaura la escala del filtro usando la máscara gaussiana propia del usuario.
+        
+        averages: Tensor (B, H, W) con los promedios originales enmascarados
+        filtered: Tensor (B, H, W) con los promedios filtrados
+        mask: Tensor (H, W) generado por tu función 'create_gaussian_mask'
         """
-        H, W = filtered.shape[-2], filtered.shape[-1]
-        device = filtered.device
+        # Suma total de los pesos de TU máscara
+        sum_w = mask.sum()
         
-        # 1. Recrear la máscara gaussiana original
-        y, x = torch.meshgrid(torch.linspace(-1, 1, H, device=device), 
-                              torch.linspace(-1, 1, W, device=device), indexing='ij')
-        weight_mask = torch.exp(-(x**2 + y**2) / (2 * sigma**2))
-        sum_w = weight_mask.sum()
-        
-        # 2. Estadísticas PONDERADAS de la imagen original (averages)
-        mean_orig_w = (averages * weight_mask).sum(dim=(-2, -1), keepdim=True) / sum_w
-        var_orig_w = (((averages - mean_orig_w).pow(2)) * weight_mask).sum(dim=(-2, -1), keepdim=True) / sum_w
+        # 1. Estadísticas PONDERADAS de la imagen original (averages) utilizando tu máscara
+        mean_orig_w = (averages * mask).sum(dim=(-2, -1), keepdim=True) / sum_w
+        var_orig_w = (((averages - mean_orig_w).pow(2)) * mask).sum(dim=(-2, -1), keepdim=True) / sum_w
         std_orig_w = torch.sqrt(var_orig_w + eps)
         
-        # 3. Estadísticas PONDERADAS de la imagen filtrada (filtered)
-        mean_filt_w = (filtered * weight_mask).sum(dim=(-2, -1), keepdim=True) / sum_w
-        var_filt_w = (((filtered - mean_filt_w).pow(2)) * weight_mask).sum(dim=(-2, -1), keepdim=True) / sum_w
+        # 2. Estadísticas PONDERADAS de la imagen filtrada (filtered) utilizando tu máscara
+        mean_filt_w = (filtered * mask).sum(dim=(-2, -1), keepdim=True) / sum_w
+        var_filt_w = (((filtered - mean_filt_w).pow(2)) * mask).sum(dim=(-2, -1), keepdim=True) / sum_w
         std_filt_w = torch.sqrt(var_filt_w + eps)
         
-        # 4. Aplicar TU fórmula pero con las estadísticas correctas
+        # 3. Tu fórmula de transferencia pero corregida matemáticamente con pesos
         filtered_corrected = (filtered - mean_filt_w) / std_filt_w * std_orig_w + mean_orig_w
         
-        # 5. EL PASO CLAVE: Volver a aplicar la máscara para limpiar los bordes
-        return filtered_corrected * weight_mask
+        # 4. Volvemos a aplicar TU máscara para limpiar el fondo y mantener los bordes suaves
+        return filtered_corrected# * mask
          
     
     @torch.no_grad()
@@ -754,7 +751,9 @@ class BnBgpu:
             #                        imgs)
             # del mean0, std0, mean_f, std_f, valid
             
-            img_filt = self.correct_gaussian_restoration(imgs, img_filt, sigma)
+            internal_mask = self.create_gaussian_mask(imgs, sigma)
+            img_filt = self.correct_gaussian_restoration(imgs, img_filt, internal_mask)
+            del internal_mask
     
         return img_filt
 
@@ -1013,14 +1012,16 @@ class BnBgpu:
     
         # === (Opcional) Normalizar contraste en espacio real ===
         if normalize:
-            mean_orig = averages.mean(dim=(-2, -1), keepdim=True)
-            std_orig = averages.std(dim=(-2, -1), keepdim=True)
-            mean_filt = filtered.mean(dim=(-2, -1), keepdim=True)
-            std_filt = filtered.std(dim=(-2, -1), keepdim=True)
-            filtered = (filtered - mean_filt) / (std_filt + eps) * std_orig + mean_orig
-            del mean_orig, std_orig, mean_filt, std_filt
+            # mean_orig = averages.mean(dim=(-2, -1), keepdim=True)
+            # std_orig = averages.std(dim=(-2, -1), keepdim=True)
+            # mean_filt = filtered.mean(dim=(-2, -1), keepdim=True)
+            # std_filt = filtered.std(dim=(-2, -1), keepdim=True)
+            # filtered = (filtered - mean_filt) / (std_filt + eps) * std_orig + mean_orig
+            # del mean_orig, std_orig, mean_filt, std_filt
             
-            filtered = self.correct_gaussian_restoration(averages, filtered, sigma)
+            internal_mask = self.create_gaussian_mask(averages, sigma)
+            filtered = self.correct_gaussian_restoration(averages, filtered, internal_mask)
+            del internal_mask
     
         return filtered#, boost_max, sharpen_power
   
