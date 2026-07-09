@@ -194,7 +194,7 @@ if __name__=="__main__":
         
         cl = torch.cat(all_averages, dim=0)
         del all_averages
-        cl = bnb.zscore_normalization(cl)
+        # cl = bnb.zscore_normalization(cl)
         cl *= bnb.create_circular_mask(cl)
         
         # file_cero = output+"_0.mrcs"

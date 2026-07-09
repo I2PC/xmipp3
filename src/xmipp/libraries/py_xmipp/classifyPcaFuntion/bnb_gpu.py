@@ -309,7 +309,7 @@ class BnBgpu:
             transforIm, tMatrix[initBatch:endBatch] = self.center_particles_inverse_save_matrix(mmap.data[initBatch:endBatch], tMatrix[initBatch:endBatch], 
                                                                              rotBatch[initBatch:endBatch], translations[initBatch:endBatch], centerxy)
             
-            transforIm = self.zscore_normalization(transforIm)
+            # transforIm = self.zscore_normalization(transforIm)
    
             if mask:
                 sigma_gauss = (0.75*sigma) if (iter < 10 and iter % 2 == 1) else (sigma)# if iter < 10 else sigma
@@ -317,6 +317,9 @@ class BnBgpu:
                 transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma_gauss)
             else:
                 transforIm = transforIm * self.create_circular_mask(transforIm)
+            
+            mask_norm = self.create_gaussian_mask(transforIm, sigma_gauss)
+            transforIm = self.zscore_normalization_mask(transforIm, mask_norm)
                 
 
             proj_batch = self.batchExpToCpu(transforIm, freqBn, coef, cvecs)
@@ -399,12 +402,11 @@ class BnBgpu:
             boost = None
             clk = self.highpass_cosine_sharpen(clk, res_classes, sampling, sigma_gauss, factorR = boost)
         
-        if mask:   
-        #     clk = self.gaussian_weighted_zscore_normalization(clk, sigma_gauss)
-            mask_norm = self.create_gaussian_mask(clk, sigma_gauss)
-            clk = self.zscore_normalization_mask(clk, mask_norm)
-        else:
-            clk = self.zscore_normalization(clk)
+        # if mask:   
+        #     mask_norm = self.create_gaussian_mask(clk, sigma_gauss)
+        #     clk = self.zscore_normalization_mask(clk, mask_norm)
+        # else:
+        #     clk = self.zscore_normalization(clk)
             
                 
         if iter < (iterSplit + 1): #order by size
@@ -450,7 +452,7 @@ class BnBgpu:
                             
         transforIm, tMatrix = self.center_particles_inverse_save_matrix(data, tMatrix, 
                                                                          rotBatch, translations, centerxy)
-        transforIm = self.zscore_normalization(transforIm) 
+        # transforIm = self.zscore_normalization(transforIm) 
                 
         del rotBatch,translations, centerxy 
         
@@ -459,7 +461,8 @@ class BnBgpu:
         else: 
             transforIm = transforIm * self.create_circular_mask(transforIm)
                                
-    
+        mask_norm = self.create_gaussian_mask(transforIm, sigma)
+        transforIm = self.zscore_normalization_mask(transforIm, mask_norm)
         
         batch_projExp_cpu = self.create_batchExp(transforIm, freqBn, coef, cvecs)
         
@@ -483,11 +486,11 @@ class BnBgpu:
             
             clk = self.highpass_cosine_sharpen(clk, res_classes, sampling, sigma)   
             
-            if mask:   
-                mask_norm = self.create_gaussian_mask(clk, sigma)
-                clk = self.zscore_normalization_mask(clk, mask_norm)
-            else:
-                clk = self.zscore_normalization(clk)                    
+            # if mask:   
+            #     mask_norm = self.create_gaussian_mask(clk, sigma)
+            #     clk = self.zscore_normalization_mask(clk, mask_norm)
+            # else:
+            #     clk = self.zscore_normalization(clk)                    
         
             if not hasattr(self, 'grad_squared'):
                 self.grad_squared = torch.zeros_like(cl)
