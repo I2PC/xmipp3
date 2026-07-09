@@ -194,6 +194,8 @@ if __name__=="__main__":
         
         cl = torch.cat(all_averages, dim=0)
         del all_averages
+        cl = bnb.zscore_normalization(cl)
+        cl *= bnb.create_circular_mask(cl)
         
         # file_cero = output+"_0.mrcs"
         # save_images(cl.cpu().detach().numpy(), sampling, file_cero) 
@@ -231,6 +233,8 @@ if __name__=="__main__":
             expImages = mmap.data[initBatch:endBatch].astype(np.float32)
             Texp = torch.from_numpy(expImages).float().to(cuda)
             Texp = bnb.zscore_normalization(Texp)
+            Texp *= bnb.create_circular_mask(Texp)
+            
                   
             if i < initStep:          
                 batch_projExp_cpu.append( bnb.batchExpToCpu(Texp, freqBn, coef, cvecs) )           
