@@ -399,10 +399,12 @@ class BnBgpu:
             boost = None
             clk = self.highpass_cosine_sharpen(clk, res_classes, sampling, sigma_gauss, factorR = boost)
         
-        # if mask:   
+        if mask:   
         #     clk = self.gaussian_weighted_zscore_normalization(clk, sigma_gauss)
-        # else:
-        #     clk = self.zscore_normalization(clk)
+            mask_norm = self.create_gaussian_mask(clk, sigma_gauss)
+            clk = self.zscore_normalization_mask(clk, mask_norm)
+        else:
+            clk = self.zscore_normalization(clk)
             
                 
         if iter < (iterSplit + 1): #order by size
@@ -481,10 +483,11 @@ class BnBgpu:
             
             clk = self.highpass_cosine_sharpen(clk, res_classes, sampling, sigma)   
             
-            # if mask:   
-            #     clk = self.gaussian_weighted_zscore_normalization(clk, sigma)
-            # else:
-            #     clk = self.zscore_normalization(clk)                    
+            if mask:   
+                mask_norm = self.create_gaussian_mask(clk, sigma)
+                clk = self.zscore_normalization_mask(clk, mask_norm)
+            else:
+                clk = self.zscore_normalization(clk)                    
         
             if not hasattr(self, 'grad_squared'):
                 self.grad_squared = torch.zeros_like(cl)
@@ -630,6 +633,26 @@ class BnBgpu:
         std = images.std(dim=(-2, -1), keepdim=True)
         images = (images - mean) / (std + 1e-8)
         return images
+    
+    @torch.no_grad()
+    def zscore_normalization_mask(self, images, mask, eps=1e-8):
+        """
+        Normaliza las imágenes llevando la proteína a media 0 y std 1.
+        Usa resta modulada para no aplicar la máscara dos veces.
+        """
+        mask = mask.to(device=images.device, dtype=images.dtype)
+        sum_w = mask.sum()
+        
+        # 1. Estadísticas ponderadas basadas en la zona de la proteína
+        mean_w = (images * mask).sum(dim=(-2, -1), keepdim=True) / sum_w
+        var_w = ((images - mean_w).pow(2) * mask).sum(dim=(-2, -1), keepdim=True) / sum_w
+        std_w = torch.sqrt(var_w + eps)
+        
+        # 2. Resta modulada: NO multiplicamos por la máscara al final
+        # images_normalized = (images - mean_w * mask) / std_w
+        images_normalized = (images - mean_w ) / std_w
+        
+        return images_normalized
     
     
     def gaussian_weighted_zscore_normalization(self, imgs, sigma):
