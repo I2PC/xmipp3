@@ -470,41 +470,42 @@ class BnBgpu:
         images = (images - mean) / (std + 1e-8)
         return images
     
-    def gaussian_weighted_zscore_normalization(self, imgs, sigma=42):
+    
+    @torch.no_grad()
+    def create_gaussian_mask(self, images, sigma=128/3):
+        dim = images.size(dim=1)
+        center = dim // 2
+        y, x = torch.meshgrid(torch.arange(dim) - center, torch.arange(dim) - center, indexing='ij')
+        dist = torch.sqrt(x**2 + y**2).float().to(images.device)  
+        
+        sigma2 = sigma**2
+        K = 1. / (torch.sqrt(2 * torch.tensor(np.pi)) * sigma)**2
+    
+        mask = K * torch.exp(-0.5 * (dist**2 / sigma2))
+        mask = mask / mask[center, center].clone()
+        
+        return mask  
+    
+    @torch.no_grad()
+    def zscore_normalization_mask(self, images, mask, eps=1e-8):
         """
-        Normaliza promedios de clase que tienen aplicada una máscara gaussiana.
-        Usa estadística ponderada para no destruir la atenuación de los bordes.
-        
-        imgs: Tensor de PyTorch (B, H, W)
-        sigma: Desviación estándar de la gaussiana (controla qué tan ancha es)
+        Normaliza las imágenes llevando la proteína a media 0 y std 1.
+        Usa resta modulada para no aplicar la máscara dos veces.
         """
-        H, W = imgs.shape[-2], imgs.shape[-1]
-        device = imgs.device
+        mask = mask.to(device=images.device, dtype=images.dtype)
+        sum_w = mask.sum()
         
-        # 1. Recrear la máscara gaussiana (valores de 0 a 1)
-        y, x = torch.meshgrid(torch.linspace(-1, 1, H, device=device), 
-                              torch.linspace(-1, 1, W, device=device), indexing='ij')
-        r2 = x**2 + y**2
-        # El peso w será máximo (1.0) en el centro y caerá hacia 0 en las esquinas
-        weight_mask = torch.exp(-r2 / (2 * sigma**2))
+        # 1. Estadísticas ponderadas basadas en la zona de la proteína
+        mean_w = (images * mask).sum(dim=(-2, -1), keepdim=True) / sum_w
+        var_w = ((images - mean_w).pow(2) * mask).sum(dim=(-2, -1), keepdim=True) / sum_w
+        std_w = torch.sqrt(var_w + eps)
         
-        # Suma total de los pesos (el equivalente al 'número de píxeles')
-        sum_w = weight_mask.sum()
+        # 2. Resta modulada: NO multiplicamos por la máscara al final
+        # images_normalized = (images - mean_w * mask) / std_w
+        images_normalized = (images - mean_w ) / std_w
         
-        # 2. Calcular la Media Ponderada por cada imagen en el batch
-        # Multiplicamos la imagen por los pesos para ponderar el centro
-        weighted_mean = (imgs * weight_mask).sum(dim=(-2, -1), keepdim=True) / sum_w
-        
-        # 3. Calcular la Varianza y STD Ponderadas
-        weighted_variance = ((imgs - weighted_mean).pow(2) * weight_mask).sum(dim=(-2, -1), keepdim=True) / sum_w
-        weighted_std = torch.sqrt(weighted_variance + 1e-8)
-        
-        # 4. Aplicar el Z-score ponderado
-        imgs_norm = (imgs - weighted_mean) / weighted_std
-        
-        # 5. Crucial: Volver a aplicar la máscara gaussiana
-        # Esto asegura que todo lo que se movió por la resta de la media vuelva a decaer a 0 puro
-        return imgs_norm * weight_mask
+        return images_normalized
+    
     
     def background_contrast_normalization(self, imgs, bg_radius=0.85):
         """
