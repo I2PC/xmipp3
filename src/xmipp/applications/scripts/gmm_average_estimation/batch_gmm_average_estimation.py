@@ -3,9 +3,11 @@
 import argparse
 from pathlib import Path
 from functools import partial
+import warnings
 
 import mrcfile
 import numpy as np
+import torch
 
 from xmippPyModules.gmmAverageTools.data import read_data, write_star_with_weights
 from xmippPyModules.gmmAverageTools.alignment import align_particles_batch
@@ -72,6 +74,12 @@ def build_argument_parser() -> argparse.ArgumentParser:
         help="Path to the output .npy file for the original distances",
     )
     parser.add_argument(
+        "--device",
+        type=str,
+        choices=["cpu", "cuda"],
+        help="Compute device for PyTorch"
+    )
+    parser.add_argument(
         "--rotate-first",
         action="store_true",
         default=False,
@@ -85,8 +93,14 @@ def main():
     parser = build_argument_parser()
     args = parser.parse_args()
 
-    # NOTE: this line is intended to make future GPU support easier
-    device = "cpu"
+    if args.device == "cuda":
+        if torch.cuda.is_available():
+            device = "cuda"
+        else:
+            warnings.warn("Requested CUDA compute device but CUDA is unavailable. Using CPU instead.")
+            device = "cpu"
+    else:
+        device = "cpu"
 
     # Read data from the input star file
     particles, angles, shiftX, shiftY = read_data(
@@ -111,7 +125,8 @@ def main():
     mask_np = create_circular_mask(
         image_shape=tuple(images.shape[1:]), radius=images.shape[1] // 2
     )
-    masked_images = images * mask_np
+    mask_tensor = torch.from_numpy(mask_np, device=images.device, dtype=images.dtype)
+    masked_images = images * mask_tensor
 
     # Initialize the estimator
     estimator = RecursiveGMMEstimator(
