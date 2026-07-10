@@ -126,7 +126,7 @@ def main():
     reference = masked_images.mean(dim=0)
 
     # Fit the estimator to get the corrected average and the weights
-    new_avg, weights, original_weights = estimator.fit(
+    new_avg, weights, original_distances = estimator.fit(
         images=masked_images, reference=reference
     )
     new_avg = new_avg.detach().cpu().numpy()
@@ -134,7 +134,9 @@ def main():
     # NOTE: for global GMM weights, reshaping to a flat array is enough,
     # but more intricate weight aggregation might be necessary in the future
     gmm_weights = weights.detach().cpu().numpy().reshape(-1)
-    original_weights = original_weights.detach().cpu().numpy().reshape(-1)
+
+    # The GMM estimator returns distances, which are the negative of the weights
+    original_weights = -original_distances.detach().cpu().numpy().reshape(-1)
 
     # Save the new average if requested
     if args.out_corrected_avg:
@@ -152,7 +154,7 @@ def main():
             input_star=args.base_xmd,
             output_star=args.out_star,
             weights_list=[gmm_weights, original_weights],
-            column_names=["GmmRobustClassWeight", "OriginalRobustClassWeight"],
+            column_names=["RobustGMMWeight", "OriginalRobustClassWeight"],
         )
     
     # Save weights and distances as separate .npy files if requested
