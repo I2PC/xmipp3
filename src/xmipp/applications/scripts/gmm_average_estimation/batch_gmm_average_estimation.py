@@ -125,7 +125,7 @@ def main():
     mask_np = create_circular_mask(
         image_shape=tuple(images.shape[1:]), radius=images.shape[1] // 2
     )
-    mask_tensor = torch.from_numpy(mask_np, device=images.device, dtype=images.dtype)
+    mask_tensor = torch.from_numpy(mask_np).to(device=images.device, dtype=images.dtype)
     masked_images = images * mask_tensor
 
     # Initialize the estimator
