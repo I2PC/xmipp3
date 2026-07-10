@@ -38,6 +38,7 @@ from xmipp_script import XmippScript
 import sys
 import numpy as np
 import jax
+import jax.numpy as jnp
 import xmippLib
 from xmipp_script import XmippScript
 
@@ -52,7 +53,7 @@ from xmippPyModules.deepEmbed import (
     assign_to_centroids,
 )
 
-class ScriptDeepEmbedTrain(XmippScript):
+class ScriptDeepEmbedPredict(XmippScript):
     def __init__(self):
         XmippScript.__init__(self)
 
@@ -61,8 +62,10 @@ class ScriptDeepEmbedTrain(XmippScript):
         ## params
         self.addParamsLine(' -i <metadata>                : xmd file with the list of images')
         self.addParamsLine(' --imodel <fnModel>           : Model filename')
-        self.addParamsLine('--icentroids <fn>             : Output file for centroids (.npy or .npz)')
+        self.addParamsLine(' --embeddingDim <dim=128>     : Embedding dimension')
+        # self.addParamsLine('--icentroids <fn>             : Output file for centroids (.npy or .npz)')
         self.addParamsLine('-o <fnXmd>                    : Output metadata')
+        self.addParamsLine('--oscores <fn>          : Output file for scores (.npy or .npz)')
         self.addParamsLine('[--gpu <id=0>]                : GPU Id')
         self.addParamsLine('[--imgSize <Xdim=64>]         : Prediction image size')
         self.addParamsLine('[--batchSize <s=1024>]        : Batch size')
@@ -70,7 +73,9 @@ class ScriptDeepEmbedTrain(XmippScript):
     def run(self):
         fnXmd = self.getParam("-i")
         fnModel = self.getParam("--imodel")
-        fnCentroids = self.getParam("--icentroids")
+        embeddingDim = int(self.getParam("--embeddingDim"))
+        # fnCentroids = self.getParam("--icentroids")
+        fnScores = self.getParam("--oscores")
         fnOut = self.getParam("-o")
 
         batch_size = int(self.getParam("--batchSize"))
@@ -84,9 +89,8 @@ class ScriptDeepEmbedTrain(XmippScript):
         fnImgs = mdIn.getColumnValues(xmippLib.MDL_IMAGE)
         N = len(fnImgs)
 
-        centroids = load_centroids(fnCentroids, normalize=True)
-        embeddingDim = centroids.shape[1]
-        centroids_dev = jax.device_put(centroids)
+        # centroids = load_centroids(fnCentroids, normalize=True)
+        # centroids_dev = jax.device_put(centroids)
 
         preprocess_ctx = make_preprocess_context(XdimOut, K=filterBankK)
 
@@ -100,9 +104,10 @@ class ScriptDeepEmbedTrain(XmippScript):
         )
         embedder = make_embedder(state.apply_fn)
 
-        labels_all = np.empty(N, dtype=np.int32)
-        scores_all = np.empty(N, dtype=np.float32)
+        # labels_all = np.empty(N, dtype=np.int32)
+        # scores_all = np.empty(N, dtype=np.float32)
 
+        embeddings = []
         for start in range(0, N, batch_size):
             end = min(start + batch_size, N)
             batch_files = fnImgs[start:end]
@@ -111,19 +116,26 @@ class ScriptDeepEmbedTrain(XmippScript):
             Xdev = jax.device_put(Xnp).astype(DT_IMAGE)
 
             emb = embedder(state.params, Xdev)
-            lab, sco = assign_to_centroids(emb, centroids_dev)
+            embeddings.append(np.asarray(jax.copy_to_host_async(emb), dtype=np.float32))
+            # lab, sco = assign_to_centroids(emb, centroids_dev)
 
-            labels_all[start:end] = np.asarray(jax.device_get(lab), dtype=np.int32)
-            scores_all[start:end] = np.asarray(jax.device_get(sco), dtype=np.float32)
+            # labels_all[start:end] = np.asarray(jax.device_get(lab), dtype=np.int32)
+            # scores_all[start:end] = np.asarray(jax.device_get(sco), dtype=np.float32)
 
             print(f"[{end:7d}/{N:7d}] done")
 
-        mdOut = xmippLib.MetaData(fnXmd)
-        for i, objId in enumerate(mdOut):
-            mdOut.setValue(xmippLib.MDL_REF, int(labels_all[i]), objId)
+        embeddings = jnp.concatenate(embeddings, axis=0)
+        embeddings = jax.block_until_ready(embeddings)
 
+        embeddings = np.asarray(embeddings, dtype=np.float32)
+        np.save(fnScores, embeddings)
+
+        mdOut = xmippLib.MetaData(fnXmd)
+        # for i, objId in enumerate(mdOut):
+        #     mdOut.setValue(xmippLib.MDL_REF, int(labels_all[i]), objId)
+        
         mdOut.write(fnOut)
 
 if __name__ == '__main__':
-    exitCode = ScriptDeepEmbedTrain().tryRun()
+    exitCode = ScriptDeepEmbedPredict().tryRun()
     sys.exit(exitCode)

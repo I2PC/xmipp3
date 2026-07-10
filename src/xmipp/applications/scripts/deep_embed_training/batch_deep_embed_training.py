@@ -31,6 +31,7 @@ import time
 import numpy as np
 from sklearn.cluster import KMeans
 import jax
+import os
 
 import xmippLib
 from xmipp_script import XmippScript
@@ -85,6 +86,16 @@ class ScriptDeepEmbedTrain(XmippScript):
 
         setup_gpu(gpuId)
 
+        devices = jax.devices(backend="gpu")
+        env_name = os.environ.get("CONDA_DEFAULT_ENV")
+        env_prefix = os.environ.get("CONDA_PREFIX")
+
+        assert len(devices) > 0
+
+        print("Conda environment: %s", env_name)
+        print("Conda prefix: %s", env_prefix)
+        print(f"Visible devices in JAX: {devices}")
+
         mdExp = xmippLib.MetaData(fnXmd)
         fnImgs = mdExp.getColumnValues(xmippLib.MDL_IMAGE)
 
@@ -96,10 +107,10 @@ class ScriptDeepEmbedTrain(XmippScript):
         warper = make_centered_warper_multichan(coords, cx, cy)
 
         key = jax.random.PRNGKey(42)
-        next_triplet, step = make_batcher(pre_dev, warper, batch_size, sigma_shift)
+        next_triplet, step = make_batcher(warper, batch_size, pre_dev.shape[0], sigma_shift)
         margin = 0.2
 
-        key, batch = next_triplet(key)
+        key, batch = next_triplet(pre_dev, key)
         state, _ = train_step(state, batch, margin=margin)
         jax.block_until_ready(state.params)
 
@@ -109,7 +120,7 @@ class ScriptDeepEmbedTrain(XmippScript):
         t0 = time.time()
         for epoch in range(1, maxEpochs + 1):
             state, key, loss_sum, dap_sum, dan_sum, viol_sum = run_epoch(
-                step, state, key, steps_per_epoch, margin
+                step, pre_dev, state, key, steps_per_epoch, margin
             )
 
             loss_avg = float(loss_sum / steps_per_epoch)
@@ -127,7 +138,7 @@ class ScriptDeepEmbedTrain(XmippScript):
 
         print("Generating synthetic embeddings for centroid estimation...")
         emb_key = jax.random.PRNGKey(12345)
-        Xemb = sample_embeddings(state, next_triplet, emb_key, embeddingPoints, batch_size)
+        Xemb = sample_embeddings(pre_dev, state, next_triplet, emb_key, embeddingPoints, batch_size)
 
         print(f"Running K-means with K={embeddingK} on {Xemb.shape[0]} points...")
         kmeans = KMeans(

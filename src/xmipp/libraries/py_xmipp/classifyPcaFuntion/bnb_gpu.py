@@ -1019,7 +1019,6 @@ class BnBgpu:
     
 
     def determine_batches(self, free_memory, dim):
-        
         if free_memory < 13: #test with 6Gb GPU
             if dim <= 64:
                 expBatchSize = 30000 
@@ -1044,8 +1043,8 @@ class BnBgpu:
                 numFirstBatch = 2
                 initClBatch = 80000
             elif dim <= 128:
-                expBatchSize = 15000 
-                expBatchSize2 = 20000
+                expBatchSize = 10000 
+                expBatchSize2 = 15000
                 numFirstBatch = 5
                 initClBatch = 50000
             elif dim <= 256:

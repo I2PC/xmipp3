@@ -285,10 +285,10 @@ def train_step(state, batch, margin=0.2):
 
 
 @partial(jax.jit, static_argnums=(0,))
-def run_epoch(step_fn, state, key, steps_per_epoch, margin):
+def run_epoch(step_fn, pre_dev, state, key, steps_per_epoch, margin):
     def body(i, carry):
         state, key, loss_sum, dap_sum, dan_sum, viol_sum = carry
-        state, key, metrics = step_fn(state, key, margin)
+        state, key, metrics = step_fn(pre_dev, state, key, margin)
         loss_sum = loss_sum + metrics["loss"]
         dap_sum = dap_sum + metrics["d_ap"]
         dan_sum = dan_sum + metrics["d_an"]
@@ -306,10 +306,15 @@ def run_epoch(step_fn, state, key, steps_per_epoch, margin):
     return lax.fori_loop(0, steps_per_epoch, body, carry0)
 
 
-def make_batcher(pre_dev, warper, batch_size, sigma_shift,
-                 a_range=(0.7, 1.4), b_range=(-0.2, 0.2)):
+def make_batcher(
+    warper,
+    batch_size,
+    sigma_shift,
+    ds_len,
+    a_range=(0.7, 1.4), b_range=(-0.2, 0.2)
+):
 
-    N = pre_dev.shape[0]
+    N = ds_len
 
     def sample_T(k, B):
         k, k_th, k_sh, k_a, k_b = jax.random.split(k, 5)
@@ -326,7 +331,7 @@ def make_batcher(pre_dev, warper, batch_size, sigma_shift,
         return k, M, t, a, b
 
     @jax.jit
-    def next_triplet(key):
+    def next_triplet(pre_dev, key):
         key, k_idx, kA, kP, kN = jax.random.split(key, 5)
         idx = jax.random.randint(k_idx, (2 * batch_size,), 0, N)
 
@@ -348,20 +353,20 @@ def make_batcher(pre_dev, warper, batch_size, sigma_shift,
         return key, (xa, xp, xn)
 
     @jax.jit
-    def step(state, key, margin):
-        key, batch = next_triplet(key)
+    def step(pre_dev, state, key, margin):
+        key, batch = next_triplet(pre_dev, key)
         state, metrics = train_step(state, batch, margin=margin)
         return state, key, metrics
 
     return next_triplet, step
 
 
-def sample_embeddings(state, next_triplet, key, embedding_points, batch_size):
+def sample_embeddings(pre_dev, state, next_triplet, key, embedding_points, batch_size):
     out = []
     n_done = 0
 
     while n_done < embedding_points:
-        key, batch = next_triplet(key)
+        key, batch = next_triplet(pre_dev, key)
         xa, _, _ = batch
 
         emb = state.apply_fn({'params': state.params}, xa)
