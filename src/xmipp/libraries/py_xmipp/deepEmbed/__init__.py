@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 from jax import lax
 from jax.scipy.ndimage import map_coordinates
+import optax
 
 from flax import linen as nn
 from flax import serialization
@@ -189,30 +190,30 @@ class TripletNet(nn.Module):
 
         x = nn.Conv(32, (5, 5), (2, 2), dtype=self.compute_dtype,
                     param_dtype=self.param_dtype)(x)
-        x = nn.relu(x)
+        x = nn.leaky_relu(x)
 
         x = nn.Conv(64, (5, 5), (2, 2), dtype=self.compute_dtype,
                     param_dtype=self.param_dtype)(x)
-        x = nn.relu(x)
+        x = nn.leaky_relu(x)
 
         x = nn.Conv(64, (5, 5), (2, 2), dtype=self.compute_dtype,
                     param_dtype=self.param_dtype)(x)
-        x = nn.relu(x)
+        x = nn.leaky_relu(x)
 
         x = nn.Conv(128, (5, 5), (1, 1), dtype=self.compute_dtype,
                     param_dtype=self.param_dtype)(x)
-        x = nn.relu(x)
+        x = nn.leaky_relu(x)
 
         x = jnp.mean(x, axis=(1, 2))
         x = nn.Dense(256, dtype=self.compute_dtype,
                      param_dtype=self.param_dtype)(x)
-        x = nn.relu(x)
+        x = nn.leaky_relu(x)
 
         z = nn.Dense(self.d, dtype=self.compute_dtype,
                      param_dtype=self.param_dtype)(x)
 
         z = z.astype(jnp.float32)
-        z = z / (jnp.linalg.norm(z, axis=-1, keepdims=True) + 1e-9)
+        # z = z / (jnp.linalg.norm(z, axis=-1, keepdims=True) + 1e-9)
         return z
 
 
@@ -259,8 +260,11 @@ def triplet_loss(params, apply_fn, batch, margin=0.2):
     ep = apply_fn({'params': params}, xp)
     en = apply_fn({'params': params}, xn)
 
-    dap = 1.0 - jnp.sum(ea * ep, axis=1)
-    dan = 1.0 - jnp.sum(ea * en, axis=1)
+    # dap = 1.0 - jnp.sum(ea * ep, axis=1)
+    # dan = 1.0 - jnp.sum(ea * en, axis=1)
+
+    dap = optax.losses.l2_loss(ea, ep)
+    dan = optax.losses.l2_loss(ea, en)
 
     losses = jnp.maximum(0.0, dap - dan + margin)
     loss = jnp.mean(losses)
