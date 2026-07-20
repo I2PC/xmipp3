@@ -30,6 +30,7 @@
 
 from typing import Tuple, List, NamedTuple, Optional, Union
 import numpy as np
+import math
 
 from xmipp_base import XmippScript
 import xmippLib
@@ -41,7 +42,21 @@ class TiltData(NamedTuple):
     shift: np.ndarray
     coordinates2d: np.ndarray
 
+def _normalizeLogResponsibilities(exponent: np.ndarray,
+                                  nIter: int ) -> Tuple[np.ndarray, np.ndarray]:    
+    # Apply Sinkhorn-Knopp
+    u = np.zeros((exponent.shape[0], 1))
+    v = np.zeros((1, exponent.shape[1]))
+    tmp = None
+    for _ in range(nIter):
+        tmp = np.subtract(exponent, v, out=tmp)
+        u = np.logaddexp.reduce(tmp, axis=1, keepdims=True, out=u)
 
+        tmp = np.subtract(exponent, u, out=tmp)
+        v = np.logaddexp.reduce(tmp, axis=0, keepdims=True, out=v)
+        v = np.maximum(v, 0.0, out=v) # Don't boost unassigned components
+
+    return u, v
 
 def _computeGmmResponsibilities(
     distances2: np.ndarray,
@@ -61,11 +76,9 @@ def _computeGmmResponsibilities(
     logMantissa = logWeights + logCoefficient
     exponent += logMantissa
     
-    """
     u, v = _normalizeLogResponsibilities(exponent, 16)
     exponent -= u
     exponent -= v
-    """
     
     logNorm = np.logaddexp.reduce(exponent, axis=1, keepdims=True)
     exponent -= logNorm
@@ -203,7 +216,7 @@ class ScriptCoordinateBackProjection(XmippScript):
 
         weights = np.full(nCoords, 1/nCoords)
         sigma2 = np.full(len(data), np.square(sigma))
-        for _ in range(MAX_ITER):
+        for it in range(MAX_ITER):
             n = np.zeros(len(positions))
             backprojections = np.zeros_like(positions)
             count = 0
@@ -227,7 +240,7 @@ class ScriptCoordinateBackProjection(XmippScript):
                     returnLogLikelihood=False
                 )
                 
-                sigma2[i] = 0.5 * np.sum(responsibilities*distances2) / np.sum(responsibilities)
+                sigma2[i] = min(0.5 * np.sum(responsibilities*distances2) / np.sum(responsibilities), sigma*sigma)
                 
                 contribution = responsibilities.sum(axis=0)
                 matrices += contribution[:,None,None] * projectionMatrix2
@@ -249,10 +262,12 @@ class ScriptCoordinateBackProjection(XmippScript):
             positions = (np.linalg.inv(matrices + EPS*np.eye(3)) @ backprojections[:,:,None]).squeeze()
             weights = n / n.sum()
             
+            print("Iteration %d sigma[20]=%f" % (it, math.sqrt(sigma2[20])), flush=True)
             delta = np.mean(np.linalg.norm(oldPositions - positions, axis=-1))
             if delta < TOL:
                 break
-        
+            
+            
         return positions, n, np.sqrt(sigma2)
 
 if __name__=="__main__":
