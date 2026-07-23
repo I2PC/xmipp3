@@ -169,7 +169,7 @@ def main():
             input_star=args.base_xmd,
             output_star=args.out_star,
             weights_list=[gmm_weights, original_weights],
-            column_names=["RobustGMMWeight", "OriginalRobustClassWeight"],
+            column_names=["wRobustGmm", "wRobust"],
         )
     
     # Save weights and distances as separate .npy files if requested
