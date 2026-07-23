@@ -155,6 +155,7 @@ class ScriptCoordinateBackProjection(XmippScript):
         
         if outTsMetadataFn is not None:
             #tsMd.setColumnValues(xmippLib.MDL_SIGMANOISE, sigma.tolist())
+            print(sigma.tolist())
             tsMd.write(outTsMetadataFn)
         
     def readTiltSeriesProjectionTransforms(self, filename):
@@ -240,15 +241,17 @@ class ScriptCoordinateBackProjection(XmippScript):
                     returnLogLikelihood=False
                 )
                 
-                sigma2[i] = min(0.5 * np.sum(responsibilities*distances2) / np.sum(responsibilities), sigma*sigma)
+                s2 = float(sigma2[i])
+                #sigma2[i] = min(0.5 * np.sum(responsibilities*distances2) / np.sum(responsibilities), sigma*sigma)
+                sigma2[i] = 0.5 * np.sum(responsibilities*distances2) / np.sum(responsibilities)
                 
                 contribution = responsibilities.sum(axis=0)
-                matrices += contribution[:,None,None] * projectionMatrix2
+                matrices += contribution[:,None,None] * projectionMatrix2 / s2
                 n += contribution
                 
                 centeredDetections = detections - tilt.shift
                 updatedProjection = np.sum(responsibilities[:,:,None] * centeredDetections[:,None], axis=0)
-                backprojections += (projectionMatrix.T @ updatedProjection.T).T
+                backprojections += (projectionMatrix.T @ updatedProjection.T).T / s2
    
                 count += len(responsibilities)
             
@@ -262,7 +265,6 @@ class ScriptCoordinateBackProjection(XmippScript):
             positions = (np.linalg.inv(matrices + EPS*np.eye(3)) @ backprojections[:,:,None]).squeeze()
             weights = n / n.sum()
             
-            print("Iteration %d sigma[20]=%f" % (it, math.sqrt(sigma2[20])), flush=True)
             delta = np.mean(np.linalg.norm(oldPositions - positions, axis=-1))
             if delta < TOL:
                 break
