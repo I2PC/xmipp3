@@ -148,7 +148,7 @@ class BnBgpu:
         # FFT y shift
         rotFFT = torch.fft.rfft2(prj_rot, norm="forward")
         #Apply whitening
-        # rotFFT = rotFFT * whitening
+        rotFFT = rotFFT * whitening
         shift_tensor = torch.as_tensor(shift, device=device, dtype=torch.float32)
         band_shifted = self.precShiftBand(rotFFT, freqBn, grid_flat, coef, shift_tensor)
         projBatch = self.phiProjRefs(band_shifted, cvecs)
@@ -164,7 +164,7 @@ class BnBgpu:
         expFFT = torch.fft.rfft2(Texp, norm="forward")
         del(Texp)
         #Apply whitening
-        # expFFT = expFFT * whitening
+        expFFT = expFFT * whitening
         bandExp = self.selectBandsRefs(expFFT, freqBn, coef)
         self.batch_projExp = self.phiProjRefs(bandExp, vecs)
         del(expFFT , bandExp)
@@ -173,7 +173,7 @@ class BnBgpu:
         return(self.batch_projExp)
     
     
-    def compute_radial_whitening_filter(self, images, eps=1e-8):
+    def compute_radial_whitening_filter2(self, images, eps=1e-8):
         """
         Calcula filtro de whitening radial a partir de un stack de imágenes.
         """
@@ -206,6 +206,69 @@ class BnBgpu:
         whitening_filter = 1.0 / torch.sqrt(radial_psd[r] + eps)
     
         whitening_filter[0, 0] = 0.0
+    
+        return whitening_filter
+    
+    
+    def compute_radial_whitening_filter(
+            self,
+            images,
+            pixel_size,
+            resolution_limit,
+            eps=1e-6):
+    
+        device = images.device
+        N, H, W = images.shape
+    
+        # 1. PSD en Fourier
+        fft = torch.fft.rfft2(images, norm="forward")
+        psd2d = torch.mean(torch.abs(fft)**2, dim=0)
+    
+        # 2. Frecuencias físicas (1/Å)
+        fy = torch.fft.fftfreq(H, d=pixel_size, device=device)
+        fx = torch.fft.rfftfreq(W, d=pixel_size, device=device)
+    
+        yy, xx = torch.meshgrid(fy, fx, indexing="ij")
+    
+        freq = torch.sqrt(yy**2 + xx**2)
+    
+        # índice radial
+        r_idx = (freq * min(H, W)).round().long()
+    
+        # 3. Promedio radial
+        max_r = r_idx.max().item()
+    
+        radial_psd = torch.zeros(max_r + 1, device=device)
+        counts = torch.zeros(max_r + 1, device=device)
+    
+        radial_psd.scatter_add_(0, r_idx.flatten(), psd2d.flatten())
+        counts.scatter_add_(0, r_idx.flatten(), torch.ones_like(psd2d.flatten()))
+    
+        radial_psd /= (counts + 1e-12)
+    
+        # 4. Whitening
+        whitening_filter = 1.0 / torch.sqrt(radial_psd[r_idx] + eps)
+    
+        # eliminar DC
+        whitening_filter[0, 0] = 0.0
+    
+    
+        # --------------------------------------------------
+        # 5. Limitar a resolución máxima
+        # --------------------------------------------------
+        
+        fmax = 1.0 / resolution_limit
+        temperature = 0.02 # Controla la suavidad de la caída (ajustar si es necesario)
+        
+        # Filtro que es 1 hasta fmax y luego cae
+        lowpass = 1.0 / (1.0 + torch.exp((freq - fmax) / temperature))
+        
+        whitening_filter *= lowpass
+    
+    
+        # 6. Normalizar
+        whitening_filter /= whitening_filter.mean()
+    
     
         return whitening_filter
         
@@ -549,6 +612,43 @@ class BnBgpu:
         # Recortamos (clip/clamp) para que los pocos píxeles fuera de los percentiles no distorsionen
         return torch.clamp(imgs_norm, 0.0, 1.0)
     
+    
+    def contrast_dominant_mask(self, imgs,
+                            window=3,
+                            contrast_percentile=80,
+                            intensity_percentile=50,
+                            contrast_weight=1.5,
+                            intensity_weight=1.0,
+                            smooth_sigma=1.0):
+        N, H, W = imgs.shape
+        imgs = imgs.float().unsqueeze(1)  # [N, 1, H, W]
+        
+        mean_local = F.avg_pool2d(imgs, window, stride=1, padding=window // 2)
+        mean_sq_local = F.avg_pool2d(imgs**2, window, stride=1, padding=window // 2)
+        std_local = torch.sqrt((mean_sq_local - mean_local**2).clamp(min=0))  # [N, 1, H, W]
+    
+        contrast_thresh = torch.quantile(std_local.view(N, -1), contrast_percentile / 100.0, dim=1).view(N, 1, 1, 1)
+        intensity_thresh = torch.quantile(imgs.view(N, -1), intensity_percentile / 100.0, dim=1).view(N, 1, 1, 1)
+    
+        mask = ((std_local > contrast_thresh) & (imgs > intensity_thresh)).float()  # [N, 1, H, W]
+    
+        # === Suavizado con gaussiana ===
+        if smooth_sigma > 0:
+            kernel_size = int(2 * round(2 * smooth_sigma) + 1)
+            padding = kernel_size // 2
+    
+            x = torch.arange(-padding, padding + 1, device=imgs.device).float()
+            gauss = torch.exp(-0.5 * (x / smooth_sigma)**2)
+            gauss = gauss / gauss.sum()
+    
+            gauss_2d = gauss[:, None] * gauss[None, :]
+            gauss_2d = gauss_2d.unsqueeze(0).unsqueeze(0)  # [1, 1, K, K]
+    
+            mask = F.conv2d(mask, gauss_2d, padding=padding, groups=1)
+    
+        return mask.squeeze(1)  # [N, H, W]
+    
+    
     def contrast_cv(self, images):
         """
         Calcula el coeficiente de variación (CV) de la desviación estándar
@@ -568,6 +668,7 @@ class BnBgpu:
         cv = std_std / (mean_std + 1e-8)
     
         return cv, mean_std, std_std
+    
     
     def contrast_outliers(self, images):
         particle_std = images.std(dim=(-2, -1))

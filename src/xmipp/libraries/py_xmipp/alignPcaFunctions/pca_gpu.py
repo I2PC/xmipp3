@@ -338,9 +338,16 @@ class PCAgpu:
             # expImages = mexp.data[initBatch:endBatch].astype(np.float32)#.copy()
             # Texp = torch.from_numpy(expImages).float().to(self.cuda)
             Texp = Img[initBatch:endBatch]
-            radius = 60
-            Texp = Texp * bnb.create_mask(Texp, radius)
+            
+            radius = 64
             Texp = bnb.zscore_normalization(Texp)
+            # mask = bnb.create_gaussian_mask(Texp)
+            # Texp = bnb.zscore_normalization_mask(Texp, mask)
+            Texp = Texp * bnb.create_mask(Texp, radius)
+            Texp = torch.relu(Texp)
+            
+            # whitening = bnb.compute_radial_whitening_filter(Texp, sampling, 8.0)
+            whitening = 1
     
             # del(expImages)
 
@@ -349,6 +356,8 @@ class PCAgpu:
                 Texp_augmented = self.augmented(Texp, 5)
     
                 ft = torch.fft.rfft2(Texp_augmented, norm="forward")
+                #Whitening
+                ft = ft * whitening
                 del(Texp_augmented)
                 bandBatch = bnb.selectBandsRefs(ft, freq_band, coef)
                 del(ft)

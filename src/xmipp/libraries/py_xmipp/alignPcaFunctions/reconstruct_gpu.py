@@ -6,6 +6,7 @@
   ***************************************************************************/
 """
 from xmippPyModules.alignPcaFunctions.assessment import *
+from xmippPyModules.alignPcaFunctions.bnb_gpu import BnBgpu
 import numpy as np
 import torch
 import time
@@ -307,6 +308,7 @@ class reconstruct:
             # imgs = (imgs - imgs.mean(dim=(-2, -1), keepdim=True)) / (
             #     imgs.std(dim=(-2, -1), keepdim=True) + 1e-8
             # )
+            imgs = torch.relu(imgs)
     
             proj_fft = torch.fft.fftshift(
                 torch.fft.fft2(torch.fft.ifftshift(imgs, dim=(-2, -1)), norm="forward"),
@@ -1465,6 +1467,87 @@ class reconstruct:
         )
         
         return zeroVol
+    
+    
+    def contrast_dominant_mask_3d(
+        self,
+        vol,
+        window=5,
+        contrast_percentile=80,
+        intensity_percentile=50,
+        smooth_sigma=1.0):
+
+        # vol: [D,H,W]
+    
+        vol = vol.float().unsqueeze(0).unsqueeze(0)  # [1,1,D,H,W]
+    
+        # Estadísticas locales
+        mean_local = F.avg_pool3d(
+            vol,
+            kernel_size=window,
+            stride=1,
+            padding=window // 2
+        )
+    
+        mean_sq_local = F.avg_pool3d(
+            vol**2,
+            kernel_size=window,
+            stride=1,
+            padding=window // 2
+        )
+    
+        std_local = torch.sqrt(
+            (mean_sq_local - mean_local**2).clamp(min=0)
+        )
+    
+        # Percentiles globales
+        contrast_thresh = torch.quantile(
+            std_local.flatten(),
+            contrast_percentile / 100.0
+        )
+    
+        intensity_thresh = torch.quantile(
+            vol.flatten(),
+            intensity_percentile / 100.0
+        )
+    
+        # Máscara binaria
+        mask = (
+            (std_local > contrast_thresh) &
+            (vol > intensity_thresh)
+        ).float()
+    
+        # Suavizado gaussiano 3D
+        if smooth_sigma > 0:
+    
+            kernel_size = int(2 * round(2 * smooth_sigma) + 1)
+            padding = kernel_size // 2
+    
+            x = torch.arange(
+                -padding,
+                padding + 1,
+                device=vol.device,
+                dtype=torch.float32
+            )
+    
+            g = torch.exp(-0.5 * (x / smooth_sigma)**2)
+            g = g / g.sum()
+    
+            kernel3d = (
+                g[:, None, None]
+                * g[None, :, None]
+                * g[None, None, :]
+            )
+    
+            kernel3d = kernel3d.unsqueeze(0).unsqueeze(0)
+    
+            mask = F.conv3d(
+                mask,
+                kernel3d,
+                padding=padding
+            )
+    
+        return mask.squeeze(0).squeeze(0)  # [D,H,W]
         
             
 

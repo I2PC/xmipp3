@@ -11,7 +11,6 @@ import torch.nn.functional as F
 import kornia
 import random
 import math
-import mrcfile
 
 
 
@@ -24,17 +23,6 @@ class BnBgpu:
         torch.cuda.is_available()
         torch.cuda.current_device()
         self.cuda = torch.device('cuda:0')  
-        
-    def save_images(self, data, voxel, outfilename):
-        data = data.astype('float32')
-        
-        if data.ndim == 2:
-            data = np.expand_dims(data, axis=0)
-            
-        with mrcfile.new(outfilename, overwrite=True) as mrc:
-            mrc.set_data(data)
-            mrc.voxel_size = (voxel, voxel, 1)
-            mrc.update_header_stats()
     
     
     #the angle is a triplet
@@ -125,48 +113,14 @@ class BnBgpu:
         proj = [torch.matmul(band[n], vecs[n]) for n in range(self.nBand)]
         return proj
         
-    
-    def lowpass_filter_per_class(self, averages, resolutions, pixel_size, soft_edge=0.02):
-
-        device = averages.device
-    
-        nClass, H, W = averages.shape
-    
-        # grid frecuencias físicas
-        fy = torch.fft.fftfreq(H, d=pixel_size, device=device)
-        fx = torch.fft.rfftfreq(W, d=pixel_size, device=device)
-    
-        yy, xx = torch.meshgrid(fy, fx, indexing="ij")
-    
-        freq = torch.sqrt(xx**2 + yy**2)
-    
-        filtered = torch.empty_like(averages)
-    
-        for i in range(nClass):
-    
-            res = resolutions[i]
-    
-            fmax = 1.0 / res
-    
-            # lowpass suave tipo cryoSPARC
-            lowpass = 1.0 / (1.0 + torch.exp((freq - fmax) / soft_edge))
-    
-            fft = torch.fft.rfft2(averages[i], norm="forward")
-    
-            fft *= lowpass
-    
-            filtered[i] = torch.fft.irfft2(fft, s=(H, W), norm="forward")
-    
-        return filtered
-    
        
     #Applying rotation and shift    
     @torch.no_grad()
-    def precalculate_projection(self, prjTensorCpu, whitening, freqBn, grid_flat, coef, cvecs, rot_tensor, shift):
+    def precalculate_projection(self, prjTensorCpu, freqBn, grid_flat, coef, cvecs, rot_tensor, shift):
         device = self.cuda
         prj = prjTensorCpu.to(device, dtype=torch.float32, non_blocking=True)
         N, H, W = prj.shape
-            
+    
         rot_tensor = torch.as_tensor(rot_tensor, device=device, dtype=torch.float32).flatten()
         num_angles = rot_tensor.numel()
     
@@ -194,8 +148,6 @@ class BnBgpu:
     
         # FFT y shift
         rotFFT = torch.fft.rfft2(prj_rot, norm="forward")
-                #whitening
-        rotFFT = rotFFT * whitening
         shift_tensor = torch.as_tensor(shift, device=device, dtype=torch.float32)
         band_shifted = self.precShiftBand(rotFFT, freqBn, grid_flat, coef, shift_tensor)
         projBatch = self.phiProjRefs(band_shifted, cvecs)
@@ -204,151 +156,18 @@ class BnBgpu:
         return projBatch
     
     
-    
-    def compute_radial_whitening_filter2(self, images, eps=1e-6):
-        """
-    
-        images: tensor (N,H,W)
-        return: filtro (H,W//2+1)
-        """
-    
-        device = images.device
-        N, H, W = images.shape
-    
-        # FFT
-        fft = torch.fft.rfft2(images, norm="forward")
-    
-        # amplitude spectrum promedio
-        amp2d = torch.mean(torch.abs(fft), dim=0)
-    
-        # grid frecuencias normalizadas
-        fy = torch.fft.fftfreq(H, device=device)
-        fx = torch.fft.rfftfreq(W, device=device)
-    
-        yy, xx = torch.meshgrid(fy, fx, indexing="ij")
-    
-        r = torch.sqrt(xx**2 + yy**2)
-    
-        r_idx = torch.round(r * min(H, W)).long()
-    
-        max_r = r_idx.max() + 1
-    
-        radial_amp = torch.zeros(max_r, device=device)
-        counts = torch.zeros(max_r, device=device)
-    
-        radial_amp.scatter_add_(0, r_idx.flatten(), amp2d.flatten())
-        counts.scatter_add_(0, r_idx.flatten(), torch.ones_like(amp2d.flatten()))
-    
-        radial_amp /= counts + eps
-    
-        # whitening filter
-        whitening = radial_amp.mean() / (radial_amp[r_idx] + eps)
-    
-        # eliminar DC
-        whitening[0, 0] = 0.0
-    
-        # normalizar energía
-        whitening /= whitening.mean()
-    
-        return whitening
-    
-    def compute_radial_whitening2(self, images, eps=1e-6):
-        device = images.device
-        N, H, W = images.shape
-    
-        # 1. PSD en el espacio de Fourier
-        fft = torch.fft.rfft2(images, norm="forward")
-        psd2d = torch.mean(torch.abs(fft)**2, dim=0)
-    
-        # 2. Rejilla radial
-        fy = torch.fft.fftfreq(H, device=device)
-        fx = torch.fft.rfftfreq(W, device=device)
-        yy, xx = torch.meshgrid(fy, fx, indexing="ij")
-        r = torch.sqrt(yy**2 + xx**2)
-        r_idx = (r * min(H, W)).round().long()
+    @torch.no_grad()
+    def create_batchExp(self, Texp, freqBn, coef, vecs):
+             
+        self.batch_projExp = [torch.zeros((Texp.size(dim=0), vecs[n].size(dim=1)), device = self.cuda) for n in range(self.nBand)]
+        expFFT = torch.fft.rfft2(Texp, norm="forward")
+        del(Texp)
+        bandExp = self.selectBandsRefs(expFFT, freqBn, coef)
+        self.batch_projExp = self.phiProjRefs(bandExp, vecs)
+        del(expFFT , bandExp)
         
-        # 3. Promedio radial de la PSD
-        max_r = r_idx.max().item()
-        radial_psd = torch.zeros(max_r + 1, device=device)
-        counts = torch.zeros(max_r + 1, device=device)
-        radial_psd.scatter_add_(0, r_idx.flatten(), psd2d.flatten())
-        counts.scatter_add_(0, r_idx.flatten(), torch.ones_like(psd2d.flatten()))
-        radial_psd /= (counts + 1e-12)
-    
-        # 4. Filtro de Whitening con suavizado (Soft-thresholding)
-        # Usar un eps un poco más alto ayuda a no amplificar ruido infinito en los bordes
-        whitening_filter = 1.0 / torch.sqrt(radial_psd[r_idx] + eps)
-        
-        # IMPORTANTE: Matar el término DC (frecuencia 0) para centrar los datos
-        whitening_filter[0, 0] = 0.0 
-        
-        # Normalizar el filtro para que no cambie la escala global de la imagen
-        whitening_filter /= whitening_filter.mean()
-    
-        return whitening_filter
-    
-    
-    def compute_radial_whitening_filter(
-            self,
-            images,
-            pixel_size,
-            resolution_limit,
-            eps=1e-6):
-    
-        device = images.device
-        N, H, W = images.shape
-    
-        # 1. PSD en Fourier
-        fft = torch.fft.rfft2(images, norm="forward")
-        psd2d = torch.mean(torch.abs(fft)**2, dim=0)
-    
-        # 2. Frecuencias físicas (1/Å)
-        fy = torch.fft.fftfreq(H, d=pixel_size, device=device)
-        fx = torch.fft.rfftfreq(W, d=pixel_size, device=device)
-    
-        yy, xx = torch.meshgrid(fy, fx, indexing="ij")
-    
-        freq = torch.sqrt(yy**2 + xx**2)
-    
-        # índice radial
-        r_idx = (freq * min(H, W)).round().long()
-    
-        # 3. Promedio radial
-        max_r = r_idx.max().item()
-    
-        radial_psd = torch.zeros(max_r + 1, device=device)
-        counts = torch.zeros(max_r + 1, device=device)
-    
-        radial_psd.scatter_add_(0, r_idx.flatten(), psd2d.flatten())
-        counts.scatter_add_(0, r_idx.flatten(), torch.ones_like(psd2d.flatten()))
-    
-        radial_psd /= (counts + 1e-12)
-    
-        # 4. Whitening
-        whitening_filter = 1.0 / torch.sqrt(radial_psd[r_idx] + eps)
-    
-        # eliminar DC
-        whitening_filter[0, 0] = 0.0
-    
-    
-        # --------------------------------------------------
-        # 5. Limitar a resolución máxima
-        # --------------------------------------------------
-        
-        fmax = 1.0 / resolution_limit
-        temperature = 0.02 # Controla la suavidad de la caída (ajustar si es necesario)
-        
-        # Filtro que es 1 hasta fmax y luego cae
-        lowpass = 1.0 / (1.0 + torch.exp((freq - fmax) / temperature))
-        
-        whitening_filter *= lowpass
-    
-    
-        # 6. Normalizar
-        whitening_filter /= whitening_filter.mean()
-    
-    
-        return whitening_filter
+        torch.cuda.empty_cache()
+        return(self.batch_projExp)
     
     
     @torch.no_grad()
@@ -383,62 +202,11 @@ class BnBgpu:
     
         return matches
     
+    
     @torch.no_grad()
-    def match_batch_correlation(self, batchExp, batchRef, initBatch, matches, rot, nShift):
-        
-        nExp = batchExp[0].size(dim=0) 
-        nShift = torch.tensor(nShift, device=self.cuda)
-                                  
-        for n in range(self.nBand):
-                      
-            Ref_bar = batchRef[n] - batchRef[n].mean(axis=1).view(batchRef[n].shape[0],1)
-            Exp_bar = batchExp[n] - batchExp[n].mean(axis=1).view(batchExp[n].shape[0],1)
-            N = Ref_bar.shape[1]
-            cov = (Ref_bar @ Exp_bar.t()) / (N - 1)
-            
-            normRef = torch.std(batchRef[n], dim=1).view(batchRef[n].shape[0],1)
-            normExp = torch.std(batchExp[n], dim=1).view(batchExp[n].shape[0],1)
-            den = torch.matmul(normRef,normExp.T)
-        
-            score = cov/den
-           
-        min_score, ref = torch.min(-score, 0)
-        del(score)
-        
-        sel = (torch.floor(ref/nShift)).type(torch.int64)
-        shift_location = (ref - (sel*nShift)).type(torch.int64)
-        rotation = torch.full((nExp,1), rot, device = self.cuda)
-        exp = torch.arange(initBatch, initBatch+nExp, 1, device = self.cuda).view(nExp,1)
-        
-        iter_matches = torch.cat((exp, sel.reshape(nExp,1), min_score.reshape(nExp,1), 
-                                  rotation, shift_location.reshape(nExp,1)), dim=1)  
+    def batchExpToCpu(self, Timage, freqBn, coef, cvecs):        
 
-        cond = iter_matches[:, 2] < matches[initBatch:initBatch + nExp, 2]
-        matches[initBatch:initBatch + nExp] = torch.where(cond.view(nExp, 1), iter_matches, matches[initBatch:initBatch + nExp])
-        
-        # torch.cuda.empty_cache()        
-        return(matches)
-    
-    @torch.no_grad()
-    def create_batchExp(self, Texp, whitening, freqBn, coef, vecs):
-             
-        self.batch_projExp = [torch.zeros((Texp.size(dim=0), vecs[n].size(dim=1)), device = self.cuda) for n in range(self.nBand)]
-        expFFT = torch.fft.rfft2(Texp, norm="forward")
-        del(Texp)
-        #whitening
-        expFFT = expFFT * whitening
-        bandExp = self.selectBandsRefs(expFFT, freqBn, coef)
-        self.batch_projExp = self.phiProjRefs(bandExp, vecs)
-        del(expFFT , bandExp)
-        
-        torch.cuda.empty_cache()
-        return(self.batch_projExp)
-    
-    
-    @torch.no_grad()
-    def batchExpToCpu(self, Timage, whitening, freqBn, coef, cvecs):        
-
-        self.create_batchExp(Timage, whitening, freqBn, coef, cvecs)        
+        self.create_batchExp(Timage, freqBn, coef, cvecs)        
         self.batch_projExp = torch.stack(self.batch_projExp)
         batch_projExp_cpu = self.batch_projExp.to("cpu")
         
@@ -502,7 +270,7 @@ class BnBgpu:
     
     
     @torch.no_grad()
-    def create_classes(self, mmap, whitening, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes, final_classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles):
+    def create_classes(self, mmap, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes, final_classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles):
         
         # print("----------create-classes-------------") 
         iterSplit = 7       
@@ -541,6 +309,7 @@ class BnBgpu:
             transforIm, tMatrix[initBatch:endBatch] = self.center_particles_inverse_save_matrix(mmap.data[initBatch:endBatch], tMatrix[initBatch:endBatch], 
                                                                              rotBatch[initBatch:endBatch], translations[initBatch:endBatch], centerxy)
             
+            # transforIm = self.zscore_normalization(transforIm)
    
             if mask:
                 sigma_gauss = (0.75*sigma) if (iter < 10 and iter % 2 == 1) else (sigma)# if iter < 10 else sigma
@@ -548,9 +317,12 @@ class BnBgpu:
                 transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma_gauss)
             else:
                 transforIm = transforIm * self.create_circular_mask(transforIm)
+            
+            mask_norm = self.create_gaussian_mask(transforIm, sigma_gauss)
+            transforIm = self.zscore_normalization_mask(transforIm, mask_norm)
                 
- 
-            proj_batch = self.batchExpToCpu(transforIm, whitening, freqBn, coef, cvecs)
+
+            proj_batch = self.batchExpToCpu(transforIm, freqBn, coef, cvecs)
             batch_projExp_cpu[count] = proj_batch
             count+=1
 
@@ -617,35 +389,24 @@ class BnBgpu:
                         newCL[n] = torch.cat([part_A, part_B], dim=0)
         
         
-        clk = self.averages_createClasses(mmap, iter, newCL) 
-        if iter == 17:
-            file = "averages_originals.mrcs"
-            self.save_images(clk.cpu().detach().numpy(), sampling, file)
+        clk = self.averages_createClasses(mmap, iter, newCL)       
 
-        if iter > -1:
+        if iter > 1:
             # cut = (25 if iter < 5 else 20) if sampling < 3 else (35 if iter < 5 else 30)
             # cut_res = 100 if iter < (iterSplit-1) else 50
             cut=50
             cut_res = 50           
             res_classes = self.frc_resolution_tensor(newCL, sampling, fallback_res=cut_res, rcut=cut)
-            print(res_classes)
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling, sigma_gauss)
             
-            if iter < 7:
-                res_classes = torch.max(res_classes, torch.full_like(res_classes, 14.0))
-            elif iter < 10:
-                res_classes = torch.max(res_classes, torch.full_like(res_classes, 12.0))
-            elif iter < 13:
-                res_classes = torch.max(res_classes, torch.full_like(res_classes, 10.0))
-            else:
-                res_classes = torch.max(res_classes, torch.full_like(res_classes, 8.0))
-            print("------------")
-            print(res_classes)
-            print("------------")
-            print("------------")   
-            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
-            # if iter > 13:
             boost = None
-            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling, factorR = boost)
+            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling, sigma_gauss, factorR = boost)
+        
+        # if mask:   
+        #     mask_norm = self.create_gaussian_mask(clk, sigma_gauss)
+        #     clk = self.zscore_normalization_mask(clk, mask_norm)
+        # else:
+        #     clk = self.zscore_normalization(clk)
             
                 
         if iter < (iterSplit + 1): #order by size
@@ -660,9 +421,9 @@ class BnBgpu:
             
             
 
-        # if iter in [10, 13]:
-        #     clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
-        #                         intensity_percentile=50, smooth_sigma=1.0)
+        if iter in [10, 13]:
+            clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
+                                intensity_percentile=50, smooth_sigma=1.0)
         if 1 < iter < 7 and iter % 2 == 0:
             clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
                                 intensity_percentile=50, smooth_sigma=1.0)
@@ -677,7 +438,7 @@ class BnBgpu:
         return(clk, tMatrix, batch_projExp_cpu)
     
     
-    def align_particles_to_classes(self, data, whitening, cl, tMatrix, iter, expBatchSize, matches, vectorshift, classes, freqBn, coef, cvecs, mask, sigma, sampling):
+    def align_particles_to_classes(self, data, cl, tMatrix, iter, expBatchSize, matches, vectorshift, classes, freqBn, coef, cvecs, mask, sigma, sampling):
         
         # print("----------align-to-classes-------------")
                 
@@ -691,6 +452,7 @@ class BnBgpu:
                             
         transforIm, tMatrix = self.center_particles_inverse_save_matrix(data, tMatrix, 
                                                                          rotBatch, translations, centerxy)
+        # transforIm = self.zscore_normalization(transforIm) 
                 
         del rotBatch,translations, centerxy 
         
@@ -699,9 +461,10 @@ class BnBgpu:
         else: 
             transforIm = transforIm * self.create_circular_mask(transforIm)
                                
-    
+        mask_norm = self.create_gaussian_mask(transforIm, sigma)
+        transforIm = self.zscore_normalization_mask(transforIm, mask_norm)
         
-        batch_projExp_cpu = self.create_batchExp(transforIm, whitening, freqBn, coef, cvecs)
+        batch_projExp_cpu = self.create_batchExp(transforIm, freqBn, coef, cvecs)
         
         if iter == 2:
             newCL = [[] for i in range(classes)]              
@@ -719,11 +482,15 @@ class BnBgpu:
             
             res_classes = self.frc_resolution_tensor(newCL, sampling)
             
-            res_classes = torch.max(res_classes, torch.full_like(res_classes, 6.0))
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling, sigma)
             
-            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
+            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling, sigma)   
             
-            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)                       
+            # if mask:   
+            #     mask_norm = self.create_gaussian_mask(clk, sigma)
+            #     clk = self.zscore_normalization_mask(clk, mask_norm)
+            # else:
+            #     clk = self.zscore_normalization(clk)                    
         
             if not hasattr(self, 'grad_squared'):
                 self.grad_squared = torch.zeros_like(cl)
@@ -862,11 +629,97 @@ class BnBgpu:
         centered = kornia.geometry.transform.translate(batch_input, shift, mode='bilinear', padding_mode='zeros', align_corners=True)
     
         return centered.squeeze(1)
-         
-    
     
     @torch.no_grad()
-    def gaussian_lowpass_filter_2D_adaptive(self, imgs, res_angstrom, pixel_size,
+    def zscore_normalization(self, images):
+        mean = images.mean(dim=(-2, -1), keepdim=True)
+        std = images.std(dim=(-2, -1), keepdim=True)
+        images = (images - mean) / (std + 1e-8)
+        return images
+    
+    @torch.no_grad()
+    def zscore_normalization_mask(self, images, mask, eps=1e-8):
+        """
+        Normaliza las imágenes llevando la proteína a media 0 y std 1.
+        Usa resta modulada para no aplicar la máscara dos veces.
+        """
+        mask = mask.to(device=images.device, dtype=images.dtype)
+        sum_w = mask.sum()
+        
+        # 1. Estadísticas ponderadas basadas en la zona de la proteína
+        mean_w = (images * mask).sum(dim=(-2, -1), keepdim=True) / sum_w
+        var_w = ((images - mean_w).pow(2) * mask).sum(dim=(-2, -1), keepdim=True) / sum_w
+        std_w = torch.sqrt(var_w + eps)
+        
+        # 2. Resta modulada: NO multiplicamos por la máscara al final
+        # images_normalized = (images - mean_w * mask) / std_w
+        images_normalized = (images - mean_w ) / std_w
+        
+        return images_normalized
+    
+    
+    def gaussian_weighted_zscore_normalization(self, imgs, sigma):
+        """
+        Normaliza promedios de clase que tienen aplicada una máscara gaussiana.
+        """
+        H, W = imgs.shape[-2], imgs.shape[-1]
+        device = imgs.device
+        
+        # 1. Recrear la máscara gaussiana (valores de 0 a 1)
+        y, x = torch.meshgrid(torch.linspace(-1, 1, H, device=device), 
+                              torch.linspace(-1, 1, W, device=device), indexing='ij')
+        r2 = x**2 + y**2
+        # El peso w será máximo (1.0) en el centro y caerá hacia 0 en las esquinas
+        weight_mask = torch.exp(-r2 / (2 * sigma**2))
+        
+        # Suma total de los pesos (el equivalente al 'número de píxeles')
+        sum_w = weight_mask.sum()
+        
+        # 2. Calcular la Media Ponderada por cada imagen en el batch
+        # Multiplicamos la imagen por los pesos para ponderar el centro
+        weighted_mean = (imgs * weight_mask).sum(dim=(-2, -1), keepdim=True) / sum_w
+        
+        # 3. Calcular la Varianza y STD Ponderadas
+        weighted_variance = ((imgs - weighted_mean).pow(2) * weight_mask).sum(dim=(-2, -1), keepdim=True) / sum_w
+        weighted_std = torch.sqrt(weighted_variance + 1e-8)
+        
+        # 4. Aplicar el Z-score ponderado
+        imgs_norm = (imgs - weighted_mean) / weighted_std
+        
+        # 5. Crucial: Volver a aplicar la máscara gaussiana
+        # Esto asegura que todo lo que se movió por la resta de la media vuelva a decaer a 0 puro
+        return imgs_norm * weight_mask
+    
+    def correct_gaussian_restoration(self, averages, filtered, mask, eps=1e-8):
+        """
+        Restaura la escala del filtro usando la máscara gaussiana propia del usuario.
+        
+        averages: Tensor (B, H, W) con los promedios originales enmascarados
+        filtered: Tensor (B, H, W) con los promedios filtrados
+        mask: Tensor (H, W) generado por tu función 'create_gaussian_mask'
+        """
+        # Suma total de los pesos de TU máscara
+        sum_w = mask.sum()
+        
+        # 1. Estadísticas PONDERADAS de la imagen original (averages) utilizando tu máscara
+        mean_orig_w = (averages * mask).sum(dim=(-2, -1), keepdim=True) / sum_w
+        var_orig_w = (((averages - mean_orig_w).pow(2)) * mask).sum(dim=(-2, -1), keepdim=True) / sum_w
+        std_orig_w = torch.sqrt(var_orig_w + eps)
+        
+        # 2. Estadísticas PONDERADAS de la imagen filtrada (filtered) utilizando tu máscara
+        mean_filt_w = (filtered * mask).sum(dim=(-2, -1), keepdim=True) / sum_w
+        var_filt_w = (((filtered - mean_filt_w).pow(2)) * mask).sum(dim=(-2, -1), keepdim=True) / sum_w
+        std_filt_w = torch.sqrt(var_filt_w + eps)
+        
+        # 3. Tu fórmula de transferencia pero corregida matemáticamente con pesos
+        filtered_corrected = (filtered - mean_filt_w) / std_filt_w * std_orig_w + mean_orig_w
+        
+        # 4. Volvemos a aplicar TU máscara para limpiar el fondo y mantener los bordes suaves
+        return filtered_corrected# * mask
+         
+    
+    @torch.no_grad()
+    def gaussian_lowpass_filter_2D_adaptive(self, imgs, res_angstrom, pixel_size, sigma,
                                             floor_res=100.0, clamp_exp=80.0,
                                             hard_cut=False, nyquist_margin=0.95, normalize = True):
         B, H, W = imgs.shape
@@ -913,16 +766,20 @@ class BnBgpu:
     
         # === Restaurar contraste original
         if normalize:
-            mean0 = imgs.mean(dim=(1,2), keepdim=True)
-            std0  = imgs.std (dim=(1,2), keepdim=True)
+            # mean0 = imgs.mean(dim=(1,2), keepdim=True)
+            # std0  = imgs.std (dim=(1,2), keepdim=True)
+            #
+            # mean_f = img_filt.mean(dim=(1,2), keepdim=True)
+            # std_f  = img_filt.std (dim=(1,2), keepdim=True)
+            # valid  = std_f > 1e-6
+            # img_filt = torch.where(valid,
+            #                        (img_filt - mean_f)/(std_f+eps)*std0 + mean0,
+            #                        imgs)
+            # del mean0, std0, mean_f, std_f, valid
             
-            mean_f = img_filt.mean(dim=(1,2), keepdim=True)
-            std_f  = img_filt.std (dim=(1,2), keepdim=True)
-            valid  = std_f > 1e-6
-            img_filt = torch.where(valid,
-                                   (img_filt - mean_f)/(std_f+eps)*std0 + mean0,
-                                   imgs)
-            del mean0, std0, mean_f, std_f, valid
+            internal_mask = self.create_gaussian_mask(imgs, sigma)
+            img_filt = self.correct_gaussian_restoration(imgs, img_filt, internal_mask)
+            del internal_mask
     
         return img_filt
 
@@ -1071,121 +928,6 @@ class BnBgpu:
         del r_bin, freq_bins
         
         return res_out#, frc_curves, freq_bins
-    
-    def frc_resolution_tensor_2(
-        self,
-        newCL,                       # [N_i,H,W]
-        pixel_size: float,           # Å/px
-        frc_threshold: float = 0.143,
-        fallback_res: float = 100.0,
-        rcut: float = 100,
-        apply_window: bool = True,
-        smooth: bool = True          
-        ) -> torch.Tensor:
-
-        import torch
-        import torch.nn.functional as F
-    
-        n_classes = len(newCL)
-        h, w = next((imgs.shape[-2], imgs.shape[-1]) for imgs in newCL if imgs.numel() > 0)
-        device = newCL[0].device
-        Rmax = min(h, w) // 2
-    
-        res_out = torch.full((n_classes,), float('nan'), device=device)
-    
-        # --- frecuencias físicas ---
-        fy = torch.fft.fftfreq(h, d=pixel_size, device=device)
-        fx = torch.fft.rfftfreq(w, d=pixel_size, device=device)
-        gy, gx = torch.meshgrid(fy, fx, indexing="ij")
-        r = torch.sqrt(gx**2 + gy**2)
-    
-        # bins consistentes con r
-        freq_bins = torch.linspace(0, r.max(), Rmax, device=device)
-        r_bin = torch.bucketize(r.flatten(), freq_bins) - 1
-        r_bin = r_bin.clamp(0, Rmax - 1)
-    
-        del fy, fx, gy, gx, r
-    
-        # --- ventana Hann ---
-        if apply_window:
-            wy = torch.hann_window(h, periodic=False, device=device)
-            wx = torch.hann_window(w, periodic=False, device=device)
-            window = wy[:, None] * wx[None, :]
-            window = window / window.norm() * (h * w) ** 0.5
-    
-        for c, imgs in enumerate(newCL):
-            n = imgs.shape[0]
-    
-            # mínimo más realista
-            if n < 16:
-                res_out[c] = 40.0
-                continue
-    
-            # --- half maps ---
-            perm = torch.randperm(n, device=device)
-            half1, half2 = torch.chunk(imgs[perm], 2, dim=0)
-    
-            avg1 = half1.mean(0)
-            avg2 = half2.mean(0)
-    
-            # --- centrar ---
-            avg1 = avg1 - avg1.mean()
-            avg2 = avg2 - avg2.mean()
-    
-            # --- ventana ---
-            if apply_window:
-                avg1 = avg1 * window
-                avg2 = avg2 * window
-    
-            # --- FFT ---
-            fft1 = torch.fft.rfft2(avg1, norm="forward")
-            fft2 = torch.fft.rfft2(avg2, norm="forward")
-    
-            p1 = (fft1.real**2 + fft1.imag**2)
-            p2 = (fft2.real**2 + fft2.imag**2)
-            prod = (fft1 * fft2.conj()).real
-    
-            # --- FRC radial ---
-            frc_num = torch.zeros(Rmax, device=device).scatter_add_(0, r_bin, prod.flatten())
-            frc_d1  = torch.zeros(Rmax, device=device).scatter_add_(0, r_bin, p1.flatten())
-            frc_d2  = torch.zeros(Rmax, device=device).scatter_add_(0, r_bin, p2.flatten())
-    
-            frc = frc_num / (torch.sqrt(frc_d1 * frc_d2) + 1e-12)
-    
-            # ignorar DC
-            frc[0] = 1.0
-    
-            # --- suavizado ---
-            if smooth:
-                kernel = torch.tensor([0.25, 0.5, 0.25], device=device).view(1, 1, -1)
-                frc = F.conv1d(frc.view(1, 1, -1), kernel, padding=1).view(-1)
-    
-            # --- cruce con interpolación ---
-            idx = torch.where(frc < frc_threshold)[0]
-    
-            if len(idx) and idx[0] > 1:
-                i = idx[0]
-    
-                f1, f2 = frc[i - 1], frc[i]
-                x1, x2 = freq_bins[i - 1], freq_bins[i]
-    
-                alpha = (frc_threshold - f1) / (f2 - f1 + 1e-12)
-                freq_cross = x1 + alpha * (x2 - x1)
-    
-                res_out[c] = 1.0 / (freq_cross + 1e-12)
-    
-        # --- fallback físico razonable ---
-        nq_limit = 2 * pixel_size
-        res_out = torch.nan_to_num(res_out, nan=nq_limit, posinf=nq_limit, neginf=nq_limit)
-    
-        # --- corte máximo ---
-        res_out = torch.where(
-            res_out > rcut,
-            torch.tensor(fallback_res, device=device),
-            res_out
-        )
-    
-        return res_out
 
     
     @torch.no_grad()
@@ -1194,6 +936,7 @@ class BnBgpu:
         averages: torch.Tensor,         # [B, H, W]
         resolutions: torch.Tensor,      # [B] Å
         pixel_size: float,              # píxel(Å/pix)
+        sigma : float,
         f_energy: float = 2.0,
         # R_high: float = 25.0,
         boost_max: float = None,        # si None, se ajusta para energía
@@ -1295,12 +1038,16 @@ class BnBgpu:
     
         # === (Opcional) Normalizar contraste en espacio real ===
         if normalize:
-            mean_orig = averages.mean(dim=(-2, -1), keepdim=True)
-            std_orig = averages.std(dim=(-2, -1), keepdim=True)
-            mean_filt = filtered.mean(dim=(-2, -1), keepdim=True)
-            std_filt = filtered.std(dim=(-2, -1), keepdim=True)
-            filtered = (filtered - mean_filt) / (std_filt + eps) * std_orig + mean_orig
-            del mean_orig, std_orig, mean_filt, std_filt
+            # mean_orig = averages.mean(dim=(-2, -1), keepdim=True)
+            # std_orig = averages.std(dim=(-2, -1), keepdim=True)
+            # mean_filt = filtered.mean(dim=(-2, -1), keepdim=True)
+            # std_filt = filtered.std(dim=(-2, -1), keepdim=True)
+            # filtered = (filtered - mean_filt) / (std_filt + eps) * std_orig + mean_orig
+            # del mean_orig, std_orig, mean_filt, std_filt
+            
+            internal_mask = self.create_gaussian_mask(averages, sigma)
+            filtered = self.correct_gaussian_restoration(averages, filtered, internal_mask)
+            del internal_mask
     
         return filtered#, boost_max, sharpen_power
   
@@ -1488,16 +1235,11 @@ class BnBgpu:
             max_iter = 18
             
             schedule = [
-                # (4,  (-180, 180, 10), (-max_s10, max_s10 + s[0], s[0])),
-                # (7,  (-180, 180, 8),  (-max_s10_f2, max_s10_f2 + s[1], s[1])), 
-                # (10, (-180, 180, 6),  (-limit_f3, limit_f3 + s[2], s[2])),
-                # (13, (-90, 94, 4),    (-8, 8 + s[3], s[3])),
-                # (18, (-90, 92, 2),    (-final, final + s[4], s[4]))
-                (4,  (-180, 180, 6), (-max_s10, max_s10 + s[0], s[0])),
-                (7,  (-180, 180, 6),  (-max_s10_f2, max_s10_f2 + s[1], s[1])), 
-                (10, (-180, 180, 4),  (-limit_f3, limit_f3 + s[2], s[2])),
-                (13, (-180, 180, 4),    (-8, 8 + s[3], s[3])),
-                (18, (-180, 180, 2),    (-final, final + s[4], s[4]))
+                (4,  (-180, 180, 10), (-max_s10, max_s10 + s[0], s[0])),
+                (7,  (-180, 180, 8),  (-max_s10_f2, max_s10_f2 + s[1], s[1])), 
+                (10, (-180, 180, 6),  (-limit_f3, limit_f3 + s[2], s[2])),
+                (13, (-90, 94, 4),    (-8, 8 + s[3], s[3])),
+                (18, (-90, 92, 2),    (-final, final + s[4], s[4]))
             ]
             
             res_ang, res_shift = schedule[-1][1], schedule[-1][2]

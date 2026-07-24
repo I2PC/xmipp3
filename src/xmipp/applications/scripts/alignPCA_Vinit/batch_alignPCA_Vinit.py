@@ -127,8 +127,6 @@ if __name__=="__main__":
     torch.cuda.current_device()
     cuda = torch.device('cuda') 
     
-    whitening = 1
-    
     
     if volRes <= 1 / (2*sampling):
         volRes = 1 / (2*sampling) + 0.5
@@ -163,6 +161,9 @@ if __name__=="__main__":
             zeroVol = R.reconstruct_volume_sym(mmap, sym, 60, sampling, dim, random_angles)
             # zeroVol = (zeroVol - zeroVol.mean()) / (zeroVol.std() + 1e-8)
             zeroVol = R.filter_3d(zeroVol, sampling, 60.0)
+            zeroVol = zeroVol * R.contrast_dominant_mask_3d(zeroVol, window=3, contrast_percentile=90,
+                                     intensity_percentile=70, smooth_sigma=1.0)
+            zeroVol = R.apply_spherical_mask(zeroVol, radius)
             # zeroVol = R.generate_random_ellipsoid(dim, radius=dim//2, device=cuda)
             # zeroVol = R.generate_scaffolding_seed(mmap, R, sym, sampling, dim, cuda)
             if posit:
@@ -194,17 +195,21 @@ if __name__=="__main__":
     # texp = bnb.zscore_normalization_mask(texp, mask)
     # texp *= bnb.create_gaussian_mask(texp)
 
+
     if radius:
         texp *= bnb.create_mask(texp, radius)
     #posit
     if posit:
         texp = torch.relu(texp)
+        
+    # whitening = bnb.compute_radial_whitening_filter(texp, sampling, 8.0)
+    whitening = 1
     
     # file = output+"_exp.mrcs" 
     # save_proj(texp, file, sampling) 
     
     # resultado_tensor = torch.cat([texp, all_refs_cpu[0].to(cuda)], dim=0)
-    Ntrain = texp.shape[0]
+    Ntrain = texp.shape[0]   
     
     #pca
     # nBand = 1
@@ -214,7 +219,6 @@ if __name__=="__main__":
                                                 minRes=530, per_eig=per_eig_value, batchPCA=True)
 
     grid_flat = flatGrid(freqBn, nBand)
-    
     
     # #Precomputed rotation and shift   
     # angSet = (-amax, amax, ang)
@@ -240,6 +244,13 @@ if __name__=="__main__":
         vectorRot, vectorshift = bnb.setRotAndShift(angSet, shiftSet)
         vectorRot.sort()         
         nShift = len(vectorshift)
+        
+        # if current_iter < 5:
+        #     texp_align = texp * bnb.contrast_dominant_mask(texp, window=3, contrast_percentile=80,
+        #                             intensity_percentile=50, smooth_sigma=1.0)
+        # else:
+        #     texp_align = texp
+        texp_align = texp
             
     
         matches = [None] * numCl
@@ -248,10 +259,15 @@ if __name__=="__main__":
             #Reading references particles 
                    
             tref = all_refs_cpu[i].to(cuda)#, non_blocking=True)
+            
             tref = bnb.zscore_normalization(tref)
             # mask = bnb.create_gaussian_mask(tref)
             # tref = bnb.zscore_normalization_mask(tref, mask)
             # tref *= bnb.create_gaussian_mask(tref)
+            
+            # if current_iter < 5:
+            #     tref = tref * bnb.contrast_dominant_mask(tref, window=3, contrast_percentile=80,
+            #                         intensity_percentile=50, smooth_sigma=1.0)
             
             if radius:
                 tref = tref * bnb.create_mask(tref, radius)
@@ -259,8 +275,8 @@ if __name__=="__main__":
             # file = output+"ref_%s_%s.mrcs"%(current_iter+1,i)
             # save_proj(tref, file, sampling)
             # exit()
-            if posit:
-                tref = torch.relu(tref)
+            # if posit:
+            #     tref = torch.relu(tref)
        
             batch_projRef = bnb.create_batchExp(tref, whitening, freqBn, coef, cvecs) 
             
@@ -269,7 +285,7 @@ if __name__=="__main__":
             for rot in vectorRot:
         
                 # print("---Computing the projections of the experimental images---")      
-                batch_projExp = bnb.precalculate_projection(texp, whitening, freqBn, grid_flat, coef, cvecs, -rot, vectorshift)
+                batch_projExp = bnb.precalculate_projection(texp_align, whitening, freqBn, grid_flat, coef, cvecs, -rot, vectorshift)
                 # print("matches")
     
                 matches[i] = bnb.match_batch_initVol(batch_projExp, batch_projRef, 0, matches[i], -rot, nShift)
@@ -326,6 +342,8 @@ if __name__=="__main__":
             
             vol = R.reconstruct_volume_sym(mmap_filtrado, sym, filtRes, sampling, dim, rotM, shifts=shiftM)
             # vol = (vol - vol.mean()) / (vol.std() + 1e-8)
+            file = output+"_iter%s_class%s.mrc"%(current_iter+1,i)
+            save_vol(vol.cpu(), file, sampling)
             
             # if current_iter < 7:                
             #     # 1. Definimos los grupos A y B SOLO una vez en la iteración 0 (Igual que antes)
@@ -361,11 +379,15 @@ if __name__=="__main__":
             #     vol = R.reconstruct_volume_sym(mmap_filtrado, sym, filtRes, sampling, dim, rotM, shifts=shiftM)
                 
             vol = R.filter_3d(vol, sampling, filtRes)
+            if current_iter < 7:
+                vol = vol * R.contrast_dominant_mask_3d(vol, window=3, contrast_percentile=90,
+                                         intensity_percentile=70, smooth_sigma=1.0)
             #posit
             if posit:
                 vol = torch.relu(vol)
                 
-            if current_iter > 1 and current_iter < 7:
+            # if current_iter > 1 and current_iter < 7:
+            if current_iter < 7:
                 vol = R.mask_otsu(vol, sigma=4.0, noise_level=0.0)
                 
             vol = R.apply_spherical_mask(vol, radius)
@@ -376,8 +398,8 @@ if __name__=="__main__":
                 
             ref = R.generate_projections(vol, transf)
             all_refs_cpu[i] = ref.detach().cpu()#.pin_memory()
-            file = output+"_iter%s_class%s.mrc"%(current_iter+1,i)
-            save_vol(vol.cpu(), file, sampling)
+            # file = output+"_iter%s_class%s.mrc"%(current_iter+1,i)
+            # save_vol(vol.cpu(), file, sampling)
             del tref, vol, ref
             # fileProj = output+"ref_%s_%s.mrcs"%(current_iter+1,i)
             # save_proj(all_refs_cpu[0], fileProj, sampling)
