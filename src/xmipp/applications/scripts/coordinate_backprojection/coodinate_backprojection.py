@@ -203,7 +203,7 @@ class ScriptCoordinateBackProjection(XmippScript):
         alpha: float,
         boxSize: Tuple[int, int, int] 
     ) -> Tuple[np.ndarray, np.ndarray]:
-        EPS = 1e-8
+        EPS = 1e-6
         TOL = 1e-6
         MAX_ITER = 128
         D = 2
