@@ -203,7 +203,7 @@ class ScriptCoordinateBackProjection(XmippScript):
         alpha: float,
         boxSize: Tuple[int, int, int] 
     ) -> Tuple[np.ndarray, np.ndarray]:
-        EPS = 1e-6
+        EPS = 1e-8
         TOL = 1e-6
         MAX_ITER = 128
         D = 2
@@ -262,7 +262,7 @@ class ScriptCoordinateBackProjection(XmippScript):
             backprojections = backprojections[mask]
             
             oldPositions = positions[mask]
-            positions = (np.linalg.inv(matrices + EPS*np.eye(3)) @ backprojections[:,:,None]).squeeze()
+            positions = (np.linalg.inv(matrices + 1e-3*np.eye(3)) @ backprojections[:,:,None]).squeeze()
             weights = n / n.sum()
             
             delta = np.mean(np.linalg.norm(oldPositions - positions, axis=-1))
