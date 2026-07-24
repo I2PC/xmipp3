@@ -344,7 +344,7 @@ class PCAgpu:
             # mask = bnb.create_gaussian_mask(Texp)
             # Texp = bnb.zscore_normalization_mask(Texp, mask)
             Texp = Texp * bnb.create_mask(Texp, radius)
-            Texp = torch.relu(Texp)
+            # Texp = torch.relu(Texp)
             
             # whitening = bnb.compute_radial_whitening_filter(Texp, sampling, 8.0)
             whitening = 1

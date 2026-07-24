@@ -308,7 +308,7 @@ class reconstruct:
             # imgs = (imgs - imgs.mean(dim=(-2, -1), keepdim=True)) / (
             #     imgs.std(dim=(-2, -1), keepdim=True) + 1e-8
             # )
-            imgs = torch.relu(imgs)
+            # imgs = torch.relu(imgs)
     
             proj_fft = torch.fft.fftshift(
                 torch.fft.fft2(torch.fft.ifftshift(imgs, dim=(-2, -1)), norm="forward"),
