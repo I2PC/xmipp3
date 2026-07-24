@@ -33,9 +33,8 @@ import numpy as np
 
 import scipy as sp
 import tigre
-
-import xmippLib
 from xmipp_base import XmippScript
+import xmippLib
 
 
 class DenoisingTV(XmippScript):

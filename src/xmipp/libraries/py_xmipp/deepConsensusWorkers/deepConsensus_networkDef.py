@@ -2,8 +2,8 @@
 rsanchez@cnb.csic.es
 
 '''
-import keras
-from keras import backend as K
+import tensorflow as tf
+from tensorflow.keras import backend as K
 
 MODEL_DEPTH= 4
 DROPOUT_KEEP_PROB= 0.5

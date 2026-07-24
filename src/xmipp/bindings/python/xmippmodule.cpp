@@ -1502,8 +1502,8 @@ xmipp_methods[] =
         { nullptr } /* Sentinel */
     };//xmipp_methods
 
-#define INIT_TYPE(type) if (PyType_Ready(&type##Type) < 0) return module; Py_INCREF(&type##Type);\
-    PyModule_AddObject(module, #type, (PyObject *) &type##Type);
+#define INIT_TYPE(type) if (PyType_Ready(&type##Type) < 0) return mymodule; Py_INCREF(&type##Type);\
+    PyModule_AddObject(mymodule, #type, (PyObject *) &type##Type);
 
 
 static struct PyModuleDef moduledef = {
@@ -1516,11 +1516,11 @@ static struct PyModuleDef moduledef = {
 
 PyMODINIT_FUNC
 PyInit_xmippLib(void) {
-    //Initialize module variable
+    //Initialize mymodule variable
 
-    PyObject *module = PyModule_Create(&moduledef);
+    PyObject *mymodule = PyModule_Create(&moduledef);
 
-    //Check types and add to module
+    //Check types and add to mymodule
     INIT_TYPE(FileName);
     INIT_TYPE(Image);
     INIT_TYPE(MDQuery);
@@ -1534,11 +1534,11 @@ PyInit_xmippLib(void) {
     char message[32]="xmipp.XmippError";
     PyXmippError = PyErr_NewException(message, nullptr, nullptr);
     Py_INCREF(PyXmippError);
-    PyModule_AddObject(module, "XmippError", PyXmippError);
+    PyModule_AddObject(mymodule, "XmippError", PyXmippError);
 
     //Add MDLabel constants
-    PyObject * dict = PyModule_GetDict(module);
+    PyObject * dict = PyModule_GetDict(mymodule);
     addLabels(dict);
 
-    return module;
+    return mymodule;
 }

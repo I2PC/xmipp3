@@ -4,8 +4,9 @@ import os
 
 import numpy as np
 
-import xmippLib
+
 from xmipp_base import XmippScript
+import xmippLib
 from xmippLib import Image
 
 from tensorflow.keras.models import load_model

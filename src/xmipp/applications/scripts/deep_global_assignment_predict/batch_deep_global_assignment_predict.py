@@ -5,6 +5,7 @@ import numpy as np
 from numpy.linalg import norm
 import os
 import sys
+from xmipp_base import XmippScript
 import xmippLib
 from time import time
 from scipy.spatial.transform import Rotation

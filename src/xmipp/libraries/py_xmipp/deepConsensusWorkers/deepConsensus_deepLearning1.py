@@ -36,9 +36,9 @@ import random
 from sklearn.metrics import accuracy_score, roc_auc_score, precision_score, recall_score, matthews_corrcoef
 import xmippLib
 
-import keras
 import tensorflow as tf
-from keras import backend as K
+from tensorflow import keras
+from tensorflow.keras import backend as K
 from .deepConsensus_networkDef import main_network, DESIRED_INPUT_SIZE
 tf_intarnalError= tf.errors.InternalError
 

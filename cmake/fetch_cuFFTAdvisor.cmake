@@ -30,7 +30,7 @@ function(fetch_cuFFTAdvisor)
 
 	ExternalProject_Add(
 		build_cuFFTAdvisor
-		GIT_REPOSITORY https://github.com/HiPerCoRe/cuFFTAdvisor.git
+		GIT_REPOSITORY https://github.com/I2PC/cuFFTAdvisor.git
 		GIT_TAG master
 		SOURCE_DIR ${SOURCE_DIR}
 		UPDATE_COMMAND ""

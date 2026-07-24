@@ -42,6 +42,7 @@ import pyworkflow.utils as pwutils
 import pyworkflow.protocol.params as params
 import pyworkflow.em.metadata as MD
 
+from xmipp_base import XmippScript
 import xmippLib as xmipp
 
 import xmipp3

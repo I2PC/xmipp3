@@ -54,11 +54,11 @@ file(
 	FRM_SOURCES 
 		${CMAKE_CURRENT_SOURCE_DIR}/external/sh_alignment/*.cpp 
 )
-file(
-	GLOB_RECURSE 
-	PYTHON_BINDING_SOURCES
-		${CMAKE_CURRENT_SOURCE_DIR}/bindings/python/*.cpp 
-)
+#file(
+#	GLOB_RECURSE
+#	PYTHON_BINDING_SOURCES
+#		${CMAKE_CURRENT_SOURCE_DIR}/bindings/python/*.cpp
+#)
 file(
 	GLOB_RECURSE 
 	MATLAB_BINDING_SOURCES
@@ -106,27 +106,27 @@ file(
 )
 
 # Compile FRM
-add_library(swig_frm MODULE ${FRM_SOURCES})
-set_target_properties(swig_frm PROPERTIES PREFIX "_")
-target_link_libraries(
-	swig_frm
-	PUBLIC
-		Python3::Python
-		Python3::NumPy
-		XmippCore
-)
-install(
-	TARGETS swig_frm
-	LIBRARY DESTINATION bindings/python
-)
-install(
-	DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/external/sh_alignment/python/
-	DESTINATION bindings/python/sh_alignment
-)
-install(
-	FILES ${CMAKE_CURRENT_SOURCE_DIR}/external/sh_alignment/swig_frm.py
-	DESTINATION bindings/python/sh_alignment
-)
+# add_library(swig_frm MODULE ${FRM_SOURCES})
+# set_target_properties(swig_frm PROPERTIES PREFIX "_")
+# target_link_libraries(
+# 	swig_frm
+#	PUBLIC
+#		Python3::Python
+#		Python3::NumPy
+#		XmippCore
+#)
+#install(
+#	TARGETS swig_frm
+#	LIBRARY DESTINATION bindings/python
+#)
+#install(
+#	DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/external/sh_alignment/python/
+#	DESTINATION bindings/python/sh_alignment
+#)
+#install(
+#	FILES ${CMAKE_CURRENT_SOURCE_DIR}/external/sh_alignment/swig_frm.py
+#	DESTINATION bindings/python/sh_alignment
+#)
 
 # Create the shared library
 add_library(Xmipp SHARED ${SOURCES})
@@ -157,35 +157,25 @@ install(
 )
 
 # Create the Python binding
-add_library(xmippLib MODULE ${PYTHON_BINDING_SOURCES})
-set_target_properties(xmippLib PROPERTIES PREFIX "")
-target_link_libraries(
-	xmippLib
-	PUBLIC
-		Xmipp
-		Python3::Python
-		Python3::NumPy
-)
+
 set(PYTHON_BINDING_DIR ${CMAKE_CURRENT_SOURCE_DIR}/bindings/python)
 set(PYTHON_BINDING_INSTALL_DIR bindings/python)
-install(
-	TARGETS xmippLib
-	LIBRARY DESTINATION ${PYTHON_BINDING_INSTALL_DIR}
-)
+
 install(
 	FILES
 		${PYTHON_BINDING_DIR}/xmipp_base.py
 		${PYTHON_BINDING_DIR}/xmipp_conda_envs.py
 		${PYTHON_BINDING_DIR}/xmipp.py
-	DESTINATION 
+	DESTINATION
 		${PYTHON_BINDING_INSTALL_DIR}
 )
 install(
 	DIRECTORY
 		${PYTHON_BINDING_DIR}/envs_DLTK
-	DESTINATION 
+	DESTINATION
 		${PYTHON_BINDING_INSTALL_DIR}
 )
+
 
 # Register MPI sources
 if(${XMIPP_USE_MPI})

@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 
-import numpy as np
-import torch
+
 import sys, os
+from xmipp_base import XmippScript
 import xmippLib
 
+import numpy as np
+import torch
 from torch import nn
 from torch import optim
 
-from xmipp_base import XmippScript
 
 class EM3DNet(nn.Module):
     """ 3D CNN to estiamte labels from a set of boxes."""

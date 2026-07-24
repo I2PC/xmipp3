@@ -384,7 +384,7 @@ def get_images_to_representative_alignment(labels, images, image_names, vectors,
     unique_labels = np.unique(labels)
 
     for label in unique_labels:
-        cluster_indices = np.where(labels == label)[0]
+        cluster_indices, = np.nonzero(labels == label)
         cluster_vectors = vectors[cluster_indices]
         cluster_images = images[cluster_indices]
         cluster_image_names = image_names[cluster_indices]

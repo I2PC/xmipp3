@@ -62,6 +62,9 @@ public:
                 size_t yS = mirror
                         ? ((y == 0) ? 0 : (settings.sDim().y() - y))
                         : y;
+
+                assert(xS < settings.fDim().x());
+                assert(yS < settings.fDim().y());
                 size_t indexD = y * settings.sDim().x() + x;
                 size_t indexS = yS * settings.fDim().x() + xS;
                 out[indexD] = func(mirror, in[indexS]);
