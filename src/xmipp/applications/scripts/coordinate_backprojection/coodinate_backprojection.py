@@ -89,7 +89,12 @@ def _computeGmmResponsibilities(
         return gamma, logLikelihood
     else:
         return gamma
-
+    
+def permissiveInv(x):
+    try:
+        return np.linalg.inv(x)
+    except np.linalg.LinAlgError:
+        return np.linalg.pinv(x)
 class ScriptCoordinateBackProjection(XmippScript):
     def __init__(self):
         XmippScript.__init__(self)
@@ -194,6 +199,7 @@ class ScriptCoordinateBackProjection(XmippScript):
                 result[tiltId] = [coord2d]
                 
         return result
+
     
     def coordinateBackProjection(
         self,
@@ -262,7 +268,7 @@ class ScriptCoordinateBackProjection(XmippScript):
             backprojections = backprojections[mask]
             
             oldPositions = positions[mask]
-            positions = (np.linalg.inv(matrices + 1e-3*np.eye(3)) @ backprojections[:,:,None]).squeeze()
+            positions = (permissiveInv(matrices) @ backprojections[:,:,None]).squeeze()
             weights = n / n.sum()
             
             delta = np.mean(np.linalg.norm(oldPositions - positions, axis=-1))
