@@ -262,7 +262,7 @@ class ScriptCoordinateBackProjection(XmippScript):
             backprojections = backprojections[mask]
             
             oldPositions = positions[mask]
-            positions = (np.linalg.inv(matrices + 1e-6*np.eye(3)) @ backprojections[:,:,None]).squeeze()
+            positions = (np.linalg.inv(matrices + 1e-3*np.eye(3)) @ backprojections[:,:,None]).squeeze()
             weights = n / n.sum()
             
             delta = np.mean(np.linalg.norm(oldPositions - positions, axis=-1))
