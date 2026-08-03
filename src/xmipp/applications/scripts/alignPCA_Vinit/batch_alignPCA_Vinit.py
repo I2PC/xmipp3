@@ -140,7 +140,8 @@ if __name__=="__main__":
     
     if posit:
         positivity = True
-    
+    else:
+        positivity = False
     
     #Create initial references
     R = reconstruct()
