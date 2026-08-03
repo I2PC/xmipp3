@@ -228,7 +228,7 @@ class reconstruct:
     @torch.no_grad()
 
     def reconstruct_volume_sym(self, mmap, sym, resol, sampling, volume_size, rotations, shifts = None, radius=1.9,
-                            oversamp=2.0, batch_size=32):
+                            oversamp=2.0, batch_size=32, posit=False):
         
         device = torch.device(self.cuda)
             
@@ -308,7 +308,9 @@ class reconstruct:
             # imgs = (imgs - imgs.mean(dim=(-2, -1), keepdim=True)) / (
             #     imgs.std(dim=(-2, -1), keepdim=True) + 1e-8
             # )
-            # imgs = torch.relu(imgs)
+            
+            if posit:
+                imgs = torch.relu(imgs)
     
             proj_fft = torch.fft.fftshift(
                 torch.fft.fft2(torch.fft.ifftshift(imgs, dim=(-2, -1)), norm="forward"),

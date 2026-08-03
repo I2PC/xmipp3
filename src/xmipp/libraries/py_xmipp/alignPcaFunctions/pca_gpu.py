@@ -314,7 +314,7 @@ class PCAgpu:
         return augmented_data
     
     
-    def calculatePCAbasis(self, Img, Ntrain, nBand, dim, sampling, maxRes, minRes, per_eig, batchPCA):
+    def calculatePCAbasis(self, Img, Ntrain, nBand, dim, sampling, maxRes, minRes, per_eig, batchPCA, posit):
         
         freq_band = self.precalculateBands(nBand, dim, sampling, maxRes, minRes) 
         #torch.save(freq_band, output + "_bands.pt")
@@ -344,7 +344,8 @@ class PCAgpu:
             # mask = bnb.create_gaussian_mask(Texp)
             # Texp = bnb.zscore_normalization_mask(Texp, mask)
             Texp = Texp * bnb.create_mask(Texp, radius)
-            # Texp = torch.relu(Texp)
+            if posit:
+                Texp = torch.relu(Texp)
             
             # whitening = bnb.compute_radial_whitening_filter(Texp, sampling, 8.0)
             whitening = 1

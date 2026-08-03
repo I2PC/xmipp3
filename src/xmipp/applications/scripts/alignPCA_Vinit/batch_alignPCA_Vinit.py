@@ -138,6 +138,9 @@ if __name__=="__main__":
     Ntrain = nExp
     nIter = 20
     
+    if posit:
+        positivity = True
+    
     
     #Create initial references
     R = reconstruct()
@@ -158,7 +161,7 @@ if __name__=="__main__":
     else:    
         for i in range(numCl):
             random_angles = R.generate_random_angles(nExp)
-            zeroVol = R.reconstruct_volume_sym(mmap, sym, 60, sampling, dim, random_angles)
+            zeroVol = R.reconstruct_volume_sym(mmap, sym, 60, sampling, dim, random_angles, posit=positivity)
             # zeroVol = (zeroVol - zeroVol.mean()) / (zeroVol.std() + 1e-8)
             zeroVol = R.filter_3d(zeroVol, sampling, 60.0)
             zeroVol = zeroVol * R.contrast_dominant_mask_3d(zeroVol, window=3, contrast_percentile=90,
@@ -216,7 +219,7 @@ if __name__=="__main__":
     pca = PCAgpu(nBand)
     maxRes = 20
     freqBn, cvecs, coef = pca.calculatePCAbasis(texp, Ntrain, nBand, dim, sampling, maxRes, 
-                                                minRes=530, per_eig=per_eig_value, batchPCA=True)
+                                                minRes=530, per_eig=per_eig_value, batchPCA=True, posit=positivity)
 
     grid_flat = flatGrid(freqBn, nBand)
     
@@ -340,7 +343,7 @@ if __name__=="__main__":
             
             mmap_filtrado = mmap.data[valid_indices.cpu().numpy()].astype('float32')
             
-            vol = R.reconstruct_volume_sym(mmap_filtrado, sym, filtRes, sampling, dim, rotM, shifts=shiftM)
+            vol = R.reconstruct_volume_sym(mmap_filtrado, sym, filtRes, sampling, dim, rotM, shifts=shiftM, posit=positivity)
             # vol = (vol - vol.mean()) / (vol.std() + 1e-8)
             file = output+"_iter%s_class%s.mrc"%(current_iter+1,i)
             save_vol(vol.cpu(), file, sampling)
@@ -414,7 +417,7 @@ if __name__=="__main__":
                 Ntrain = texp.shape[0]  
                 freqBn, cvecs, coef = pca.calculatePCAbasis(
                     texp, Ntrain, nBand, dim, sampling, pcaRes,
-                    minRes=530, per_eig=per_eig_value, batchPCA=True
+                    minRes=530, per_eig=per_eig_value, batchPCA=True, posit=positivity
                 )
                 grid_flat = flatGrid(freqBn, nBand)
     exit()
