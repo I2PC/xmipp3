@@ -211,6 +211,7 @@ if __name__=="__main__":
     
     # file = output+"_exp.mrcs" 
     # save_proj(texp, file, sampling) 
+    # exit()
     
     # resultado_tensor = torch.cat([texp, all_refs_cpu[0].to(cuda)], dim=0)
     Ntrain = texp.shape[0]   
@@ -249,12 +250,16 @@ if __name__=="__main__":
         vectorRot.sort()         
         nShift = len(vectorshift)
         
-        # if current_iter < 5:
-        #     texp_align = texp * bnb.contrast_dominant_mask(texp, window=3, contrast_percentile=80,
-        #                             intensity_percentile=50, smooth_sigma=1.0)
-        # else:
-        #     texp_align = texp
-        texp_align = texp
+        if current_iter < 5:
+            texp_align = texp * bnb.contrast_dominant_mask(texp, window=3, contrast_percentile=80,
+                                    intensity_percentile=50, smooth_sigma=1.0)
+        else:
+            texp_align = texp
+        # texp_align = texp
+        
+        # file = output+"_exp.mrcs" 
+        # save_proj(texp_align, file, sampling) 
+        # exit()
             
     
         matches = [None] * numCl
@@ -269,9 +274,9 @@ if __name__=="__main__":
             # tref = bnb.zscore_normalization_mask(tref, mask)
             # tref *= bnb.create_gaussian_mask(tref)
             
-            # if current_iter < 5:
-            #     tref = tref * bnb.contrast_dominant_mask(tref, window=3, contrast_percentile=80,
-            #                         intensity_percentile=50, smooth_sigma=1.0)
+            if current_iter < 5:
+                tref = tref * bnb.contrast_dominant_mask(tref, window=3, contrast_percentile=80,
+                                    intensity_percentile=50, smooth_sigma=1.0)
             
             if radius:
                 tref = tref * bnb.create_mask(tref, radius)
