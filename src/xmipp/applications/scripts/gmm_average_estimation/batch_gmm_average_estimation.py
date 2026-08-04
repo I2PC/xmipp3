@@ -9,8 +9,7 @@ import mrcfile
 import numpy as np
 import torch
 
-from xmippPyModules.gmmAverageTools.data import read_data, write_star_with_weights
-from xmippPyModules.gmmAverageTools.alignment import align_particles_batch
+from xmippPyModules.gmmAverageTools.data import read_images, write_star_with_weights
 from xmippPyModules.gmmAverageTools.gmm_estimator import RecursiveGMMEstimator
 from xmippPyModules.gmmAverageTools.distances import (
     tagare_distance,
@@ -102,18 +101,9 @@ def main():
     else:
         device = "cpu"
 
-    # Read data from the input star file
-    particles, angles, shiftX, shiftY = read_data(
+    # Read images from the input star file
+    images = read_images(
         xmd_path=args.input_xmd, device=device
-    )
-
-    images = align_particles_batch(
-        particles,
-        psi=angles,
-        shiftX=shiftX,
-        shiftY=shiftY,
-        shift_first=not args.rotate_first,
-        batch_size=BATCH_SIZE,
     )
 
     # Initialize distance function for the estimator
