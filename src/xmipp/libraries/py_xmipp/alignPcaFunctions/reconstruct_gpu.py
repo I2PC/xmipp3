@@ -305,9 +305,9 @@ class reconstruct:
             imgs = torch.as_tensor(np.array(mmap.data[start:end]), device=device, dtype=torch.float32)
             # imgs = mmap.data[start:end]
     
-            # imgs = (imgs - imgs.mean(dim=(-2, -1), keepdim=True)) / (
-            #     imgs.std(dim=(-2, -1), keepdim=True) + 1e-8
-            # )
+            imgs = (imgs - imgs.mean(dim=(-2, -1), keepdim=True)) / (
+                imgs.std(dim=(-2, -1), keepdim=True) + 1e-8
+            )
             
             if posit:
                 imgs = torch.relu(imgs)
