@@ -36,15 +36,14 @@ def build_argument_parser() -> argparse.ArgumentParser:
         "--input-xmd",
         required=True,
         type=Path,
-        help="Path to the .xmd file containing the path to the image stack and the "
-        "alignment parameters",
+        help="Path to the .xmd file containing the path to the image stack"
     )
     parser.add_argument(
         "--base-xmd",
         type=Path,
-        help="Path to the base .xmd file the weights should be added to. " \
-        "The original file will not be modified, but a new one will be created with the " \
-        "same information, plus the weights." \
+        help="Path to the base .xmd file the weights should be added to. "
+        "The original file will not be modified, but a new one will be created with the "
+        "same information, plus the weights."
         "If not specified, the input .xmd file will be used.",
     )
     parser.add_argument(
@@ -73,16 +72,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
         help="Path to the output .npy file for the original distances",
     )
     parser.add_argument(
-        "--device",
-        type=str,
-        choices=["cpu", "cuda"],
-        help="Compute device for PyTorch"
-    )
-    parser.add_argument(
-        "--rotate-first",
-        action="store_true",
-        default=False,
-        help="When aligning the images, apply rotation before shifts (XMIPP convention)",
+        "--device", type=str, choices=["cpu", "cuda"], help="Compute device for PyTorch"
     )
 
     return parser
@@ -96,15 +86,15 @@ def main():
         if torch.cuda.is_available():
             device = "cuda"
         else:
-            warnings.warn("Requested CUDA compute device but CUDA is unavailable. Using CPU instead.")
+            warnings.warn(
+                "Requested CUDA compute device but CUDA is unavailable. Using CPU instead."
+            )
             device = "cpu"
     else:
         device = "cpu"
 
     # Read images from the input star file
-    images = read_images(
-        xmd_path=args.input_xmd, device=device
-    )
+    images = read_images(xmd_path=args.input_xmd, device=device)
 
     # Initialize distance function for the estimator
     auto_beta = calculate_beta_auto(imgs=images, mult=1.0)
@@ -161,12 +151,13 @@ def main():
             weights_list=[gmm_weights, original_weights],
             column_names=["wRobustGmm", "wRobust"],
         )
-    
+
     # Save weights and distances as separate .npy files if requested
     if args.out_weights:
         np.save(args.out_weights, gmm_weights)
     if args.out_distances:
         np.save(args.out_distances, original_weights)
+
 
 if __name__ == "__main__":
     main()
