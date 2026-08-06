@@ -12,7 +12,7 @@ import torch
 from xmippPyModules.gmmAverageTools.data import read_images, write_star_with_weights
 from xmippPyModules.gmmAverageTools.gmm_estimator import RecursiveGMMEstimator
 from xmippPyModules.gmmAverageTools.distances import (
-    tagare_distance,
+    tagare_distance_precomputed,
     calculate_beta_auto,
 )
 from xmippPyModules.gmmAverageTools.utils import weighted_average
@@ -95,7 +95,6 @@ def main():
 
     # Initialize distance function for the estimator
     auto_beta = calculate_beta_auto(imgs=images, mult=1.0)
-    distance_function = partial(tagare_distance, beta=auto_beta)
 
     # Mask images for the estimator
     # NOTE: probably have to change this to avoid creating a new image array in memory
@@ -104,6 +103,22 @@ def main():
     )
     mask_tensor = torch.from_numpy(mask_np).to(device=images.device, dtype=images.dtype)
     masked_images = images * mask_tensor
+
+    masked_images_flat = masked_images.flatten(1)
+    image_norm_sq = masked_images_flat.square().sum(dim=1)
+    image_norms = image_norm_sq.sqrt()
+
+    def distance_function(
+        unused_images: torch.Tensor,
+        reference: torch.Tensor,
+    ) -> torch.Tensor:
+        return tagare_distance_precomputed(
+            images_flat=masked_images_flat,
+            image_norms=image_norms,
+            image_norm_sq=image_norm_sq,
+            reference=reference,
+            beta=auto_beta,
+        )
 
     # Initialize the estimator
     estimator = RecursiveGMMEstimator(

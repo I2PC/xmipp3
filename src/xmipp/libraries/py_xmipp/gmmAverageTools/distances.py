@@ -138,6 +138,30 @@ def tagare_distance(
     return invert_similarity(weights, inv_type=inv_type, eps=eps)
 
 
+@torch.no_grad()
+def tagare_distance_precomputed(
+    images_flat: torch.Tensor,
+    image_norms: torch.Tensor,
+    image_norm_sq: torch.Tensor,
+    reference: torch.Tensor,
+    beta: float,
+    eps: float = 1.0e-6,
+) -> torch.Tensor:
+    """Calculate Tagare distance using cached image norms."""
+    reference_flat = reference.reshape(-1)
+    reference_norm = torch.linalg.vector_norm(reference_flat)
+
+    denominator = image_norms.clamp_min(eps) * reference_norm.clamp_min(eps)
+
+    cosine_sim = torch.mv(images_flat, reference_flat)
+    cosine_sim = cosine_sim.div_(denominator).abs_()
+
+    orth_norm_sq = image_norm_sq * (1.0 - cosine_sim.square()).clamp_min_(0.0)
+
+    similarity = orth_norm_sq.mul_(-beta).exp_().mul_(cosine_sim)
+    return similarity.neg_()
+
+
 def calculate_beta_auto(imgs: torch.Tensor, mult: float = 1.0) -> float:
     """
     Automatically scales the Tagare exponential scaling factor based on the average
