@@ -25,10 +25,6 @@ ESTIMATOR_TOL = 1.0e-4
 ESTIMATOR_STANDARDIZE_DISTANCES = True
 ESTIMATOR_RANDOM_STATE = 42
 
-# Batch size for the alignment
-# NOTE: to be changed for configurable arguments in the future
-BATCH_SIZE = 256
-
 
 def build_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
@@ -37,7 +33,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
         "--input-xmd",
         required=True,
         type=Path,
-        help="Path to the .xmd file containing the path to the image stack"
+        help="Path to the .xmd file containing the path to the image stack",
     )
     parser.add_argument(
         "--base-xmd",
@@ -116,6 +112,7 @@ def main():
         tol=ESTIMATOR_TOL,
         standardize_distances=ESTIMATOR_STANDARDIZE_DISTANCES,
         random_state=ESTIMATOR_RANDOM_STATE,
+        gmm_max_iter=20,
     )
 
     # Calculate the initial reference

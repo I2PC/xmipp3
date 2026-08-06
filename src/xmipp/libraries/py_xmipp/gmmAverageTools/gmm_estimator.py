@@ -20,14 +20,24 @@ class RecursiveGMMEstimator:
         tol: float = 1.0e-4,
         standardize_distances: bool = True,
         random_state: Optional[int] = None,
+        gmm_max_iter: int = 20,
+        gmm_tol: float = 1.0e-4,
     ):
         self.model = TorchGaussianMixture(
-            n_components=2, random_state=random_state, warm_start=True
+            n_components=2,
+            max_iter=gmm_max_iter,
+            tol=gmm_tol,
+            random_state=random_state,
+            warm_start=True,
         )
+
         self.distance_function = distance_function
         self.max_iter = max_iter
         self.tol = tol
         self.standardize_distances = standardize_distances
+
+        self.gmm_max_iter = gmm_max_iter
+        self.gmm_tol = gmm_tol
 
         self.n_its = None
         self.converged = False
@@ -38,6 +48,8 @@ class RecursiveGMMEstimator:
         """
         model = TorchGaussianMixture(
             n_components=2,
+            max_iter=self.gmm_max_iter,
+            tol=self.gmm_tol,
             random_state=self.model.random_state,
             warm_start=True,
         )
@@ -118,10 +130,10 @@ class RecursiveGMMEstimator:
         # Prepare distances for the TorchGaussianMixture model
         if std_distances.ndim == 1:
             std_distances = std_distances[:, None]
-        
+
         if initialize_params:
             self._initialize_model_params(std_distances)
-        
+
         # Fit GMM to the distance distribution
         self.model.fit(std_distances)
 
