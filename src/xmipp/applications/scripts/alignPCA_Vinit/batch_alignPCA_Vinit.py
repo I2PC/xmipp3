@@ -250,7 +250,7 @@ if __name__=="__main__":
         vectorRot.sort()         
         nShift = len(vectorshift)
         
-        if current_iter < 10:
+        if current_iter < 5:
             texp_align = texp * bnb.contrast_dominant_mask(texp, window=3, contrast_percentile=80,
                                     intensity_percentile=50, smooth_sigma=1.0)
         else:
@@ -274,7 +274,7 @@ if __name__=="__main__":
             # tref = bnb.zscore_normalization_mask(tref, mask)
             # tref *= bnb.create_gaussian_mask(tref)
             
-            if current_iter < 10:
+            if current_iter < 5:
                 tref = tref * bnb.contrast_dominant_mask(tref, window=3, contrast_percentile=80,
                                     intensity_percentile=50, smooth_sigma=1.0)
             
@@ -354,38 +354,6 @@ if __name__=="__main__":
             file = output+"_iter%s_class%s.mrc"%(current_iter+1,i)
             save_vol(vol.cpu(), file, sampling)
             
-            # if current_iter < 7:                
-            #     # 1. Definimos los grupos A y B SOLO una vez en la iteración 0 (Igual que antes)
-            #     if current_iter == 0:
-            #         num_valid = len(valid_indices)
-            #         indices_locales = np.arange(num_valid)
-            #         np.random.shuffle(indices_locales) # Barajamos una única vez
-            #
-            #         mitad = num_valid // 2
-            #         globals()['indices_fijos_A'] = indices_locales[:mitad]
-            #         globals()['indices_fijos_B'] = indices_locales[mitad:]
-            #
-            #     # 2. Recuperamos AMBOS grupos fijos en cada iteración
-            #     idx_A = globals().get('indices_fijos_A')
-            #     idx_B = globals().get('indices_fijos_B')
-            #
-            #     # --- Reconstrucción con el Grupo A ---
-            #     mmap_A = mmap.data[valid_indices[idx_A].cpu().numpy()].astype('float32')
-            #     vol = R.reconstruct_volume_sym(mmap_A, sym, filtRes, sampling, dim, rotM[idx_A], shifts=shiftM[idx_A] if shiftM is not None else None)
-            #
-            #     # --- Reconstrucción con el Grupo B ---
-            #     mmap_B = mmap.data[valid_indices[idx_B].cpu().numpy()].astype('float32')
-            #     vol_B = R.reconstruct_volume_sym(mmap_B, sym, filtRes, sampling, dim, rotM[idx_B], shifts=shiftM[idx_B] if shiftM is not None else None)
-            #
-            #     # --- Promedio In-Place (Máximo 2 volúmenes simultáneos) ---
-            #     vol.add_(vol_B)  # Sumamos B directamente sobre 'vol' (sin crear un tercer tensor)
-            #     del vol_B        # Borramos el volumen B de la GPU inmediatamente
-            #     vol.div_(2.0)    # Dividimos 'vol' entre 2 sobre sí mismo
-            #
-            # else:
-            #     # A partir de la iteración 7, usamos todas tus clases promedio juntas (Igual que antes)
-            #     mmap_filtrado = mmap.data[valid_indices.cpu().numpy()].astype('float32')
-            #     vol = R.reconstruct_volume_sym(mmap_filtrado, sym, filtRes, sampling, dim, rotM, shifts=shiftM)
                 
             vol = R.filter_3d(vol, sampling, filtRes)
             if current_iter < 7:
