@@ -15,6 +15,7 @@ from xmippPyModules.gmmAverageTools.distances import (
     tagare_distance,
     calculate_beta_auto,
 )
+from xmippPyModules.gmmAverageTools.utils import weighted_average
 from xmippPyModules.gmmAverageTools.masks import create_circular_mask
 
 # Estimator parameters
@@ -121,10 +122,9 @@ def main():
     reference = masked_images.mean(dim=0)
 
     # Fit the estimator to get the corrected average and the weights
-    new_avg, weights, original_distances = estimator.fit(
+    _, weights, original_distances = estimator.fit(
         images=masked_images, reference=reference
     )
-    new_avg = new_avg.detach().cpu().numpy()
 
     # NOTE: for global GMM weights, reshaping to a flat array is enough,
     # but more intricate weight aggregation might be necessary in the future
@@ -133,13 +133,15 @@ def main():
     # The GMM estimator returns distances, which are the negative of the weights
     original_weights = -original_distances.detach().cpu().numpy().reshape(-1)
 
-    # Save the new average if requested
+    # Save the new unmasked average if requested
     if args.out_corrected_avg:
-        mrcfile.write(name=args.out_corrected_avg, data=new_avg)
+        unmasked_new_average = weighted_average(images, weights).detach().cpu().numpy()
+        mrcfile.write(name=args.out_corrected_avg, data=unmasked_new_average)
 
-    # Save the original average if requested
+    # Save the original unmasked average if requested
     if args.out_original_avg:
-        mrcfile.write(name=args.out_original_avg, data=reference.detach().cpu().numpy())
+        unmasked_original_avg = images.mean(dim=0).detach().cpu().numpy()
+        mrcfile.write(name=args.out_original_avg, data=unmasked_original_avg)
 
     # Save the new star file with the weights added as a column
     if args.out_star:
