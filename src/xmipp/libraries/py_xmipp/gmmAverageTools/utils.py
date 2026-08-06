@@ -29,9 +29,13 @@ def weighted_average(
     ValueError
         If the maximum weight sum is effectively zero, indicating degenerate metrics.
     """
-    weight_sum = weights.sum(dim=0)
-    # if weight_sum.max() < 1e-8:
-    #     raise ValueError(
-    #         "All weights are effectively zero: distances likely degenerate"
-    #     )
+    if dim == 0 and weights.numel() == images.shape[0]:
+        weights = weights.reshape(-1)
+        flat_images = images.reshape(images.shape[0], -1)
+
+        return (torch.matmul(weights, flat_images) / (weights.sum() + eps)).reshape(
+            images.shape[1:]
+        )
+
+    weight_sum = weights.sum(dim=dim)
     return (weights * images).sum(dim=dim) / (weight_sum + eps)
