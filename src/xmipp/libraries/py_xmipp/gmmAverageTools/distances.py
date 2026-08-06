@@ -147,7 +147,40 @@ def tagare_distance_precomputed(
     beta: float,
     eps: float = 1.0e-6,
 ) -> torch.Tensor:
-    """Calculate Tagare distance using cached image norms."""
+    """
+    Compute Tagare distances using precomputed image norms.
+
+    This function is a specialized version of ``tagare_distance`` for
+    repeated comparisons between a fixed image batch and changing reference
+    images. The flattened images and their squared norms are supplied by the
+    caller so that these quantities do not need to be recomputed at every
+    estimator iteration.
+
+    Parameters
+    ----------
+    images_flat : torch.Tensor
+        Flattened image batch with shape ``(n_images, n_pixels)``.
+    image_norms : torch.Tensor
+        Euclidean norm of each flattened image, with shape ``(n_images,)``.
+    image_norm_sq : torch.Tensor
+        Squared Euclidean norm of each image, with shape ``(n_images,)``.
+    reference : torch.Tensor
+        Current reference image. It may retain its original spatial shape.
+    beta : float, optional
+        Scaling factor applied to the squared orthogonal residual.
+    eps : float, optional
+        Numerical-stability threshold used when normalizing vectors.
+
+    Returns
+    -------
+    torch.Tensor
+        One Tagare distance per image, with shape ``(n_images,)``.
+
+    Notes
+    -----
+    The function assumes that ``images_flat``, ``image_norms`` and
+    ``image_norm_sq`` were all calculated from the same image batch.
+    """
     reference_flat = reference.reshape(-1)
     reference_norm = torch.linalg.vector_norm(reference_flat)
 
