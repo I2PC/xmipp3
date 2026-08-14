@@ -712,13 +712,13 @@ class BnBgpu:
     def search_space(self, iter, sampling):
         # 1. Valores base según la iteración
         if iter < 4:
-            base_angle, base_shift, maxShift = 8.0, 6.0/sampling, 24.0/sampling
+            base_angle, base_shift, maxShift = 8.0, 3.0/sampling, 12.0/sampling
         elif iter < 8:
-            base_angle, base_shift, maxShift = 8.0, 6.0/sampling, 24.0/sampling
+            base_angle, base_shift, maxShift = 8.0, 3.0/sampling, 12.0/sampling
         elif iter < 13:
-            base_angle, base_shift, maxShift = 6.0, 6.0/sampling, 24.0/sampling
+            base_angle, base_shift, maxShift = 6.0, 3.0/sampling, 12.0/sampling
         else:
-            base_angle, base_shift, maxShift = 5.0, 6.0/sampling, 24.0/sampling
+            base_angle, base_shift, maxShift = 5.0, 3.0/sampling, 12.0/sampling
             
         # 2. Aplicamos Jitter decreciente (enfriamiento)
         if iter < 8:

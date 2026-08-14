@@ -206,8 +206,8 @@ if __name__=="__main__":
     if posit:
         texp = torch.relu(texp)
         
-    # whitening = bnb.compute_radial_whitening_filter(texp, sampling, 8.0)
-    whitening = 1
+    whitening = bnb.compute_radial_whitening_filter(texp, sampling, 8.0)
+    # whitening = 1
     
     # file = output+"_exp.mrcs" 
     # save_proj(texp, file, sampling) 

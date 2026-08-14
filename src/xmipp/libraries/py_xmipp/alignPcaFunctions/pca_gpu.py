@@ -347,8 +347,8 @@ class PCAgpu:
             if posit:
                 Texp = torch.relu(Texp)
             
-            # whitening = bnb.compute_radial_whitening_filter(Texp, sampling, 8.0)
-            whitening = 1
+            whitening = bnb.compute_radial_whitening_filter(Texp, sampling, 8.0)
+            # whitening = 1
     
             # del(expImages)
 
