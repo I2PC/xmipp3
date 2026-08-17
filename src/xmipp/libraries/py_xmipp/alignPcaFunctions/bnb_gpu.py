@@ -773,8 +773,8 @@ class BnBgpu:
             # pcaRes, volRes, angleGallery = pcaRes, filter, 6
             pcaRes, volRes, angleGallery = 16, 16, 6
         else:
-            # pcaRes, volRes, angleGallery = pcaRes, filter, 5
-            pcaRes, volRes, angleGallery = 16, 16, 5
+            pcaRes, volRes, angleGallery = pcaRes, filter, 5
+            # pcaRes, volRes, angleGallery = 16, 16, 5
             
         return(pcaRes, volRes, angleGallery)
 
