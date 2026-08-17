@@ -250,13 +250,11 @@ if __name__=="__main__":
         vectorRot.sort()         
         nShift = len(vectorshift)
         
-        texp_align = texp * bnb.contrast_dominant_mask(texp, window=3, contrast_percentile=80,
+        if current_iter < 10:
+            texp_align = texp * bnb.contrast_dominant_mask(texp, window=3, contrast_percentile=80,
                                     intensity_percentile=50, smooth_sigma=1.0)
-        # if current_iter < 10:
-        #     texp_align = texp * bnb.contrast_dominant_mask(texp, window=3, contrast_percentile=80,
-        #                             intensity_percentile=50, smooth_sigma=1.0)
-        # else:
-        #     texp_align = texp
+        else:
+            texp_align = texp
         # texp_align = texp
         
         # file = output+"_exp.mrcs" 
@@ -276,11 +274,9 @@ if __name__=="__main__":
             # tref = bnb.zscore_normalization_mask(tref, mask)
             # tref *= bnb.create_gaussian_mask(tref)
             
-            tref = tref * bnb.contrast_dominant_mask(tref, window=3, contrast_percentile=80,
+            if current_iter < 10:
+                tref = tref * bnb.contrast_dominant_mask(tref, window=3, contrast_percentile=80,
                                     intensity_percentile=50, smooth_sigma=1.0)
-            # if current_iter < 10:
-            #     tref = tref * bnb.contrast_dominant_mask(tref, window=3, contrast_percentile=80,
-            #                         intensity_percentile=50, smooth_sigma=1.0)
             
             if radius:
                 tref = tref * bnb.create_mask(tref, radius)
@@ -321,7 +317,7 @@ if __name__=="__main__":
 
             # mmap_filtrado = mmap.data[valid_indices.cpu().numpy()].astype('float32')
             
-            if current_iter < 7:                
+            if current_iter < 10:                
                 # 1. Definimos los grupos A y B SOLO una vez en la iteración 0
                 if current_iter == 0:
                     num_valid = len(valid_indices)
