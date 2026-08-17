@@ -317,7 +317,7 @@ if __name__=="__main__":
 
             # mmap_filtrado = mmap.data[valid_indices.cpu().numpy()].astype('float32')
             
-            if current_iter < 10:                
+            if current_iter < 5:                
                 # 1. Definimos los grupos A y B SOLO una vez en la iteración 0
                 if current_iter == 0:
                     num_valid = len(valid_indices)
