@@ -485,6 +485,22 @@ class reconstruct:
         # m = mass.sum()
         # print(f"Centro de masa: {(mass * z_m).sum() / m:.2f}, {(mass * y_m).sum() / m:.2f}, {(mass * x_m).sum() / m:.2f}")
         # del mass, z_m, y_m, x_m
+        
+            # Recenter preciso (Mantenemos tu lógica de centro de masas)
+        if torch.abs(vol_real).sum() > 1e-6:
+            coords = torch.arange(D, device=device, dtype=torch.float32)
+            X, Y, Z = torch.meshgrid(coords, coords, coords, indexing='ij')
+            total = torch.abs(vol_real).sum()
+            shift = torch.tensor([(X * torch.abs(vol_real)).sum() / total - D/2,
+                                  (Y * torch.abs(vol_real)).sum() / total - D/2,
+                                  (Z * torch.abs(vol_real)).sum() / total - D/2], device=device) / D
+            phase = torch.exp(-2j * torch.pi * (
+                torch.fft.fftfreq(D, device=device)[:,None,None] * shift[0] +
+                torch.fft.fftfreq(D, device=device)[None,:,None] * shift[1] +
+                torch.fft.fftfreq(D, device=device)[None,None,:] * shift[2]
+            ))
+            vol_f_shift = torch.fft.fftn(torch.fft.ifftshift(vol_real)) * phase
+            vol_real = torch.fft.fftshift(torch.fft.ifftn(vol_f_shift).real)
     
         return vol_real
     
