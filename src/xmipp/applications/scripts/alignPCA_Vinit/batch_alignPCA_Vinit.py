@@ -250,7 +250,7 @@ if __name__=="__main__":
         vectorRot.sort()         
         nShift = len(vectorshift)
         
-        if current_iter < 5:
+        if current_iter < 10:
             texp_align = texp * bnb.contrast_dominant_mask(texp, window=3, contrast_percentile=80,
                                     intensity_percentile=50, smooth_sigma=1.0)
         else:
@@ -274,7 +274,7 @@ if __name__=="__main__":
             # tref = bnb.zscore_normalization_mask(tref, mask)
             # tref *= bnb.create_gaussian_mask(tref)
             
-            if current_iter < 5:
+            if current_iter < 10:
                 tref = tref * bnb.contrast_dominant_mask(tref, window=3, contrast_percentile=80,
                                     intensity_percentile=50, smooth_sigma=1.0)
             
@@ -356,16 +356,15 @@ if __name__=="__main__":
             
                 
             vol = R.filter_3d(vol, sampling, filtRes)
-            if current_iter < 7:
+            if current_iter < 10:
                 vol = vol * R.contrast_dominant_mask_3d(vol, window=3, contrast_percentile=90,
                                          intensity_percentile=70, smooth_sigma=1.0)
             #posit
             if posit:
                 vol = torch.relu(vol)
                 
-            # if current_iter > 1 and current_iter < 7:
-            if current_iter < 7:
-                vol = R.mask_otsu(vol, sigma=4.0, noise_level=0.0)
+            # if current_iter < 7:
+            #     vol = R.mask_otsu(vol, sigma=4.0, noise_level=0.0)
                 
             vol = R.apply_spherical_mask(vol, radius)
             
