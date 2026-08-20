@@ -142,20 +142,20 @@ def average_aligned_particles_ctf(star_path, pix_size, output_mrc=None, device="
                                        amp_contrast=ampC, device=device)
 
         # Averages
-        avg_sum += shifted.sum(dim=0)
-        count += shifted.shape[0]
-        # numerator += (ctf_batch * Fpart).sum(dim=0)
-        # denominator += (ctf_batch.square()).sum(dim=0)
+        # avg_sum += shifted.sum(dim=0)
+        # count += shifted.shape[0]
+        numerator += (ctf_batch * Fpart).sum(dim=0)
+        denominator += (ctf_batch.square()).sum(dim=0)
 
         torch.cuda.empty_cache()
 
-    avg = (avg_sum / count)
+    # avg = (avg_sum / count)
     
     # regularizer = 1e-3
     regularizer = 1e-2 * denominator.max()
     
     avg_fft = numerator / (denominator + regularizer)
-    # avg = torch.real(torch.fft.ifft2(avg_fft))
+    avg = torch.real(torch.fft.ifft2(avg_fft))
     
     avg_cpu = avg.cpu().numpy().astype(np.float32)
 
