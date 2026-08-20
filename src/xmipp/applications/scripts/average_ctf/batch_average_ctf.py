@@ -132,8 +132,8 @@ def average_aligned_particles_ctf(star_path, pix_size, output_mrc=None, device="
         
         Fpart = torch.fft.fft2(shifted)
         
-        # defA_rotated = defA[i:j] + psi[i:j]
-        defA_rotated = defA[i:j]
+        defA_rotated = defA[i:j] + psi[i:j]
+        # defA_rotated = defA[i:j]
 
         
         ctf_batch = compute_ctfs_batch(dim=h, pixel_size=pix_size, defocus_u=defU[i:j],
