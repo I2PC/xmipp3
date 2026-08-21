@@ -1,6 +1,9 @@
 from typing import Optional, Tuple
 
+# import numpy as np
 import torch
+
+# from sklearn.mixture import GaussianMixture
 
 from xmippPyModules.gmmAverageTools.distances import DistanceFunction
 from xmippPyModules.gmmAverageTools.utils import weighted_average
