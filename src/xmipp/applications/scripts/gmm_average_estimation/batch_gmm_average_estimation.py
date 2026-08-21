@@ -1,16 +1,9 @@
 #!/usr/bin/env python3
 
-import time
-
-# Start timing before the heavy imports. The elapsed time until main() starts
-# includes Python-level startup and module imports.
-PROCESS_START = time.perf_counter()
-
 import argparse
-import json
 from pathlib import Path
 import warnings
-from typing import Dict, Tuple, Union
+from typing import Tuple, Union, Optional
 
 import mrcfile
 import numpy as np
@@ -18,11 +11,9 @@ import starfile
 import torch
 import pandas as pd
 
-import pwem.emlib.metadata as md
-
 from xmippPyModules.gmmAverageTools.data import (
     read_images,
-    write_star_with_weights,
+    MDL_REF_COLUMN,
 )
 from xmippPyModules.gmmAverageTools.gmm_estimator import RecursiveGMMEstimator
 from xmippPyModules.gmmAverageTools.distances import (
@@ -76,16 +67,6 @@ def build_argument_parser() -> argparse.ArgumentParser:
         help="Path to the output .mrc file for the original class average",
     )
     parser.add_argument(
-        "--out-weights",
-        type=Path,
-        help="Path to the output .npy file for the GMM weights",
-    )
-    parser.add_argument(
-        "--out-distances",
-        type=Path,
-        help="Path to the output .npy file for the original distances",
-    )
-    parser.add_argument(
         "--device",
         type=str,
         choices=["cpu", "cuda"],
@@ -95,27 +76,13 @@ def build_argument_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
-    parser = build_argument_parser()
-    args = parser.parse_args()
-
-    if args.device == "cuda":
-        if torch.cuda.is_available():
-            device = "cuda"
-        else:
-            warnings.warn(
-                "Requested CUDA compute device but CUDA is unavailable. "
-                "Using CPU instead."
-            )
-            device = "cpu"
-    else:
-        device = "cpu"
-
-    # Read the aligned images referenced by the input metadata.
-    images = read_images(
-        xmd_path=args.input_xmd,
-        device=device,
-    )
+def process_class(
+    data: pd.DataFrame,
+    class_id: int,
+    device: Union[torch.device, str] = "cpu",
+    write_metadata: Optional[pd.DataFrame] = None,
+) -> Tuple[np.ndarray, np.ndarray]:
+    images = read_images(data=data, class_id=class_id, device=device)
 
     # Calculate the automatic scaling parameter for the distance.
     auto_beta = calculate_beta_auto(
@@ -172,39 +139,88 @@ def main() -> None:
     gmm_weights = weights.detach().cpu().numpy().reshape(-1)
     original_weights = -original_distances.detach().cpu().numpy().reshape(-1)
 
-    # Save the robust, unmasked average if requested.
+    if write_metadata is not None:
+        class_indices = write_metadata[MDL_REF_COLUMN] == class_id
+
+        write_metadata.loc[class_indices, "wRobust"] = original_weights
+        write_metadata.loc[class_indices, "wRobustGmm"] = gmm_weights
+
+    unmasked_new_average = weighted_average(images, weights).detach().cpu().numpy()
+    unmasked_original_avg = images.mean(dim=0).detach().cpu().numpy()
+
+    return unmasked_new_average, unmasked_original_avg
+
+
+def main() -> None:
+    parser = build_argument_parser()
+    args = parser.parse_args()
+
+    if args.device == "cuda":
+        if torch.cuda.is_available():
+            device = "cuda"
+        else:
+            warnings.warn(
+                "Requested CUDA compute device but CUDA is unavailable. "
+                "Using CPU instead."
+            )
+            device = "cpu"
+    else:
+        device = "cpu"
+
+    metadata_df = pd.DataFrame(starfile.read(args.input_xmd))
+    metadata_df["wRobustGmm"] = 1.0
+    metadata_df["wRobust"] = 1.0
+
+    write_metadata = None
+    if args.out_star:
+        if args.base_xmd:
+            write_metadata = pd.DataFrame(starfile.read(args.base_xmd))
+        else:
+            write_metadata = metadata_df
+
+    stack_name = str(metadata_df["image"].to_numpy()[0]).split("@", maxsplit=1)[1]
+    stack_path = Path(stack_name)
+
+    with mrcfile.open(stack_path, header_only=True) as mrc:
+        nx = mrc.header.nx
+        ny = mrc.header.ny
+
+    class_ids = sorted(metadata_df[MDL_REF_COLUMN].unique())
+    n_classes = len(class_ids)
+
+    corrected_averages = None
     if args.out_corrected_avg:
-        unmasked_new_average = weighted_average(images, weights).detach().cpu().numpy()
-        mrcfile.write(
-            name=args.out_corrected_avg,
-            data=unmasked_new_average,
+        corrected_averages = np.empty(shape=(n_classes, ny, nx), dtype=np.float32)
+
+    original_averages = None
+    if args.out_original_avg:
+        original_averages = np.empty(shape=(n_classes, ny, nx), dtype=np.float32)
+
+    for index, class_id in enumerate(class_ids):
+        corrected_avg, original_avg = process_class(
+            data=metadata_df,
+            class_id=class_id,
+            device=device,
+            write_metadata=write_metadata,
         )
 
-    # Save the original, unmasked average if requested.
+        if corrected_averages is not None:
+            corrected_averages[index] = corrected_avg
+
+        if original_averages is not None:
+            original_averages[index] = original_avg
+
+    # Save the robust, unmasked averages if requested.
+    if args.out_corrected_avg:
+        mrcfile.write(name=args.out_corrected_avg, data=corrected_averages)
+
+    # Save the original, unmasked averages if requested.
     if args.out_original_avg:
-        unmasked_original_avg = images.mean(dim=0).detach().cpu().numpy()
-        mrcfile.write(
-            name=args.out_original_avg,
-            data=unmasked_original_avg,
-        )
+        mrcfile.write(name=args.out_original_avg, data=original_averages)
 
     # Save the metadata with the additional weight columns.
-    if args.out_star:
-        base_xmd = args.base_xmd if args.base_xmd is not None else args.input_xmd
-
-        write_star_with_weights(
-            input_star=base_xmd,
-            output_star=args.out_star,
-            weights_list=[gmm_weights, original_weights],
-            column_names=["wRobustGmm", "wRobust"],
-        )
-
-    # Save optional standalone NumPy arrays.
-    if args.out_weights:
-        np.save(args.out_weights, gmm_weights)
-
-    if args.out_distances:
-        np.save(args.out_distances, original_weights)
+    if write_metadata is not None:
+        starfile.write(data=write_metadata, filename=args.out_star)
 
 
 if __name__ == "__main__":

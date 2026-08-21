@@ -1,24 +1,33 @@
 from pathlib import Path
-from typing import Tuple, Union, Iterable
+from typing import Tuple, Union, Iterable, Optional
 
 import numpy as np
 import mrcfile
 import starfile
+import pandas as pd
 import torch
 
+MDL_REF_COLUMN = "ref"
 
 def read_images(
-    xmd_path: Union[Path, str],
+    data: pd.DataFrame,
+    class_id: Optional[int] = None,
     device: Union[torch.device, str] = "cpu",
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
-    Reads a .xmd metadata file and returns the images as a tensor.
+    Reads a metadata DataFrame and returns the requested images as a tensor.
 
     Parameters
     ----------
-    xmd_path: Path or str
-        Path to the input .xmd file. Must contain the field `"image"`.
-        Compatible with the output of `writeSetOfClasses2D`.
+    data: pd.DataFrame
+        DataFrame containing the images metadata. 
+        Must contain the field `"image"` with a path to the location of each 
+        image in the image stack, in the format ``"index@path/to/stack.mrcs"``, 
+        with 1-based indices.
+
+    class_id: int or None, optional
+        Class ID identifying the images that should be read. If set to None,
+        all the images in ``data`` will be read. Default is None.
 
     device: torch.device or str
         Device where the output tensors should be placed.
@@ -28,10 +37,12 @@ def read_images(
     torch.Tensor
         Images loaded in the specified device.
     """
-    xmd_path = Path(xmd_path)
-    data = starfile.read(xmd_path)
+    if class_id is None:
+        used_data = data
+    else:
+        used_data = data[data[MDL_REF_COLUMN] == class_id]
 
-    image_names = data["image"].to_numpy()
+    image_names = used_data["image"].to_numpy()
 
     # Image names have the form "000001@Runs/path-to-images.mrcs", with 1-based indices
     indices = np.array(
