@@ -8,6 +8,8 @@ import pandas as pd
 import torch
 
 MDL_REF_COLUMN = "ref"
+MDL_ITEM_ID_COLUMN = "itemId"
+
 
 def read_images(
     data: pd.DataFrame,
@@ -20,9 +22,9 @@ def read_images(
     Parameters
     ----------
     data: pd.DataFrame
-        DataFrame containing the images metadata. 
-        Must contain the field `"image"` with a path to the location of each 
-        image in the image stack, in the format ``"index@path/to/stack.mrcs"``, 
+        DataFrame containing the images metadata.
+        Must contain the field `"image"` with a path to the location of each
+        image in the image stack, in the format ``"index@path/to/stack.mrcs"``,
         with 1-based indices.
 
     class_id: int, optional
@@ -36,7 +38,7 @@ def read_images(
     -------
     torch.Tensor
         Tensor of shape ``(n_images, height, width)`` on the specified device,
-        containing the particle images. 
+        containing the particle images.
     """
     if class_id is None:
         used_data = data

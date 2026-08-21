@@ -11,7 +11,11 @@ import starfile
 import torch
 import pandas as pd
 
-from xmippPyModules.gmmAverageTools.data import read_images, MDL_REF_COLUMN
+from xmippPyModules.gmmAverageTools.data import (
+    read_images,
+    MDL_REF_COLUMN,
+    MDL_ITEM_ID_COLUMN,
+)
 from xmippPyModules.gmmAverageTools.gmm_estimator import RecursiveGMMEstimator
 from xmippPyModules.gmmAverageTools.distances import (
     calculate_beta_auto,
@@ -101,7 +105,8 @@ def process_class(
     numpy.ndarray
         Conventional unweighted class average.
     """
-    images = read_images(data=data, class_id=class_id, device=device)
+    class_data = data[data[MDL_REF_COLUMN] == class_id]
+    images = read_images(data=class_data, device=device)
 
     # Calculate the automatic scaling parameter for the distance.
     auto_beta = calculate_beta_auto(
@@ -158,11 +163,22 @@ def process_class(
     gmm_weights = weights.detach().cpu().numpy().reshape(-1)
     original_weights = -original_distances.detach().cpu().numpy().reshape(-1)
 
+    # Write weights to metadata file, ensuring the association is correct by using
+    # the item ids
     if write_metadata is not None:
-        class_indices = write_metadata[MDL_REF_COLUMN] == class_id
+        item_ids = class_data[MDL_ITEM_ID_COLUMN].to_numpy()
+        original_weights_by_id = pd.Series(original_weights, index=item_ids)
+        gmm_weights_by_id = pd.Series(gmm_weights, index=item_ids)
 
-        write_metadata.loc[class_indices, "wRobust"] = original_weights
-        write_metadata.loc[class_indices, "wRobustGmm"] = gmm_weights
+        class_mask = write_metadata[MDL_REF_COLUMN] == class_id
+        target_item_ids = write_metadata.loc[class_mask, MDL_ITEM_ID_COLUMN]
+
+        write_metadata.loc[class_mask, "wRobust"] = target_item_ids.map(
+            original_weights_by_id
+        ).to_numpy()
+        write_metadata.loc[class_mask, "wRobustGmm"] = target_item_ids.map(
+            gmm_weights_by_id
+        )
 
     unmasked_new_average = weighted_average(images, weights).detach().cpu().numpy()
     unmasked_original_avg = images.mean(dim=0).detach().cpu().numpy()
