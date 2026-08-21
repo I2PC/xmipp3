@@ -11,10 +11,7 @@ import starfile
 import torch
 import pandas as pd
 
-from xmippPyModules.gmmAverageTools.data import (
-    read_images,
-    MDL_REF_COLUMN,
-)
+from xmippPyModules.gmmAverageTools.data import read_images, MDL_REF_COLUMN
 from xmippPyModules.gmmAverageTools.gmm_estimator import RecursiveGMMEstimator
 from xmippPyModules.gmmAverageTools.distances import (
     calculate_beta_auto,
@@ -82,6 +79,28 @@ def process_class(
     device: Union[torch.device, str] = "cpu",
     write_metadata: Optional[pd.DataFrame] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Estimate robust and conventional averages for one particle class.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        Metadata describing the preprocessed particles.
+    class_id : int
+        Identifier of the class to process.
+    device : torch.device or str, optional
+        Device used for the estimation.
+    write_metadata : pandas.DataFrame, optional
+        Metadata table in which the calculated particle weights are stored.
+        Particles are matched using their item identifiers.
+
+    Returns
+    -------
+    numpy.ndarray
+        Robust weighted class average.
+    numpy.ndarray
+        Conventional unweighted class average.
+    """
     images = read_images(data=data, class_id=class_id, device=device)
 
     # Calculate the automatic scaling parameter for the distance.

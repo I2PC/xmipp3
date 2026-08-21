@@ -13,7 +13,7 @@ def read_images(
     data: pd.DataFrame,
     class_id: Optional[int] = None,
     device: Union[torch.device, str] = "cpu",
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> torch.Tensor:
     """
     Reads a metadata DataFrame and returns the requested images as a tensor.
 
@@ -25,7 +25,7 @@ def read_images(
         image in the image stack, in the format ``"index@path/to/stack.mrcs"``, 
         with 1-based indices.
 
-    class_id: int or None, optional
+    class_id: int, optional
         Class ID identifying the images that should be read. If set to None,
         all the images in ``data`` will be read. Default is None.
 
@@ -35,7 +35,8 @@ def read_images(
     Returns
     -------
     torch.Tensor
-        Images loaded in the specified device.
+        Tensor of shape ``(n_images, height, width)`` on the specified device,
+        containing the particle images. 
     """
     if class_id is None:
         used_data = data
