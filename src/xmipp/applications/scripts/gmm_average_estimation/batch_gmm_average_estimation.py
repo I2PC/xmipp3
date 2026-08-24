@@ -73,13 +73,37 @@ def build_argument_parser() -> argparse.ArgumentParser:
         choices=["cpu", "cuda"],
         help="Compute device for PyTorch",
     )
+    parser.add_argument(
+        "--group-by-column",
+        type=str,
+        help=(
+            f"Column by which the images will be grouped. The default "
+            f"value is '{MDL_REF_COLUMN}', which correspond to the xmipp "
+            f"column for class id"
+        ),
+        default=MDL_REF_COLUMN,
+    )
 
     return parser
 
 
+def validate_item_ids(data: pd.DataFrame, name: str) -> None:
+    """Validate that a metadata table contains unique particle item identifiers."""
+    if MDL_ITEM_ID_COLUMN not in data.columns:
+        raise ValueError(
+            f"{name} metadata does not contain " f"'{MDL_ITEM_ID_COLUMN}'."
+        )
+
+    if data[MDL_ITEM_ID_COLUMN].duplicated().any():
+        raise ValueError(
+            f"{name} metadata contains duplicated " f"'{MDL_ITEM_ID_COLUMN}' values."
+        )
+
+
 def process_class(
     data: pd.DataFrame,
-    class_id: int,
+    group_by_column: str,
+    group_by_value: int,
     device: Union[torch.device, str] = "cpu",
     write_metadata: Optional[pd.DataFrame] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
@@ -90,7 +114,10 @@ def process_class(
     ----------
     data : pandas.DataFrame
         Metadata describing the preprocessed particles.
-    class_id : int
+    group_by_column: str
+        Name of the column of ``data`` that should be used to group the particles.
+        E.g. they could be grouped by class id.
+    group_by_value : int
         Identifier of the class to process.
     device : torch.device or str, optional
         Device used for the estimation.
@@ -105,7 +132,7 @@ def process_class(
     numpy.ndarray
         Conventional unweighted class average.
     """
-    class_data = data[data[MDL_REF_COLUMN] == class_id]
+    class_data = data[data[group_by_column] == group_by_value]
     images = read_images(data=class_data, device=device)
 
     # Calculate the automatic scaling parameter for the distance.
@@ -167,10 +194,11 @@ def process_class(
     # the item ids
     if write_metadata is not None:
         item_ids = class_data[MDL_ITEM_ID_COLUMN].to_numpy()
+
         original_weights_by_id = pd.Series(original_weights, index=item_ids)
         gmm_weights_by_id = pd.Series(gmm_weights, index=item_ids)
 
-        class_mask = write_metadata[MDL_REF_COLUMN] == class_id
+        class_mask = write_metadata[MDL_ITEM_ID_COLUMN].isin(item_ids)
         target_item_ids = write_metadata.loc[class_mask, MDL_ITEM_ID_COLUMN]
 
         write_metadata.loc[class_mask, "wRobust"] = target_item_ids.map(
@@ -178,7 +206,7 @@ def process_class(
         ).to_numpy()
         write_metadata.loc[class_mask, "wRobustGmm"] = target_item_ids.map(
             gmm_weights_by_id
-        )
+        ).to_numpy()
 
     unmasked_new_average = weighted_average(images, weights).detach().cpu().numpy()
     unmasked_original_avg = images.mean(dim=0).detach().cpu().numpy()
@@ -203,15 +231,18 @@ def main() -> None:
         device = "cpu"
 
     metadata_df = pd.DataFrame(starfile.read(args.input_xmd))
-    metadata_df["wRobustGmm"] = 1.0
-    metadata_df["wRobust"] = 1.0
+    validate_item_ids(metadata_df, name="Input")
 
     write_metadata = None
     if args.out_star:
         if args.base_xmd:
             write_metadata = pd.DataFrame(starfile.read(args.base_xmd))
+            validate_item_ids(write_metadata, name="Base")
         else:
             write_metadata = metadata_df
+
+        write_metadata["wRobust"] = np.nan
+        write_metadata["wRobustGmm"] = np.nan
 
     stack_name = str(metadata_df["image"].to_numpy()[0]).split("@", maxsplit=1)[1]
     stack_path = Path(stack_name)
@@ -220,8 +251,9 @@ def main() -> None:
         nx = mrc.header.nx
         ny = mrc.header.ny
 
-    class_ids = sorted(metadata_df[MDL_REF_COLUMN].unique())
-    n_classes = len(class_ids)
+    group_by_column = args.group_by_column
+    group_by_values = sorted(metadata_df[group_by_column].unique())
+    n_classes = len(group_by_values)
 
     corrected_averages = None
     if args.out_corrected_avg:
@@ -231,10 +263,11 @@ def main() -> None:
     if args.out_original_avg:
         original_averages = np.empty(shape=(n_classes, ny, nx), dtype=np.float32)
 
-    for index, class_id in enumerate(class_ids):
+    for index, class_value in enumerate(group_by_values):
         corrected_avg, original_avg = process_class(
             data=metadata_df,
-            class_id=class_id,
+            group_by_column=group_by_column,
+            group_by_value=class_value,
             device=device,
             write_metadata=write_metadata,
         )
@@ -255,6 +288,11 @@ def main() -> None:
 
     # Save the metadata with the additional weight columns.
     if write_metadata is not None:
+        weight_columns = ["wRobust", "wRobustGmm"]
+
+        if write_metadata[weight_columns].isna().any().any():
+            raise RuntimeError("Some particles were not assigned GMM weights.")
+
         starfile.write(data=write_metadata, filename=args.out_star)
 
 
