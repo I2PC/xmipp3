@@ -177,9 +177,72 @@ def electron_wavelength(voltage_kv):
     )
 
 
-
 @torch.no_grad()
 def compute_ctfs_batch(
+    dim,
+    pixel_size,
+    defocus_u,
+    defocus_v,
+    astig_angle_deg,
+    voltage_kv=300.0,
+    cs_mm=2.7,
+    amp_contrast=0.1,
+    phase_shift_deg=0.0,
+    device="cuda",
+):
+    # 1. Constantes físicas en Å y eV (tal como en RELION CTF::initialise)
+    lam = electron_wavelength(voltage_kv)
+    cs_angstrom = cs_mm * 1e7
+
+    # Conversión de parámetros a tensores [B, 1, 1]
+    defU = torch.as_tensor(defocus_u, dtype=torch.float32, device=device)[
+        :, None, None
+    ]
+    defV = torch.as_tensor(defocus_v, dtype=torch.float32, device=device)[
+        :, None, None
+    ]
+    az_rad = torch.deg2rad(
+        torch.as_tensor(astig_angle_deg, dtype=torch.float32, device=device)
+    )[:, None, None]
+
+    # Constantes K1, K2, K3, K5 exactamente como en RELION
+    K1 = math.pi * lam  # (PI / 2) * 2 * lambda
+    K2 = (math.pi / 2.0) * cs_angstrom * (lam**3)
+    K3 = math.atan(amp_contrast / math.sqrt(1.0 - amp_contrast**2))
+    K5 = math.radians(phase_shift_deg)
+
+    # 2. Matriz de Astigmatismo (Formulación bilinear Axx, Axy, Ayy de RELION)
+    sin_az = torch.sin(az_rad)
+    cos_az = torch.cos(az_rad)
+
+    # d2Matrix D(-DeltafU, 0.0, 0.0, -DeltafV) y A = Qt * D * Q
+    Axx = -(defU * (cos_az**2) + defV * (sin_az**2))
+    Ayy = -(defU * (sin_az**2) + defV * (cos_az**2))
+    Axy = -(defU - defV) * sin_az * cos_az
+
+    # 3. Grilla de frecuencias (espacio de Fourier centrado/sin centrar según rfft2 o fft2)
+    freq = torch.fft.fftfreq(dim, d=pixel_size, device=device)
+    ky, kx = torch.meshgrid(freq, freq, indexing="ij")
+
+    X = kx[None, :, :]
+    Y = ky[None, :, :]
+
+    u2 = X**2 + Y**2
+    u4 = u2**2
+
+    # 4. Cálculo de gamma (CTF::getLowOrderGamma)
+    # gamma = K1 * (Axx*X^2 + 2*Axy*X*Y + Ayy*Y^2) + K2*u^4 - K5 - K3
+    astig_term = Axx * (X**2) + 2.0 * Axy * (X * Y) + Ayy * (Y**2)
+    gamma = K1 * astig_term + K2 * u4 - K5 - K3
+
+    # 5. Evaluación de la CTF según convención RELION: -sin(gamma)
+    ctfs = -torch.sin(gamma)
+
+    return ctfs
+
+
+@torch.no_grad()
+def compute_ctfs_batch_v0(
     dim,
     pixel_size,
     defocus_u,
