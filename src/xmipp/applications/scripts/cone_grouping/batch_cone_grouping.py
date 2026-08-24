@@ -178,8 +178,10 @@ def main():
 
     data = pd.DataFrame(starfile.read(args.input_xmd))
 
-    rot = data.angleRot.to_numpy()
-    tilt = data.angleTilt.to_numpy()
+    # Xmipp stores Euler angles in degrees
+    rot = np.deg2rad(data.angleRot.to_numpy())
+    tilt = np.deg2rad(data.angleTilt.to_numpy())
+    psi = np.deg2rad(data.anglePsi.to_numpy())
 
     directions = spherical_to_cartesian(rot, tilt)
     del rot, tilt
