@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Tuple, Union, Iterable, Optional
+from typing import Union, Iterable, Optional
 
 import numpy as np
 import mrcfile
