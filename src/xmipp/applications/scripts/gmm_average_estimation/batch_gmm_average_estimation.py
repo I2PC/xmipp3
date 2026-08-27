@@ -17,10 +17,8 @@ from xmippPyModules.gmmAverageTools.data import (
     MDL_ITEM_ID_COLUMN,
 )
 from xmippPyModules.gmmAverageTools.gmm_estimator import RecursiveGMMEstimator
-from xmippPyModules.gmmAverageTools.distances import (
-    calculate_beta_auto,
-    tagare_distance_precomputed,
-)
+from xmippPyModules.gmmAverageTools.weights import calculate_beta_auto
+from xmippPyModules.gmmAverageTools.distances import tagare_distance_precomputed
 from xmippPyModules.gmmAverageTools.masks import create_circular_mask
 from xmippPyModules.gmmAverageTools.utils import weighted_average
 
