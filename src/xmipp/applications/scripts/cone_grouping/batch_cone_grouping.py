@@ -11,6 +11,12 @@ import starfile
 import pandas as pd
 
 
+# The functions ``sample_projection_directions``, ``spherical_to_cartesian``,
+# and ``group_projection_directions`` were originally written 
+# by Oier Lauzirika Zarrabeitia in https://github.com/oierlauzi/factorem
+# They have been vendored for this script
+# and modified by Andrés Contreras to add docstrings, and adapt 
+# ``group_projection_directions`` to closest-reference grouping.
 def sample_projection_directions(n: int) -> np.ndarray:
     """
     Generate approximately uniform directions over a hemisphere.
