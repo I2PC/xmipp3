@@ -17,18 +17,29 @@ from xmippPyModules.gmmAverageTools.data import (
     MDL_ITEM_ID_COLUMN,
 )
 from xmippPyModules.gmmAverageTools.gmm_estimator import RecursiveGMMEstimator
-from xmippPyModules.gmmAverageTools.weights import calculate_beta_auto
+from xmippPyModules.gmmAverageTools.irls_estimator import IRLSMEstimator
+from xmippPyModules.gmmAverageTools.weights import (
+    calculate_beta_auto,
+    tagare_weight_precomputed,
+)
 from xmippPyModules.gmmAverageTools.distances import tagare_distance_precomputed
 from xmippPyModules.gmmAverageTools.masks import create_circular_mask
 from xmippPyModules.gmmAverageTools.utils import weighted_average
 
+ESTIMATOR_WEIGHT_COLUMNS = {
+    "gmm": ["wRobust", "wRobustGmm"],
+    "irls": ["wRobust"],
+}
+
 # Estimator parameters
 # NOTE: to be changed for configurable arguments in the future
-ESTIMATOR_MAX_ITER = 15
-ESTIMATOR_TOL = 1.0e-4
-ESTIMATOR_STANDARDIZE_DISTANCES = True
+EXTERNAL_GMM_MAX_ITER = 15
+INTERNAL_GMM_MAX_ITER = 20
+GMM_STANDARDIZE_DISTANCES = True
 ESTIMATOR_RANDOM_STATE = 42
-GMM_MAX_ITER = 20
+ESTIMATOR_TOL = 1.0e-4
+IRLS_MAX_ITER = 50
+IRLS_DAMPING_COEF = 0.0
 
 
 def build_argument_parser() -> argparse.ArgumentParser:
@@ -81,6 +92,16 @@ def build_argument_parser() -> argparse.ArgumentParser:
         ),
         default=MDL_REF_COLUMN,
     )
+    parser.add_argument(
+        "--estimator-type",
+        type=str,
+        choices=["gmm", "irls"],
+        help=(
+            "Type of estimator to use for the robust estimation. "
+            "'irls' corresponds to an Iteratively Reweighted Least Squares (IRLS) "
+            "procedure, whilst 'gmm' corresponds to a GMM-reweighted version of IRLS"
+        ),
+    )
 
     return parser
 
@@ -98,12 +119,80 @@ def validate_item_ids(data: pd.DataFrame, name: str) -> None:
         )
 
 
+def initialize_estimator(
+    unmasked_images: torch.Tensor, masked_images: torch.Tensor, estimator_type: str
+):
+    # Calculate the automatic scaling parameter for the distance or weight functions.
+    auto_beta = calculate_beta_auto(imgs=unmasked_images, mult=1.0)
+
+    # Calculate norms and flatten images for precomputed versions of
+    # distance or weight functions
+    masked_images_flat = masked_images.flatten(1)
+    image_norm_sq = masked_images_flat.square().sum(dim=1)
+    image_norms = image_norm_sq.sqrt()
+
+    # GMM type estimator: initialize distance function (currently only supporting
+    # Tagare distance) and other estimator params
+    if estimator_type == "gmm":
+        print("Initializing GMM estimator...")
+
+        def distance_function(
+            _unused_images: torch.Tensor,
+            reference: torch.Tensor,
+        ) -> torch.Tensor:
+            return tagare_distance_precomputed(
+                images_flat=masked_images_flat,
+                image_norms=image_norms,
+                image_norm_sq=image_norm_sq,
+                reference=reference,
+                beta=auto_beta,
+            )
+
+        estimator = RecursiveGMMEstimator(
+            distance_function=distance_function,
+            max_iter=EXTERNAL_GMM_MAX_ITER,
+            tol=ESTIMATOR_TOL,
+            standardize_distances=GMM_STANDARDIZE_DISTANCES,
+            random_state=ESTIMATOR_RANDOM_STATE,
+            gmm_max_iter=INTERNAL_GMM_MAX_ITER,
+        )
+    # IRLS type estimator: initialize weight function (currently only supporting
+    # Tagare weights) and other estimator params
+    elif estimator_type == "irls":
+        print("Initializing IRLS M-estimator...")
+
+        def weight_function(
+            _unused_images: torch.Tensor,
+            reference: torch.Tensor,
+            _unused_std: torch.Tensor,
+        ):
+            return tagare_weight_precomputed(
+                images_flat=masked_images_flat,
+                image_norms=image_norms,
+                image_norm_sq=image_norm_sq,
+                reference=reference,
+                beta=auto_beta,
+            )
+
+        estimator = IRLSMEstimator(
+            weight_function=weight_function,
+            max_iter=IRLS_MAX_ITER,
+            tol=ESTIMATOR_TOL,
+            damping_coef=IRLS_DAMPING_COEF,
+        )
+    else:
+        raise ValueError(f"Unrecognized estimator type: {estimator_type}")
+
+    return estimator
+
+
 def process_class(
     data: pd.DataFrame,
     group_by_column: str,
     group_by_value: int,
     device: Union[torch.device, str] = "cpu",
     write_metadata: Optional[pd.DataFrame] = None,
+    estimator_type: str = "gmm",
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Estimate robust and conventional averages for one particle class.
@@ -122,6 +211,9 @@ def process_class(
     write_metadata : pandas.DataFrame, optional
         Metadata table in which the calculated particle weights are stored.
         Particles are matched using their item identifiers.
+    estimator_type, optional
+        Type of estimator used to make the robust averaging. Can be 'gmm' or 'irls'.
+        Default is 'gmm'.
 
     Returns
     -------
@@ -132,12 +224,6 @@ def process_class(
     """
     class_data = data[data[group_by_column] == group_by_value]
     images = read_images(data=class_data, device=device)
-
-    # Calculate the automatic scaling parameter for the distance.
-    auto_beta = calculate_beta_auto(
-        imgs=images,
-        mult=1.0,
-    )
 
     # Mask the images and precompute the quantities reused by the distance
     # function during every recursive-estimator iteration.
@@ -151,60 +237,54 @@ def process_class(
     )
     masked_images = images * mask_tensor
 
-    masked_images_flat = masked_images.flatten(1)
-    image_norm_sq = masked_images_flat.square().sum(dim=1)
-    image_norms = image_norm_sq.sqrt()
-
-    def distance_function(
-        unused_images: torch.Tensor,
-        reference: torch.Tensor,
-    ) -> torch.Tensor:
-        return tagare_distance_precomputed(
-            images_flat=masked_images_flat,
-            image_norms=image_norms,
-            image_norm_sq=image_norm_sq,
-            reference=reference,
-            beta=auto_beta,
-        )
-
-    # Initialize the estimator and calculate its starting reference.
-    estimator = RecursiveGMMEstimator(
-        distance_function=distance_function,
-        max_iter=ESTIMATOR_MAX_ITER,
-        tol=ESTIMATOR_TOL,
-        standardize_distances=ESTIMATOR_STANDARDIZE_DISTANCES,
-        random_state=ESTIMATOR_RANDOM_STATE,
-        gmm_max_iter=GMM_MAX_ITER,
+    estimator = initialize_estimator(
+        unmasked_images=images,
+        masked_images=masked_images,
+        estimator_type=estimator_type,
     )
     reference = masked_images.mean(dim=0)
 
-    # Fit the recursive estimator.
-    _, weights, original_distances = estimator.fit(
-        images=masked_images,
-        reference=reference,
-    )
+    # Fit the estimator, storing main weights as ``weights``
+    if estimator_type == "gmm":
+        print("Running the GMM estimator...")
+        _, weights, original_distances = estimator.fit(
+            images=masked_images, reference=reference
+        )
 
-    # Convert weights and distances to NumPy.
-    gmm_weights = weights.detach().cpu().numpy().reshape(-1)
-    original_weights = -original_distances.detach().cpu().numpy().reshape(-1)
+        robust_weights_np = -original_distances.detach().cpu().numpy().reshape(-1)
+        gmm_weights_np = weights.detach().cpu().numpy().reshape(-1)
+
+    elif estimator_type == "irls":
+        print("Running the IRLS estimator...")
+        _, weights = estimator.fit(images=masked_images, reference=reference)
+
+        robust_weights_np = weights.detach().cpu().numpy().reshape(-1)
+        gmm_weights_np = None
+
+    else:
+        raise ValueError(f"Unsupported estimator type: {estimator_type}")
 
     # Write weights to metadata file, ensuring the association is correct by using
     # the item ids
     if write_metadata is not None:
         item_ids = class_data[MDL_ITEM_ID_COLUMN].to_numpy()
-
-        original_weights_by_id = pd.Series(original_weights, index=item_ids)
-        gmm_weights_by_id = pd.Series(gmm_weights, index=item_ids)
-
         class_mask = write_metadata[MDL_ITEM_ID_COLUMN].isin(item_ids)
         target_item_ids = write_metadata.loc[class_mask, MDL_ITEM_ID_COLUMN]
 
+        robust_weights_by_id = pd.Series(robust_weights_np, index=item_ids)
+
+        print("Saving robust weights...")
         write_metadata.loc[class_mask, "wRobust"] = target_item_ids.map(
-            original_weights_by_id
+            robust_weights_by_id
         ).to_numpy()
-        write_metadata.loc[class_mask, "wRobustGmm"] = target_item_ids.map(
-            gmm_weights_by_id
-        ).to_numpy()
+
+        if gmm_weights_np is not None:
+            print("Saving GMM weights...")
+            gmm_weights_by_id = pd.Series(gmm_weights_np, index=item_ids)
+
+            write_metadata.loc[class_mask, "wRobustGmm"] = target_item_ids.map(
+                gmm_weights_by_id
+            ).to_numpy()
 
     unmasked_new_average = weighted_average(images, weights).detach().cpu().numpy()
     unmasked_original_avg = images.mean(dim=0).detach().cpu().numpy()
@@ -239,8 +319,11 @@ def main() -> None:
         else:
             write_metadata = metadata_df
 
-        write_metadata["wRobust"] = np.nan
-        write_metadata["wRobustGmm"] = np.nan
+        # Initialize the weight columns we will write with NaNs, they will later be
+        # overwritten but this will help catch any particles that don't get assigned
+        # any weights
+        for column in ESTIMATOR_WEIGHT_COLUMNS[args.estimator_type]:
+            write_metadata[column] = np.nan
 
     stack_name = str(metadata_df["image"].to_numpy()[0]).split("@", maxsplit=1)[1]
     stack_path = Path(stack_name)
@@ -268,6 +351,7 @@ def main() -> None:
             group_by_value=class_value,
             device=device,
             write_metadata=write_metadata,
+            estimator_type=args.estimator_type,
         )
 
         if corrected_averages is not None:
@@ -286,10 +370,10 @@ def main() -> None:
 
     # Save the metadata with the additional weight columns.
     if write_metadata is not None:
-        weight_columns = ["wRobust", "wRobustGmm"]
+        weight_columns = ESTIMATOR_WEIGHT_COLUMNS[args.estimator_type]
 
         if write_metadata[weight_columns].isna().any().any():
-            raise RuntimeError("Some particles were not assigned GMM weights.")
+            raise RuntimeError("Some particles were not assigned weights.")
 
         starfile.write(data=write_metadata, filename=args.out_star)
 
