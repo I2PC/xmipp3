@@ -76,8 +76,9 @@ class IRLSMEstimator:
         else:
             # Assume image variance and prior variance are safe to divide by,
             # since the ``fit`` method ensures it
-            numerator = s_1 / image_variance + prior_mean / prior_variance
-            denominator = s_2 / image_variance + prior_variance.reciprocal_()
+            reciprocal_prior_variance = 1.0 / prior_variance
+            numerator = s_1 / image_variance + prior_mean * reciprocal_prior_variance
+            denominator = s_2 / image_variance + reciprocal_prior_variance
 
             update = numerator / denominator.clamp_min_(self.eps)
 
@@ -172,7 +173,10 @@ class IRLSMEstimator:
         image_variance = torch.clamp_min(image_variance, self.eps)
         image_std = torch.clamp_min(image_std, self.eps)
         if prior_variance is not None:
-            prior_variance = torch.clamp_min(prior_variance, self.eps)
+            if isinstance(prior_variance, torch.Tensor):
+                prior_variance = torch.clamp_min(prior_variance, self.eps)
+            else:
+                prior_variance = max(prior_variance, self.eps)
 
         # Calculate initial reference
         if reference is None:
