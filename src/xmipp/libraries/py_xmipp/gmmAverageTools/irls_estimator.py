@@ -39,7 +39,7 @@ class IRLSMEstimator:
             )
 
     @torch.inference_mode()
-    def one_iteration_irls(
+    def fit_one_iteration(
         self,
         images: torch.Tensor,
         image_variance: torch.Tensor,
@@ -51,10 +51,6 @@ class IRLSMEstimator:
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Performs a single iteration of the Reweighted Least Squares update"""
         weights = self.weight_function(images, reference, image_std)
-        print("In IRLSMEstimator.one_iteration_irls:")
-        print(f"{weights.shape = }")
-        print(f"{weights.ndim = }")
-        print(f"{images.shape = }")
 
         # Weight capping
         if self.min_weight is not None or self.max_weight is not None:
@@ -106,7 +102,7 @@ class IRLSMEstimator:
         prior_mean: Optional[torch.Tensor] = None,
         prior_variance: Optional[torch.Tensor] = None,
         max_iter_override: Optional[int] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """Executes the full Iteratively Reweighted Least Squares (IRLS) optimization."""
         self._validate_prior(prior_mean, prior_variance)
 
@@ -124,7 +120,7 @@ class IRLSMEstimator:
 
         # Main iterations loop
         for _ in range(max_iter):
-            next_reference, weights = self.one_iteration_irls(images,
+            next_reference, weights = self.fit_one_iteration(images,
                 image_variance=image_variance,
                 image_std=image_std,
                 reference=reference,

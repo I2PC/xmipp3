@@ -134,8 +134,6 @@ def initialize_estimator(
     # GMM type estimator: initialize distance function (currently only supporting
     # Tagare distance) and other estimator params
     if estimator_type == "gmm":
-        print("Initializing GMM estimator...")
-
         def distance_function(
             _unused_images: torch.Tensor,
             reference: torch.Tensor,
@@ -159,8 +157,6 @@ def initialize_estimator(
     # IRLS type estimator: initialize weight function (currently only supporting
     # Tagare weights) and other estimator params
     elif estimator_type == "irls":
-        print("Initializing IRLS M-estimator...")
-
         def weight_function(
             _unused_images: torch.Tensor,
             reference: torch.Tensor,
@@ -246,7 +242,6 @@ def process_class(
 
     # Fit the estimator, storing main weights as ``weights``
     if estimator_type == "gmm":
-        print("Running the GMM estimator...")
         _, weights, original_distances = estimator.fit(
             images=masked_images, reference=reference
         )
@@ -255,7 +250,6 @@ def process_class(
         gmm_weights_np = weights.detach().cpu().numpy().reshape(-1)
 
     elif estimator_type == "irls":
-        print("Running the IRLS estimator...")
         _, weights = estimator.fit(images=masked_images, reference=reference)
 
         robust_weights_np = weights.detach().cpu().numpy().reshape(-1)
@@ -273,13 +267,11 @@ def process_class(
 
         robust_weights_by_id = pd.Series(robust_weights_np, index=item_ids)
 
-        print("Saving robust weights...")
         write_metadata.loc[class_mask, "wRobust"] = target_item_ids.map(
             robust_weights_by_id
         ).to_numpy()
 
         if gmm_weights_np is not None:
-            print("Saving GMM weights...")
             gmm_weights_by_id = pd.Series(gmm_weights_np, index=item_ids)
 
             write_metadata.loc[class_mask, "wRobustGmm"] = target_item_ids.map(
