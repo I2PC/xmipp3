@@ -21,6 +21,7 @@ from xmippPyModules.gmmAverageTools.data import (
 from xmippPyModules.gmmAverageTools.gmm_estimator import RecursiveGMMEstimator
 from xmippPyModules.gmmAverageTools.irls_estimator import IRLSMEstimator
 from xmippPyModules.gmmAverageTools.fourier_irls_estimator import JointIRLSFourier
+from xmippPyModules.gmmAverageTools.admm_estimator import ADMMEstimator
 
 # Import weight and distance functions
 from xmippPyModules.gmmAverageTools.weights import (
@@ -34,16 +35,17 @@ from xmippPyModules.gmmAverageTools.distances import tagare_distance_precomputed
 from xmippPyModules.gmmAverageTools.masks import create_circular_mask
 from xmippPyModules.gmmAverageTools.utils import weighted_average
 
-ESTIMATOR_TYPES = ("gmm", "irls", "fourier_irls")
+ESTIMATOR_TYPES = ("gmm", "irls", "fourier_irls", "admm")
 
 ESTIMATOR_WEIGHT_COLUMNS = {
     "gmm": ["wRobust", "wRobustGmm"],
     "irls": ["wRobust"],
     "fourier_irls": ["wRobust"],
+    "admm": ["wRobust"],
 }
 
 # Estimator parameters
-# NOTE: to be changed for configurable arguments in the future
+# NOTE: maybe to be changed for configurable arguments in the future
 EXTERNAL_GMM_MAX_ITER = 15
 INTERNAL_GMM_MAX_ITER = 20
 GMM_STANDARDIZE_DISTANCES = True
@@ -52,6 +54,9 @@ ESTIMATOR_TOL = 1.0e-4
 IRLS_MAX_ITER = 50
 IRLS_DAMPING_COEF = 0.0
 DEFAULT_SMOOTH_DELTA = 1.5  # delta parameter for the redescending weights function
+ADMM_MAX_ITER = 20
+ADMM_INITIAL_MU = 1.0
+ADMM_FOURIER_MULTIPLIER = 1.0
 
 
 def build_argument_parser() -> argparse.ArgumentParser:
@@ -208,6 +213,28 @@ def initialize_estimator(
         )
 
         estimator = JointIRLSFourier(irls_solver=irls_solver)
+
+    # ADMM estimator: initialize fourier and real space estimators, then couple them
+    elif estimator_type == "admm":
+        real_irls = initialize_estimator(
+            unmasked_images=unmasked_images,
+            masked_images=masked_images,
+            estimator_type="irls",
+        )
+
+        fourier_irls = initialize_estimator(
+            unmasked_images=unmasked_images,
+            masked_images=masked_images,
+            estimator_type="fourier_irls",
+        )
+
+        estimator = ADMMEstimator(
+            irls_real=real_irls,
+            irls_fourier=fourier_irls,
+            max_iter=ADMM_MAX_ITER,
+            initial_mu=ADMM_INITIAL_MU,
+            fourier_multiplier=ADMM_FOURIER_MULTIPLIER,
+        )
     else:
         raise ValueError(f"Unrecognized estimator type: {estimator_type}")
 
@@ -295,6 +322,17 @@ def process_class(
         robust_weights_np = weights.mean(dim=(1, 2)).detach().cpu().numpy().reshape(-1)
         gmm_weights_np = None
 
+    elif estimator_type == "admm":
+        _, weights_real, weights_fourier = estimator.fit(images=masked_images)
+
+        # Aggregate real and Fourier space weights into a single per-image score
+        weights_real_np = weights_real.detach().cpu().numpy().reshape(-1)
+        weights_fourier_np = (
+            weights_fourier.mean(dim=(1, 2)).detach().cpu().numpy().reshape(-1)
+        )
+        robust_weights_np = 0.5 * (weights_real_np + weights_fourier_np)
+        gmm_weights_np = None
+
     else:
         raise ValueError(f"Unsupported estimator type: {estimator_type}")
 
@@ -319,11 +357,18 @@ def process_class(
             ).to_numpy()
 
     if estimator_type == "fourier_irls":
-        fourier_images = torch.fft.rfft2(images)
-        fourier_unmasked_average = weighted_average(fourier_images, weights)
+        images_fourier = torch.fft.rfft2(images)
+        fourier_unmasked_average = weighted_average(images_fourier, weights)
         unmasked_new_average = (
             torch.fft.irfft2(fourier_unmasked_average).detach().cpu().numpy()
         )
+    elif estimator_type == "admm":
+        estimate_real = weighted_average(images, weights_real)
+        images_fourier = torch.fft.rfft2(images)
+        estimate_fourier = torch.fft.irfft2(
+            weighted_average(images_fourier, weights_fourier)
+        )
+        unmasked_new_average = 0.5 * (estimate_real + estimate_fourier)
     else:
         unmasked_new_average = weighted_average(images, weights).detach().cpu().numpy()
     unmasked_original_avg = images.mean(dim=0).detach().cpu().numpy()
