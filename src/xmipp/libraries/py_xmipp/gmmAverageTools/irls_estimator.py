@@ -38,6 +38,26 @@ class IRLSMEstimator:
                 f"got {type(prior_mean) = }, {type(prior_variance) = }"
             )
 
+    def _get_safe_variance(
+        self,
+        images: torch.Tensor,
+        image_variance: Optional[torch.Tensor],
+        image_std: Optional[torch.Tensor],
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Calculates per-pixel image variance and standard deviation, clamping them
+        to protect against division by zero
+        """
+        if image_variance is None:
+            image_variance = images.var(dim=0)
+        if image_std is None:
+            image_std = image_variance.sqrt()
+
+        image_variance = torch.clamp_min(image_variance, self.eps)
+        image_std = torch.clamp_min(image_std, self.eps)
+
+        return image_variance, image_std
+
     @torch.inference_mode()
     def _fit_one_iteration(
         self,
@@ -107,8 +127,8 @@ class IRLSMEstimator:
         Parameters
         ----------
         images : torch.Tensor
-            Tensor of shape ``(n_images, *image_shape)`` containing the images to 
-            be averaged using the robust IRLS procedure, batched along the first 
+            Tensor of shape ``(n_images, *image_shape)`` containing the images to
+            be averaged using the robust IRLS procedure, batched along the first
             dimension of the ``images`` tensor.
         image_variance : torch.Tensor, optional
             Variance of the input images. It can be provided as:
@@ -123,32 +143,32 @@ class IRLSMEstimator:
             provided as an argument to avoid repeated computation of
             ``image_variance.sqrt()``.
         ctf : torch.Tensor, optional
-            CTF of the input images. In principle it should be a tensor matching 
-            the shape of ``images``, although it can be any shape broadcastable 
+            CTF of the input images. In principle it should be a tensor matching
+            the shape of ``images``, although it can be any shape broadcastable
             to ``images.shape``. If not provided, the CTF will be ignored, which
             amounts to assuming that the input particles have been previously
             CTF-corrected.
         reference : torch.Tensor, optional
-            Initial reference for the robust averaging (e.g. the average of 
+            Initial reference for the robust averaging (e.g. the average of
             all the images). Should match the shape of one image.
-            If not provided, it will the default to the average of the 
+            If not provided, it will the default to the average of the
             input images (i.e. ``reference = images.mean(dim=0)``).
         prior_mean : torch.Tensor, optional
-            Prior mean for the estimator. This will bias the produced estimation 
-            towards the prior mean, serving as a type of regularization (e.g. the 
-            prior mean might be a tensor of zeros, keeping the values of the 
+            Prior mean for the estimator. This will bias the produced estimation
+            towards the prior mean, serving as a type of regularization (e.g. the
+            prior mean might be a tensor of zeros, keeping the values of the
             reconstructed averages closer to zero).
             Its shape should match the shape of one image.
             Cannot be provided without also providing a value for ``prior_variance``.
             If not provided, no regularization will be applied.
         prior_variance : torch.Tensor, optional
-            Prior variance for the estimator. This effectively controls the strength 
-            of the regularization imposed by the prior mean. A higher value of the 
+            Prior variance for the estimator. This effectively controls the strength
+            of the regularization imposed by the prior mean. A higher value of the
             prior variance means a *weaker* regularization.
             Cannot be provided without also providing a value for ``prior_mean``.
             If not provided, no regularization will be applied.
         max_iter_override : int, optional
-            Maximum number of IRLS iterations to be performed by the estimator. 
+            Maximum number of IRLS iterations to be performed by the estimator.
             If provided, this will override the object's ``max_iter`` attribute.
 
         Returns
@@ -163,15 +183,12 @@ class IRLSMEstimator:
         """
         self._validate_prior(prior_mean, prior_variance)
 
-        # Build default parameters
-        if image_variance is None:
-            image_variance = images.var(dim=0)
-        if image_std is None:
-            image_std = image_variance.sqrt()
+        # Get safe image variance and std
+        image_variance, image_std = self._get_safe_variance(
+            images, image_variance, image_std
+        )
 
-        # Clamp variance and std to protect against division by zero
-        image_variance = torch.clamp_min(image_variance, self.eps)
-        image_std = torch.clamp_min(image_std, self.eps)
+        # Clamp prior variance to protect against division by zero
         if prior_variance is not None:
             if isinstance(prior_variance, torch.Tensor):
                 prior_variance = torch.clamp_min(prior_variance, self.eps)
