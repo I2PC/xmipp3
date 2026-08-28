@@ -16,19 +16,30 @@ from xmippPyModules.gmmAverageTools.data import (
     MDL_REF_COLUMN,
     MDL_ITEM_ID_COLUMN,
 )
+
+# Import estimator types
 from xmippPyModules.gmmAverageTools.gmm_estimator import RecursiveGMMEstimator
 from xmippPyModules.gmmAverageTools.irls_estimator import IRLSMEstimator
+from xmippPyModules.gmmAverageTools.fourier_irls_estimator import JointIRLSFourier
+
+# Import weight and distance functions
 from xmippPyModules.gmmAverageTools.weights import (
     calculate_beta_auto,
     tagare_weight_precomputed,
+    smooth_redescending_weights_modulus,
 )
 from xmippPyModules.gmmAverageTools.distances import tagare_distance_precomputed
+
+# Utilities: masks, weighted averages
 from xmippPyModules.gmmAverageTools.masks import create_circular_mask
 from xmippPyModules.gmmAverageTools.utils import weighted_average
+
+ESTIMATOR_TYPES = ("gmm", "irls", "fourier_irls")
 
 ESTIMATOR_WEIGHT_COLUMNS = {
     "gmm": ["wRobust", "wRobustGmm"],
     "irls": ["wRobust"],
+    "fourier_irls": ["wRobust"],
 }
 
 # Estimator parameters
@@ -40,6 +51,7 @@ ESTIMATOR_RANDOM_STATE = 42
 ESTIMATOR_TOL = 1.0e-4
 IRLS_MAX_ITER = 50
 IRLS_DAMPING_COEF = 0.0
+DEFAULT_SMOOTH_DELTA = 1.5  # delta parameter for the redescending weights function
 
 
 def build_argument_parser() -> argparse.ArgumentParser:
@@ -95,7 +107,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--estimator-type",
         type=str,
-        choices=["gmm", "irls"],
+        choices=ESTIMATOR_TYPES,
         help=(
             "Type of estimator to use for the robust estimation. "
             "'irls' corresponds to an Iteratively Reweighted Least Squares (IRLS) "
@@ -134,6 +146,7 @@ def initialize_estimator(
     # GMM type estimator: initialize distance function (currently only supporting
     # Tagare distance) and other estimator params
     if estimator_type == "gmm":
+
         def distance_function(
             _unused_images: torch.Tensor,
             reference: torch.Tensor,
@@ -157,7 +170,8 @@ def initialize_estimator(
     # IRLS type estimator: initialize weight function (currently only supporting
     # Tagare weights) and other estimator params
     elif estimator_type == "irls":
-        def weight_function(
+
+        def tagare_weight_function(
             _unused_images: torch.Tensor,
             reference: torch.Tensor,
             _unused_std: torch.Tensor,
@@ -171,11 +185,29 @@ def initialize_estimator(
             )
 
         estimator = IRLSMEstimator(
-            weight_function=weight_function,
+            weight_function=tagare_weight_function,
             max_iter=IRLS_MAX_ITER,
             tol=ESTIMATOR_TOL,
             damping_coef=IRLS_DAMPING_COEF,
         )
+    # Fourier IRLS estimator: initialize weight function and IRLS solver
+    elif estimator_type == "fourier_irls":
+
+        def smooth_redescending_weight_function(
+            images: torch.Tensor, reference: torch.Tensor, std: torch.Tensor
+        ):
+            return smooth_redescending_weights_modulus(
+                images=images, reference=reference, std=std, delta=DEFAULT_SMOOTH_DELTA
+            )
+
+        irls_solver = IRLSMEstimator(
+            weight_function=smooth_redescending_weight_function,
+            max_iter=IRLS_MAX_ITER,
+            tol=ESTIMATOR_TOL,
+            damping_coef=IRLS_DAMPING_COEF,
+        )
+
+        estimator = JointIRLSFourier(irls_solver=irls_solver)
     else:
         raise ValueError(f"Unrecognized estimator type: {estimator_type}")
 
@@ -255,6 +287,14 @@ def process_class(
         robust_weights_np = weights.detach().cpu().numpy().reshape(-1)
         gmm_weights_np = None
 
+    elif estimator_type == "fourier_irls":
+        _, weights = estimator.fit(images=masked_images, fourier_transform_images=True)
+
+        # Fourier IRLS produces per-frequency weights: aggregate them into one global
+        # per-image weight
+        robust_weights_np = weights.mean(dim=(1, 2)).detach().cpu().numpy().reshape(-1)
+        gmm_weights_np = None
+
     else:
         raise ValueError(f"Unsupported estimator type: {estimator_type}")
 
@@ -278,7 +318,14 @@ def process_class(
                 gmm_weights_by_id
             ).to_numpy()
 
-    unmasked_new_average = weighted_average(images, weights).detach().cpu().numpy()
+    if estimator_type == "fourier_irls":
+        fourier_images = torch.fft.rfft2(images)
+        fourier_unmasked_average = weighted_average(fourier_images, weights)
+        unmasked_new_average = (
+            torch.fft.irfft2(fourier_unmasked_average).detach().cpu().numpy()
+        )
+    else:
+        unmasked_new_average = weighted_average(images, weights).detach().cpu().numpy()
     unmasked_original_avg = images.mean(dim=0).detach().cpu().numpy()
 
     return unmasked_new_average, unmasked_original_avg
