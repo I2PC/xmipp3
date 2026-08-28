@@ -113,7 +113,7 @@ class RecursiveGMMEstimator:
         images: torch.Tensor,
         reference: torch.Tensor,
         initialize_params: bool = False,
-    ) -> Tuple[torch.Tensor, torch.Tensor, bool]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, bool]:
         """
         Performs one iteration of the GMM estimation procedure:
         1. Calculate distances from each image to the reference.
@@ -151,9 +151,53 @@ class RecursiveGMMEstimator:
         images: torch.Tensor,
         reference: Optional[torch.Tensor] = None,
         initialize_params: bool = False,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
         """
-        Coordinates the whole estimation process
+        Coordinates the whole GMM robust estimation process:
+        1. Calculate initial reference (if not provided)
+        2. Calculate distances from each image to the reference
+        3. Fit a 2-component GMM to the distance distribution
+        4. Use GMM model to assign weights to each image
+        5. Calculate new reference as the weighted average of the images.
+        6. If the change in the reference is small enough or the number
+        of iterations exceeds ``self.max_iter``, stop. Otherwise go back
+        to step 2, using the newly calculated reference.
+
+        Parameters
+        ----------
+        images : torch.Tensor
+            Tensor of shape ``(n_images, *image_shape)`` containing the images to 
+            be averaged using the robust IRLS procedure, batched along the first 
+            dimension of the ``images`` tensor.
+        reference : Optional[torch.Tensor], optional
+            Initial reference for the robust averaging (e.g. the average of 
+            all the images). Should match the shape of one image.
+            If not provided, it will the default to the average of the 
+            input images (i.e. ``reference = images.mean(dim=0)``).
+        initialize_params : bool, optional
+            If True, the GMM model's means will be initialized on the first iteration
+            to predetermined values (using the initial distance distribution's 0.2 
+            and 0.8 quantiles), and the GMM component weights will be initialized to 
+            0.8 and 0.2, respectively. Default is False.
+
+        Returns
+        -------
+        torch.Tensor
+            The robust average produced by the estimator on its final iteration.
+        torch.Tensor or None
+            The weights each particle received on the last iteration of the
+            estimation process. The robust average output is the average
+            of the input images weighted by these weights. Will only be None
+            if the maximum number of iterations is set to zero.
+            Will only be None if the maximum number of iterations is set to zero.
+        torch.Tensor or None
+            The distance from each particle to the reference that each particle
+            got on the estimator's last iteration. These are the distances that
+            the GMM was fit to in order to calculate the final image weights.
+            They are not the distances from each image to the output estimate,
+            but to the previous reference, which was used as input to the last
+            iteration.
+            Will only be None if the maximum number of iterations is set to zero.
         """
         # Reset the GMM to avoid carrying over state from previous fit() calls
         self.model = self._new_model()
@@ -162,6 +206,8 @@ class RecursiveGMMEstimator:
         reference = (
             images.mean(dim=0) if reference is None else reference.to(images.device)
         )
+        weights = None
+        distances = None
 
         self.converged = False
         for i in range(self.max_iter):
