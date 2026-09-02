@@ -84,14 +84,14 @@ def build_argument_parser() -> argparse.ArgumentParser:
         help="Path to the location of the new .star file",
     )
     parser.add_argument(
-        "--out-corrected-avg",
+        "--out-corrected-avgs",
         type=Path,
-        help="Path to the output .mrc file for the corrected class average",
+        help="Path to the output .mrcs file for the corrected class averages",
     )
     parser.add_argument(
-        "--out-original-avg",
+        "--out-original-avgs",
         type=Path,
-        help="Path to the output .mrc file for the original class average",
+        help="Path to the output .mrcs file for the original class averages",
     )
     parser.add_argument(
         "--device",
@@ -421,11 +421,11 @@ def main() -> None:
     n_classes = len(group_by_values)
 
     corrected_averages = None
-    if args.out_corrected_avg:
+    if args.out_corrected_avgs:
         corrected_averages = np.empty(shape=(n_classes, ny, nx), dtype=np.float32)
 
     original_averages = None
-    if args.out_original_avg:
+    if args.out_original_avgs:
         original_averages = np.empty(shape=(n_classes, ny, nx), dtype=np.float32)
 
     for index, class_value in enumerate(group_by_values):
@@ -445,12 +445,12 @@ def main() -> None:
             original_averages[index] = original_avg
 
     # Save the robust, unmasked averages if requested.
-    if args.out_corrected_avg:
-        mrcfile.write(name=args.out_corrected_avg, data=corrected_averages)
+    if args.out_corrected_avgs:
+        mrcfile.write(name=args.out_corrected_avgs, data=corrected_averages)
 
     # Save the original, unmasked averages if requested.
-    if args.out_original_avg:
-        mrcfile.write(name=args.out_original_avg, data=original_averages)
+    if args.out_original_avgs:
+        mrcfile.write(name=args.out_original_avgs, data=original_averages)
 
     # Save the metadata with the additional weight columns.
     if write_metadata is not None:
