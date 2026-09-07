@@ -356,7 +356,7 @@ def main():
     )
     del rot, tilt, psi
 
-    data[args.out_group_column] = group_indices.astype(np.int64)
+    data[args.out_group_column] = group_indices.astype(np.int64) + 1 # 1-based indices are preferred for class ids
     data[MDL_ANGLE_PSI] = alignment_psi_deg
     data[MDL_FLIP] = flip.astype(np.int8)
 
