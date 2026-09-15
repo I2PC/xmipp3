@@ -163,7 +163,8 @@ if __name__=="__main__":
     print("Free memory %s" %free_memory)
 
     #Read Images
-    mmap, nExp, dim = create_mmap_from_star(expFile)
+    mmap, nExp, dim = create_mmap_from_star(expStar)
+    print("HOOOLLAAAAAAAAAAAA")
     # mmap = mrcfile.mmap(expFile, permissive=True)
     # nExp = mmap.data.shape[0]
     # dim = mmap.data.shape[1]
