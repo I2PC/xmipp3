@@ -29,6 +29,17 @@ def euler_zyz_to_matrix(
     Convert ZYZ Euler angles to rotation matrices. Input angles are given in
     radians and may have any broadcast-compatible shapes.
 
+    The returned matrix ``E`` follows the Xmipp orientation convention used
+    throughout this module: it maps coordinates from the global reference frame
+    to the particle/projection reference frame. The viewing direction is
+
+    ``E[..., 2, :] = (sin(tilt) cos(rot),
+                    sin(tilt) sin(rot),
+                    cos(tilt))``.
+
+    Equivalent orientations under a volume symmetry ``S`` are represented by
+    right multiplication, ``E @ S``.
+
     Parameters
     ----------
     rot : np.ndarray
@@ -325,6 +336,11 @@ def group_projection_directions(
     Closeness is measured by angular distance, equivalently by maximizing
     the dot product between unit vectors. If ``consider_mirrors`` is True,
     antipodal directions are treated as equivalent.
+
+    The returned symmetry index for a direction ``d`` and selected reference
+    ``r`` identifies the operation ``S`` for which ``d @ S`` is closest to
+    ``r``. The same operation can therefore be applied to the full particle
+    orientation matrix as ``E @ S`` before computing its in-plane alignment.
 
     Parameters
     ----------
