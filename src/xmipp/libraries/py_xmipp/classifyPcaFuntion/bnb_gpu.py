@@ -617,14 +617,14 @@ class BnBgpu:
     
     
     @torch.no_grad()
-    def gaussian_lowpass_filter_2D_adaptive(self, imgs, res_angstrom, pixel_size=self.sampling,
+    def gaussian_lowpass_filter_2D_adaptive(self, imgs, res_angstrom,
                                             floor_res=100.0, clamp_exp=80.0,
                                             hard_cut=False, nyquist_margin=0.95, normalize = True):
         B, H, W = imgs.shape
         device, eps = imgs.device, 1e-8
     
         # === Limitar resolución efectiva según Nyquist
-        nyquist_res = 2.0 * pixel_size           
+        nyquist_res = 2.0 * self.sampling           
         safe_res = nyquist_res / nyquist_margin  
     
         res_eff = torch.nan_to_num(res_angstrom, nan=floor_res,
@@ -633,8 +633,8 @@ class BnBgpu:
         res_eff = torch.clamp(res_eff, min=safe_res)  # Prevenimos aliasing
     
         # === Coordenadas de frecuencia
-        fy, fx = (torch.fft.fftfreq(H, d=pixel_size, device=device),
-                  torch.fft.fftfreq(W, d=pixel_size, device=device))
+        fy, fx = (torch.fft.fftfreq(H, d=self.sampling, device=device),
+                  torch.fft.fftfreq(W, d=self.sampling, device=device))
         gy, gx = torch.meshgrid(fy, fx, indexing='ij')
         freq2  = (gx**2 + gy**2).unsqueeze(0)  # [1, H, W]
         
@@ -730,7 +730,6 @@ class BnBgpu:
     def frc_resolution_tensor(
             self,
             newCL,                       # [N_i,H,W]
-            pixel_size: float = self.sampling,           # Å/px
             frc_threshold: float = 0.143,
             fallback_res: float = 100.0, #40.0,
             rcut: float = 100,
@@ -750,13 +749,13 @@ class BnBgpu:
         res_out   = torch.full((n_classes,), float('nan'), device=device)
     
         # --- malla de frecuencias físicas (Å⁻¹) ---
-        fy = torch.fft.fftfreq(h, d=pixel_size, device=device)
-        fx = torch.fft.rfftfreq(w, d=pixel_size, device=device)
+        fy = torch.fft.fftfreq(h, d=self.sampling, device=device)
+        fx = torch.fft.rfftfreq(w, d=self.sampling, device=device)
         gy, gx = torch.meshgrid(fy, fx, indexing="ij")
         r = torch.sqrt(gx**2 + gy**2)   
     
         # discretizar radios en bins
-        freq_bins = torch.linspace(0, 0.5/pixel_size, Rmax, device=device)
+        freq_bins = torch.linspace(0, 0.5/self.sampling, Rmax, device=device)
         r_bin = torch.bucketize(r.flatten(), freq_bins) - 1
         r_bin = r_bin.clamp(0, Rmax-1)
         
@@ -829,7 +828,6 @@ class BnBgpu:
         self,
         averages: torch.Tensor,         # [B, H, W]
         resolutions: torch.Tensor,      # [B] Å
-        pixel_size: float = self.sampling,              # píxel(Å/pix)
         f_energy: float = 2.0,
         # R_high: float = 25.0,
         boost_max: float = None,        # si None, se ajusta para energía
@@ -848,8 +846,8 @@ class BnBgpu:
         energy_orig = torch.sum(fft_mag2, dim=(-2, -1))  # [B]
     
         # === Frecuencias radiales ===
-        fy = torch.fft.fftfreq(H, d=pixel_size, device=device)
-        fx = torch.fft.fftfreq(W, d=pixel_size, device=device)
+        fy = torch.fft.fftfreq(H, d=self.sampling, device=device)
+        fx = torch.fft.fftfreq(W, d=self.sampling, device=device)
         gy, gx = torch.meshgrid(fy, fx, indexing='ij')
         freq_r = torch.sqrt(gx**2 + gy**2).unsqueeze(0).expand(B, -1, -1)  # [B, H, W]
         del fy, fx, gy, gx
