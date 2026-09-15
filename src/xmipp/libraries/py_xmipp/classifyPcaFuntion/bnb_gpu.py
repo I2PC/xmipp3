@@ -272,7 +272,7 @@ class BnBgpu:
     
     
     @torch.no_grad()
-    def create_classes(self, mmap, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes, final_classes, freqBn, coef, cvecs, mask, sigma):
+    def create_classes(self, mmap, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes, final_classes, freqBn, coef, cvecs, mask):
         
         # print("----------create-classes-------------") 
         iterSplit = 7       
@@ -430,7 +430,7 @@ class BnBgpu:
         return(clk, tMatrix, batch_projExp_cpu)
     
     
-    def align_particles_to_classes(self, data, cl, tMatrix, iter, expBatchSize, matches, vectorshift, classes, freqBn, coef, cvecs, mask, sigma):
+    def align_particles_to_classes(self, data, cl, tMatrix, iter, expBatchSize, matches, vectorshift, classes, freqBn, coef, cvecs, mask):
         
         # print("----------align-to-classes-------------")
                 
