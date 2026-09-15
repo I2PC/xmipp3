@@ -166,7 +166,7 @@ if __name__=="__main__":
 
     #Read Images
     tempfile = output+"_temp.mrcs"
-    mmap_notCtf, nExp, dim = create_mmap_from_star(expStar, tempfile)
+    mmap, nExp, dim = create_mmap_from_star(expStar, tempfile)
     os.remove(tempfile)
     
     # mmap = mrcfile.mmap(expFile, permissive=True)
