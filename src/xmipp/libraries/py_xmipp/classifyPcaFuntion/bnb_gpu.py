@@ -16,9 +16,11 @@ import math
 
 class BnBgpu:
     
-    def __init__(self, nBand):
+    def __init__(self, nBand, sampling, sigma):
 
-        self.nBand = nBand 
+        self.nBand = nBand
+        self.sampling = sampling
+        self.sigma = sigma
         
         torch.cuda.is_available()
         torch.cuda.current_device()
@@ -270,7 +272,7 @@ class BnBgpu:
     
     
     @torch.no_grad()
-    def create_classes(self, mmap, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes, final_classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles):
+    def create_classes(self, mmap, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes, final_classes, freqBn, coef, cvecs, mask, sigma):
         
         # print("----------create-classes-------------") 
         iterSplit = 7       
@@ -311,7 +313,7 @@ class BnBgpu:
             
    
             if mask:
-                sigma_gauss = (0.75*sigma) if (iter < 10 and iter % 2 == 1) else (sigma)# if iter < 10 else sigma
+                sigma_gauss = (0.75*self.sigma) if (iter < 10 and iter % 2 == 1) else (self.sigma)# if iter < 10 else sigma
 
                 transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma_gauss)
             else:
@@ -392,11 +394,11 @@ class BnBgpu:
             # cut_res = 100 if iter < (iterSplit-1) else 50
             cut=50
             cut_res = 50           
-            res_classes = self.frc_resolution_tensor(newCL, sampling, fallback_res=cut_res, rcut=cut)
-            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
+            res_classes = self.frc_resolution_tensor(newCL, fallback_res=cut_res, rcut=cut)
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes)
             
             boost = None
-            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling, factorR = boost)
+            clk = self.highpass_cosine_sharpen(clk, res_classes, factorR = boost)
             
                 
         if iter < (iterSplit + 1): #order by size
@@ -428,7 +430,7 @@ class BnBgpu:
         return(clk, tMatrix, batch_projExp_cpu)
     
     
-    def align_particles_to_classes(self, data, cl, tMatrix, iter, expBatchSize, matches, vectorshift, classes, freqBn, coef, cvecs, mask, sigma, sampling):
+    def align_particles_to_classes(self, data, cl, tMatrix, iter, expBatchSize, matches, vectorshift, classes, freqBn, coef, cvecs, mask, sigma):
         
         # print("----------align-to-classes-------------")
                 
@@ -446,7 +448,7 @@ class BnBgpu:
         del rotBatch,translations, centerxy 
         
         if mask:
-            transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
+            transforIm = transforIm * self.create_gaussian_mask(transforIm, self.sigma)
         else: 
             transforIm = transforIm * self.create_circular_mask(transforIm)
                                
@@ -468,11 +470,11 @@ class BnBgpu:
             clk = self.averages(data, newCL, classes)          
 
             
-            res_classes = self.frc_resolution_tensor(newCL, sampling)
+            res_classes = self.frc_resolution_tensor(newCL)
             
-            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes)
             
-            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)                       
+            clk = self.highpass_cosine_sharpen(clk, res_classes)                       
         
             if not hasattr(self, 'grad_squared'):
                 self.grad_squared = torch.zeros_like(cl)
@@ -615,7 +617,7 @@ class BnBgpu:
     
     
     @torch.no_grad()
-    def gaussian_lowpass_filter_2D_adaptive(self, imgs, res_angstrom, pixel_size,
+    def gaussian_lowpass_filter_2D_adaptive(self, imgs, res_angstrom, pixel_size=self.sampling,
                                             floor_res=100.0, clamp_exp=80.0,
                                             hard_cut=False, nyquist_margin=0.95, normalize = True):
         B, H, W = imgs.shape
@@ -728,7 +730,7 @@ class BnBgpu:
     def frc_resolution_tensor(
             self,
             newCL,                       # [N_i,H,W]
-            pixel_size: float,           # Å/px
+            pixel_size: float = self.sampling,           # Å/px
             frc_threshold: float = 0.143,
             fallback_res: float = 100.0, #40.0,
             rcut: float = 100,
@@ -827,7 +829,7 @@ class BnBgpu:
         self,
         averages: torch.Tensor,         # [B, H, W]
         resolutions: torch.Tensor,      # [B] Å
-        pixel_size: float,              # píxel(Å/pix)
+        pixel_size: float = self.sampling,              # píxel(Å/pix)
         f_energy: float = 2.0,
         # R_high: float = 25.0,
         boost_max: float = None,        # si None, se ajusta para energía

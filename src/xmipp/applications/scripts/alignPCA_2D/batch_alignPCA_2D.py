@@ -166,9 +166,9 @@ if __name__=="__main__":
 
     #Read Images
     tempfile = output+"_temp.mrcs"
-    mmap, nExp, dim = create_mmap_from_star(expStar, tempfile)
+    mmap_notCtf, nExp, dim = create_mmap_from_star(expStar, tempfile)
     os.remove(tempfile)
-    print("HOOOLLAAAAAAAAAAAA")
+    
     # mmap = mrcfile.mmap(expFile, permissive=True)
     # nExp = mmap.data.shape[0]
     # dim = mmap.data.shape[1]
@@ -195,7 +195,7 @@ if __name__=="__main__":
 
     grid_flat = flatGrid(freqBn, nBand)
 
-    bnb = BnBgpu(nBand)
+    bnb = BnBgpu(nBand, sampling, sigma)
        
     expBatchSize, expBatchSize2, numFirstBatch, initClBatch = bnb.determine_batches(free_memory, dim) 
     print("batches: %s, %s, %s, %s" %(expBatchSize, expBatchSize2, numFirstBatch, initClBatch))   
@@ -273,13 +273,9 @@ if __name__=="__main__":
     for cycles in range (num_cycles):
         batch_projExp_cpu = []
         endBatch = 0
-        if cycles < num_cycles-1:
-            num_batches_in_iter = initStep 
-        else:
-            num_batches_in_iter = num_batches
             
         ### Start iterations per batches
-        for i in range(num_batches_in_iter):
+        for i in range(num_batches):
     
             mode = False
             
@@ -373,21 +369,21 @@ if __name__=="__main__":
                     if mode == "create_classes":
                         cl, tMatrix, batch_projExp_cpu = bnb.create_classes(
                             mmap, tMatrix, iter, subset, expBatchSize, matches, vectorshift, 
-                            classes, final_classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles)
+                            classes, final_classes, freqBn, coef, cvecs, mask)
 
                     else:
                         torch.cuda.empty_cache()
                         cl, tMatrix, batch_projExp_cpu = bnb.align_particles_to_classes(expImages, 
                                         cl, tMatrix, iter, subset, matches, vectorshift, classes,
-                                         freqBn, coef, cvecs, mask, sigma, sampling)
+                                         freqBn, coef, cvecs, mask)
     
                     
                     # save classes
-                    file = output+"_%s_%s_%s.mrcs"%(initBatch,iter+1,cycles)
+                    file = output+"_%s_%s.mrcs"%(initBatch,iter+1)
                     save_images(cl.cpu().detach().numpy(), sampling, file)
     
     
-                    if cycles == num_cycles-1 and mode == "create_classes" and iter == niter-1:
+                    if mode == "create_classes" and iter == niter-1:
                         
                         refClas[:endBatch] = matches[:, 1]
                         dist[:endBatch] = matches[:, 2].cpu()
