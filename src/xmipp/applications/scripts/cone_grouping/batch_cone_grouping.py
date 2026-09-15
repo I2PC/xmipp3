@@ -396,6 +396,128 @@ def group_projection_directions(
     return group_indices, symmetry_indices
 
 
+def deduplicate_with_symmetry(
+    directions: np.ndarray,
+    symmetries: np.ndarray,
+    angular_distance_threshold: float,
+    batch_size: int,
+    consider_mirrors: bool,
+) -> np.ndarray:
+    """
+    Eliminate from the set of directions those that are closer than a certain
+    distance threshold, taking symmetries into account.
+
+    Directions are processed in their original order. If two references are
+    equivalent, the first one is retained.
+
+    Parameters
+    ----------
+    directions : np.ndarray
+        Array of shape ``(n, 3)`` whose elements are vectors on the unit sphere.
+    symmetries : np.ndarray
+        Array of shape ``(m, 3, 3)`` whose elements are rotation matrices corresponding
+        to the symmetries of the volume.
+    angular_distance_threshold : float
+        Threshold in radians under which two references are considered to be equivalent.
+    batch_size : int
+        Batch size for processing the references when computing pairwise distances.
+        The full distance matrix has shape ``(m, n, n)`` when accounting for symmetries,
+        so batching can be used to reduce the memory cost of this function.
+    consider_mirrors : bool
+        If True, antipodal (or sufficiently close to antipodal) viewing directions
+        are considered equivalent.
+
+    Returns
+    -------
+    np.ndarray
+        Boolean mask of shape ``(n,)`` indicating which directions should be kept.
+    """
+    # Convert angular distance to a cosine value
+    cosine_threshold = np.cos(angular_distance_threshold)
+    n_references = len(directions)
+
+    available = np.ones(n_references, dtype=bool)
+
+    # Apply all symmetry operations once
+    # references:           (n, 3)
+    # symmetries:           (m, 3, 3)
+    # symmetric_references: (n, m, 3)
+    symmetric_references = np.einsum("nk,mjk->nmj", directions, symmetries)
+
+    for i in range(n_references):
+        # An eliminated reference must not eliminate other references
+        if not available[i]:
+            continue
+
+        reference_sym = symmetric_references[i]  # (m, 3)
+
+        # Only compare with later references to avoid self-comparison
+        # and ensure first reference wins
+        for start in range(i + 1, n_references, batch_size):
+            end = min(start + batch_size, n_references)
+
+            candidates = directions[start:end]
+
+            # reference_sym: (m, 3)
+            # candidates:    (batch, 3)
+            # cosines:       (m, batch)
+            cosines = reference_sym @ candidates.T
+
+            if consider_mirrors:
+                np.abs(cosines, out=cosines)
+
+            # Minimum angular distance over all equivalent orientations corresponds to
+            # maximum cosine similarity
+            max_cosines = np.max(cosines, axis=0)
+
+            eliminate = max_cosines > cosine_threshold
+
+            # Bitwise AND to ensure eliminated references stay eliminated
+            available[start:end] &= ~eliminate
+
+    return available
+
+
+def min_distance_between_directions(
+    directions: np.ndarray, consider_mirrors: bool
+) -> float:
+    """
+    Returns the minimum angular distance between each pair of directions having
+    distinct indices on the ``directions`` array.
+
+    Parameters
+    ----------
+    directions : np.ndarray
+        Unit direction vectors with shape ``(n, 3)``.
+    consider_mirrors : bool, optional
+        If True, antipodal directions are considered equivalent, so the
+        angular distance is computed from the absolute dot product.
+        Default is False.
+
+    Returns
+    -------
+    float
+        Minimum angular distance, in radians, between directions at distinct
+        positions in the input array. Returns ``np.inf`` for a single
+        direction.
+    """
+    n_directions = len(directions)
+    if n_directions == 1:
+        return np.inf
+
+    cosines = directions @ directions.T
+
+    if consider_mirrors:
+        np.abs(cosines, out=cosines)
+
+    np.fill_diagonal(cosines, -np.inf)  # avoid distance from a direction to itself
+
+    max_cosine = np.max(cosines)
+    max_cosine = np.clip(max_cosine, -1.0, 1.0)
+
+    return np.arccos(max_cosine)
+
+
 def direct_rotation_around_z(angle_rad: float) -> np.ndarray:
     matrix = np.zeros((3, 3), dtype=np.float64)
 
@@ -526,6 +648,20 @@ def build_argument_parser() -> argparse.ArgumentParser:
         default="c1",
         help="Symbol for the symmetry group of the volume. Currently only cn and dn are supported",
     )
+    parser.add_argument(
+        "--deduplicate-references",
+        action="store_true",
+        default=False,
+        help=(
+            "Eliminate redundant reference viewing directions, taking the object's "
+            "symmetry into account. Two directions will be considered redundant when "
+            "their angular distance when considering symmetries falls below half the "
+            "minimum angular distance between all pairs of original references when "
+            "not considering symmetries.\n"
+            "Enabling this option means that the final number of groups may be lower "
+            "than the specified number of groups (selected through --n-groups)."
+        ),
+    )
 
     return parser
 
@@ -540,6 +676,23 @@ def main():
     reference_matrices, reference_directions = generate_reference_orientations(
         n=args.n_groups
     )
+
+    if args.deduplicate_references:
+        threshold = 0.5 * min_distance_between_directions(
+            reference_directions, consider_mirrors=True
+        )
+        keep_mask = deduplicate_with_symmetry(
+            directions=reference_directions,
+            symmetries=symmetries,
+            angular_distance_threshold=threshold,
+            batch_size=args.grouping_batch_size,
+            consider_mirrors=True,
+        )
+
+        reference_matrices = reference_matrices[keep_mask]
+        reference_directions = reference_directions[keep_mask]
+
+    # Read particle alignment angles
     data = pd.DataFrame(starfile.read(args.input_xmd))
 
     # Xmipp stores Euler angles in degrees
