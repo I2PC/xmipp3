@@ -9,7 +9,7 @@
 import mrcfile
 import argparse
 import starfile
-import tempfile
+# import tempfile
 import sys, os
 import numpy as np
 import torch
@@ -18,7 +18,7 @@ from xmippPyModules.classifyPcaFuntion.pca_gpu import PCAgpu
 from xmippPyModules.classifyPcaFuntion.assessment import evaluation
 
 
-def create_mmap_from_star(star_path):
+def create_mmap_from_star(star_path, temp_path):
     df = starfile.read(star_path)
 
     img_entries = df['image'].tolist()
@@ -51,9 +51,9 @@ def create_mmap_from_star(star_path):
     print(f'Cargando {n_exp} imágenes desde {len(stack_groups)} stacks...')
 
     # 4. Crear un archivo temporal en disco para el mmap
-    temp_file = tempfile.NamedTemporaryFile(suffix='.mrc', delete=False)
-    temp_path = temp_file.name
-    temp_file.close()  # Cerrar el handle para que mrcfile tome el control del archivo
+    # temp_file = tempfile.NamedTemporaryFile(suffix='.mrc', delete=False)
+    # temp_path = temp_file.name
+    # temp_file.close()  # Cerrar el handle para que mrcfile tome el control del archivo
 
     # 5. Llenar el mmap vectorizado
     with mrcfile.new_mmap(
@@ -71,8 +71,9 @@ def create_mmap_from_star(star_path):
 
         mmap.flush()
 
+    mmap_notCtf = mrcfile.mmap(temp_path, mode='r+', permissive=True)
     # Retornar el objeto mmap abierto listo para usar en tu script
-    return mrcfile.mmap(temp_path, mode='r+', permissive=True), n_exp, dim
+    return mmap_notCtf, n_exp, dim
 
 def read_images(mrcfilename):
 
@@ -164,7 +165,9 @@ if __name__=="__main__":
     print("Free memory %s" %free_memory)
 
     #Read Images
-    mmap, nExp, dim = create_mmap_from_star(expStar)
+    tempfile = output+"_temp.mrcs"
+    mmap, nExp, dim = create_mmap_from_star(expStar, tempfile)
+    os.remove(tempfile)
     print("HOOOLLAAAAAAAAAAAA")
     # mmap = mrcfile.mmap(expFile, permissive=True)
     # nExp = mmap.data.shape[0]
