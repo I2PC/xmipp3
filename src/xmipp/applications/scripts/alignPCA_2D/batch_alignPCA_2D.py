@@ -8,6 +8,7 @@
 
 import mrcfile
 import argparse
+import starfile
 import sys, os
 import numpy as np
 import torch
