@@ -379,8 +379,8 @@ if __name__=="__main__":
     
                     
                     # save classes
-                    # file = output+"_%s_%s_%s.mrcs"%(initBatch,iter+1,cycles)
-                    # save_images(cl.cpu().detach().numpy(), sampling, file)
+                    file = output+"_%s_%s_%s.mrcs"%(initBatch,iter+1,cycles)
+                    save_images(cl.cpu().detach().numpy(), sampling, file)
     
     
                     if cycles == num_cycles-1 and mode == "create_classes" and iter == niter-1:
