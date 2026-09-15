@@ -167,10 +167,6 @@ class PCAgpu:
             sum_var = var.sum()
             
             accum = torch.cumsum(vals, dim=1) / sum_var
-            
-            accum_np = accum.squeeze(0).cpu().numpy()
-            # for i in range(0, len(accum_np), 100):
-            #     print(f"{i+1:<15} | {accum_np[i]:.4f}")
 
             # if per_eig >= 1:
             #     k = N - 1
@@ -181,9 +177,6 @@ class PCAgpu:
             self.eigs[n]  = k
             self.perc[n]  = (k + 1) / N * 100
             self.error[n] = accum[0, k] 
-            
-        k_final = self.eigs[n].item()
-        # print(f"PUNTO DE CORTE (K={k_final+1}): {accum_np[k_final]:.4f}")  
             
         return self.eigs, self.perc, self.error
                   
@@ -297,24 +290,11 @@ class PCAgpu:
     
         coef = torch.zeros(nBand, dtype=int)
         for n in range(nBand):
-            coef[n] = 2*torch.sum(freq_band==n) 
+            coef[n] = 2*torch.sum(freq_band==n)  
            
         bnb = BnBgpu(nBand)    
         expBatchSize = 5000  
-        band = [torch.zeros(Ntrain, coef[n], device = self.cuda) for n in range(nBand)]  
-        
-                 #Precalculate whitening 
-        # if maxRes < 10:
-        #     Im_whitening = mexp.data[:10000].astype(np.float32)
-        #     Texp_whitening = torch.from_numpy(Im_whitening).float().to(self.cuda)
-        #     Texp_whitening*= bnb.create_circular_mask(Texp_whitening)
-        #     whitening = bnb.compute_radial_whitening_filter(Texp_whitening, sampling, 8.0)
-        #     del Im_whitening, Texp_whitening 
-        #     torch.cuda.empty_cache()
-        # else:
-            # whitening = 1
-        whitening = 1
-           
+        band = [torch.zeros(Ntrain, coef[n], device = self.cuda) for n in range(nBand)]      
          
         #print("Select bands of images")            
         for initBatch in range(0, Ntrain, expBatchSize):
@@ -330,8 +310,6 @@ class PCAgpu:
             del(expImages)
             ft = torch.fft.rfft2(Texp, norm="forward")
             del(Texp)
-            #Whitening
-            ft = ft * whitening
             bandBatch = bnb.selectBandsRefs(ft, freq_band, coef)
             del(ft)
             for n in range(nBand):

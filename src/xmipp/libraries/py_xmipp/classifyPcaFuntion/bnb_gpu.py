@@ -309,7 +309,6 @@ class BnBgpu:
             transforIm, tMatrix[initBatch:endBatch] = self.center_particles_inverse_save_matrix(mmap.data[initBatch:endBatch], tMatrix[initBatch:endBatch], 
                                                                              rotBatch[initBatch:endBatch], translations[initBatch:endBatch], centerxy)
             
-            # transforIm = self.zscore_normalization(transforIm)
    
             if mask:
                 sigma_gauss = (0.75*sigma) if (iter < 10 and iter % 2 == 1) else (sigma)# if iter < 10 else sigma
@@ -317,9 +316,6 @@ class BnBgpu:
                 transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma_gauss)
             else:
                 transforIm = transforIm * self.create_circular_mask(transforIm)
-            
-            mask_norm = self.create_gaussian_mask(transforIm, sigma_gauss)
-            transforIm = self.zscore_normalization_mask(transforIm, mask_norm)
                 
 
             proj_batch = self.batchExpToCpu(transforIm, freqBn, coef, cvecs)
@@ -397,16 +393,10 @@ class BnBgpu:
             cut=50
             cut_res = 50           
             res_classes = self.frc_resolution_tensor(newCL, sampling, fallback_res=cut_res, rcut=cut)
-            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling, sigma_gauss)
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             
             boost = None
-            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling, sigma_gauss, factorR = boost)
-        
-        # if mask:   
-        #     mask_norm = self.create_gaussian_mask(clk, sigma_gauss)
-        #     clk = self.zscore_normalization_mask(clk, mask_norm)
-        # else:
-        #     clk = self.zscore_normalization(clk)
+            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling, factorR = boost)
             
                 
         if iter < (iterSplit + 1): #order by size
@@ -452,7 +442,6 @@ class BnBgpu:
                             
         transforIm, tMatrix = self.center_particles_inverse_save_matrix(data, tMatrix, 
                                                                          rotBatch, translations, centerxy)
-        # transforIm = self.zscore_normalization(transforIm) 
                 
         del rotBatch,translations, centerxy 
         
@@ -461,8 +450,7 @@ class BnBgpu:
         else: 
             transforIm = transforIm * self.create_circular_mask(transforIm)
                                
-        mask_norm = self.create_gaussian_mask(transforIm, sigma)
-        transforIm = self.zscore_normalization_mask(transforIm, mask_norm)
+    
         
         batch_projExp_cpu = self.create_batchExp(transforIm, freqBn, coef, cvecs)
         
@@ -482,15 +470,9 @@ class BnBgpu:
             
             res_classes = self.frc_resolution_tensor(newCL, sampling)
             
-            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling, sigma)
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
             
-            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling, sigma)   
-            
-            # if mask:   
-            #     mask_norm = self.create_gaussian_mask(clk, sigma)
-            #     clk = self.zscore_normalization_mask(clk, mask_norm)
-            # else:
-            #     clk = self.zscore_normalization(clk)                    
+            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling)                       
         
             if not hasattr(self, 'grad_squared'):
                 self.grad_squared = torch.zeros_like(cl)
@@ -629,97 +611,11 @@ class BnBgpu:
         centered = kornia.geometry.transform.translate(batch_input, shift, mode='bilinear', padding_mode='zeros', align_corners=True)
     
         return centered.squeeze(1)
-    
-    @torch.no_grad()
-    def zscore_normalization(self, images):
-        mean = images.mean(dim=(-2, -1), keepdim=True)
-        std = images.std(dim=(-2, -1), keepdim=True)
-        images = (images - mean) / (std + 1e-8)
-        return images
-    
-    @torch.no_grad()
-    def zscore_normalization_mask(self, images, mask, eps=1e-8):
-        """
-        Normaliza las imágenes llevando la proteína a media 0 y std 1.
-        Usa resta modulada para no aplicar la máscara dos veces.
-        """
-        mask = mask.to(device=images.device, dtype=images.dtype)
-        sum_w = mask.sum()
-        
-        # 1. Estadísticas ponderadas basadas en la zona de la proteína
-        mean_w = (images * mask).sum(dim=(-2, -1), keepdim=True) / sum_w
-        var_w = ((images - mean_w).pow(2) * mask).sum(dim=(-2, -1), keepdim=True) / sum_w
-        std_w = torch.sqrt(var_w + eps)
-        
-        # 2. Resta modulada: NO multiplicamos por la máscara al final
-        # images_normalized = (images - mean_w * mask) / std_w
-        images_normalized = (images - mean_w ) / std_w
-        
-        return images_normalized
-    
-    
-    def gaussian_weighted_zscore_normalization(self, imgs, sigma):
-        """
-        Normaliza promedios de clase que tienen aplicada una máscara gaussiana.
-        """
-        H, W = imgs.shape[-2], imgs.shape[-1]
-        device = imgs.device
-        
-        # 1. Recrear la máscara gaussiana (valores de 0 a 1)
-        y, x = torch.meshgrid(torch.linspace(-1, 1, H, device=device), 
-                              torch.linspace(-1, 1, W, device=device), indexing='ij')
-        r2 = x**2 + y**2
-        # El peso w será máximo (1.0) en el centro y caerá hacia 0 en las esquinas
-        weight_mask = torch.exp(-r2 / (2 * sigma**2))
-        
-        # Suma total de los pesos (el equivalente al 'número de píxeles')
-        sum_w = weight_mask.sum()
-        
-        # 2. Calcular la Media Ponderada por cada imagen en el batch
-        # Multiplicamos la imagen por los pesos para ponderar el centro
-        weighted_mean = (imgs * weight_mask).sum(dim=(-2, -1), keepdim=True) / sum_w
-        
-        # 3. Calcular la Varianza y STD Ponderadas
-        weighted_variance = ((imgs - weighted_mean).pow(2) * weight_mask).sum(dim=(-2, -1), keepdim=True) / sum_w
-        weighted_std = torch.sqrt(weighted_variance + 1e-8)
-        
-        # 4. Aplicar el Z-score ponderado
-        imgs_norm = (imgs - weighted_mean) / weighted_std
-        
-        # 5. Crucial: Volver a aplicar la máscara gaussiana
-        # Esto asegura que todo lo que se movió por la resta de la media vuelva a decaer a 0 puro
-        return imgs_norm * weight_mask
-    
-    def correct_gaussian_restoration(self, averages, filtered, mask, eps=1e-8):
-        """
-        Restaura la escala del filtro usando la máscara gaussiana propia del usuario.
-        
-        averages: Tensor (B, H, W) con los promedios originales enmascarados
-        filtered: Tensor (B, H, W) con los promedios filtrados
-        mask: Tensor (H, W) generado por tu función 'create_gaussian_mask'
-        """
-        # Suma total de los pesos de TU máscara
-        sum_w = mask.sum()
-        
-        # 1. Estadísticas PONDERADAS de la imagen original (averages) utilizando tu máscara
-        mean_orig_w = (averages * mask).sum(dim=(-2, -1), keepdim=True) / sum_w
-        var_orig_w = (((averages - mean_orig_w).pow(2)) * mask).sum(dim=(-2, -1), keepdim=True) / sum_w
-        std_orig_w = torch.sqrt(var_orig_w + eps)
-        
-        # 2. Estadísticas PONDERADAS de la imagen filtrada (filtered) utilizando tu máscara
-        mean_filt_w = (filtered * mask).sum(dim=(-2, -1), keepdim=True) / sum_w
-        var_filt_w = (((filtered - mean_filt_w).pow(2)) * mask).sum(dim=(-2, -1), keepdim=True) / sum_w
-        std_filt_w = torch.sqrt(var_filt_w + eps)
-        
-        # 3. Tu fórmula de transferencia pero corregida matemáticamente con pesos
-        filtered_corrected = (filtered - mean_filt_w) / std_filt_w * std_orig_w + mean_orig_w
-        
-        # 4. Volvemos a aplicar TU máscara para limpiar el fondo y mantener los bordes suaves
-        return filtered_corrected# * mask
          
     
+    
     @torch.no_grad()
-    def gaussian_lowpass_filter_2D_adaptive(self, imgs, res_angstrom, pixel_size, sigma,
+    def gaussian_lowpass_filter_2D_adaptive(self, imgs, res_angstrom, pixel_size,
                                             floor_res=100.0, clamp_exp=80.0,
                                             hard_cut=False, nyquist_margin=0.95, normalize = True):
         B, H, W = imgs.shape
@@ -766,20 +662,16 @@ class BnBgpu:
     
         # === Restaurar contraste original
         if normalize:
-            # mean0 = imgs.mean(dim=(1,2), keepdim=True)
-            # std0  = imgs.std (dim=(1,2), keepdim=True)
-            #
-            # mean_f = img_filt.mean(dim=(1,2), keepdim=True)
-            # std_f  = img_filt.std (dim=(1,2), keepdim=True)
-            # valid  = std_f > 1e-6
-            # img_filt = torch.where(valid,
-            #                        (img_filt - mean_f)/(std_f+eps)*std0 + mean0,
-            #                        imgs)
-            # del mean0, std0, mean_f, std_f, valid
+            mean0 = imgs.mean(dim=(1,2), keepdim=True)
+            std0  = imgs.std (dim=(1,2), keepdim=True)
             
-            internal_mask = self.create_gaussian_mask(imgs, sigma)
-            img_filt = self.correct_gaussian_restoration(imgs, img_filt, internal_mask)
-            del internal_mask
+            mean_f = img_filt.mean(dim=(1,2), keepdim=True)
+            std_f  = img_filt.std (dim=(1,2), keepdim=True)
+            valid  = std_f > 1e-6
+            img_filt = torch.where(valid,
+                                   (img_filt - mean_f)/(std_f+eps)*std0 + mean0,
+                                   imgs)
+            del mean0, std0, mean_f, std_f, valid
     
         return img_filt
 
@@ -936,7 +828,6 @@ class BnBgpu:
         averages: torch.Tensor,         # [B, H, W]
         resolutions: torch.Tensor,      # [B] Å
         pixel_size: float,              # píxel(Å/pix)
-        sigma : float,
         f_energy: float = 2.0,
         # R_high: float = 25.0,
         boost_max: float = None,        # si None, se ajusta para energía
@@ -1038,16 +929,12 @@ class BnBgpu:
     
         # === (Opcional) Normalizar contraste en espacio real ===
         if normalize:
-            # mean_orig = averages.mean(dim=(-2, -1), keepdim=True)
-            # std_orig = averages.std(dim=(-2, -1), keepdim=True)
-            # mean_filt = filtered.mean(dim=(-2, -1), keepdim=True)
-            # std_filt = filtered.std(dim=(-2, -1), keepdim=True)
-            # filtered = (filtered - mean_filt) / (std_filt + eps) * std_orig + mean_orig
-            # del mean_orig, std_orig, mean_filt, std_filt
-            
-            internal_mask = self.create_gaussian_mask(averages, sigma)
-            filtered = self.correct_gaussian_restoration(averages, filtered, internal_mask)
-            del internal_mask
+            mean_orig = averages.mean(dim=(-2, -1), keepdim=True)
+            std_orig = averages.std(dim=(-2, -1), keepdim=True)
+            mean_filt = filtered.mean(dim=(-2, -1), keepdim=True)
+            std_filt = filtered.std(dim=(-2, -1), keepdim=True)
+            filtered = (filtered - mean_filt) / (std_filt + eps) * std_orig + mean_orig
+            del mean_orig, std_orig, mean_filt, std_filt
     
         return filtered#, boost_max, sharpen_power
   
@@ -1266,4 +1153,5 @@ class BnBgpu:
            
         vectorRot, vectorshift = self.setRotAndShift(ang, shiftMove)
         return (vectorRot, vectorshift)
+    
     

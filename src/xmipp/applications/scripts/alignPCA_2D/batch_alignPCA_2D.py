@@ -16,6 +16,62 @@ from xmippPyModules.classifyPcaFuntion.pca_gpu import PCAgpu
 from xmippPyModules.classifyPcaFuntion.assessment import evaluation
 
 
+def create_mmap_from_star(star_path):
+    df = starfile.read(star_path)
+
+    img_entries = df['image'].tolist()
+    n_exp = len(img_entries)
+
+    # 2. Leer dimensiones directamente del Header del primer MRC
+    first_entry = img_entries[0]
+    first_stack = (
+        first_entry.split('@')[-1] if '@' in first_entry else first_entry
+    )
+
+    with mrcfile.open(first_stack, header_only=True) as f:
+        dim = int(f.header.ny)
+
+    # 3. Agrupar referencias por stack
+    stack_groups = {}
+    for i, entry in enumerate(img_entries):
+        if '@' in entry:
+            idx_str, stack_path = entry.split('@')
+            raw_idx = int(idx_str)
+            src_idx = raw_idx - 1 if raw_idx > 0 else 0
+        else:
+            stack_path = entry
+            src_idx = 0
+
+        if stack_path not in stack_groups:
+            stack_groups[stack_path] = []
+        stack_groups[stack_path].append((i, src_idx))
+
+    print(f'Cargando {n_exp} imágenes desde {len(stack_groups)} stacks...')
+
+    # 4. Crear un archivo temporal en disco para el mmap
+    temp_file = tempfile.NamedTemporaryFile(suffix='.mrc', delete=False)
+    temp_path = temp_file.name
+    temp_file.close()  # Cerrar el handle para que mrcfile tome el control del archivo
+
+    # 5. Llenar el mmap vectorizado
+    with mrcfile.new_mmap(
+        temp_path, shape=(n_exp, dim, dim), mrc_mode=2, overwrite=True
+    ) as mmap:
+        for stack_path, items in stack_groups.items():
+            target_indices, src_indices = zip(*items)
+
+            with mrcfile.open(stack_path, permissive=True) as f:
+                data = f.data
+                if data.ndim == 3:
+                    mmap.data[list(target_indices)] = data[list(src_indices)]
+                else:
+                    mmap.data[target_indices[0]] = data
+
+        mmap.flush()
+
+    # Retornar el objeto mmap abierto listo para usar en tu script
+    return mrcfile.mmap(temp_path, mode='r+', permissive=True), n_exp, dim
+
 def read_images(mrcfilename):
 
     with mrcfile.open(mrcfilename, permissive=True) as f:
@@ -106,9 +162,10 @@ if __name__=="__main__":
     print("Free memory %s" %free_memory)
 
     #Read Images
-    mmap = mrcfile.mmap(expFile, permissive=True)
-    nExp = mmap.data.shape[0]
-    dim = mmap.data.shape[1]
+    mmap, nExp, dim = create_mmap_from_star(expFile)
+    # mmap = mrcfile.mmap(expFile, permissive=True)
+    # nExp = mmap.data.shape[0]
+    # dim = mmap.data.shape[1]
     
     if mask and (sigma is None):
         sigma = dim/3
@@ -128,7 +185,7 @@ if __name__=="__main__":
         maxRes = 16.0   
 
     freqBn, cvecs, coef = pca.calculatePCAbasis(mmap, Ntrain, nBand, dim, sampling, maxRes, 
-                                                minRes=530, per_eig=0.5, batchPCA=True)
+                                                minRes=530, per_eig=per_eig_value, batchPCA=True)
 
     grid_flat = flatGrid(freqBn, nBand)
 
@@ -136,15 +193,6 @@ if __name__=="__main__":
        
     expBatchSize, expBatchSize2, numFirstBatch, initClBatch = bnb.determine_batches(free_memory, dim) 
     print("batches: %s, %s, %s, %s" %(expBatchSize, expBatchSize2, numFirstBatch, initClBatch))   
-
-
-         #Precalculate whitening 
-    # Im_whitening = mmap.data[:10000].astype(np.float32)
-    # Texp_whitening = torch.from_numpy(Im_whitening).float().to(cuda)
-    # Texp_whitening *= bnb.create_circular_mask(Texp_whitening)
-    # whitening = bnb.compute_radial_whitening_filter(Texp_whitening, sampling, 8.0)
-    # del Im_whitening, Texp_whitening
-    whitening = 1
 
 
     #Initial classes with kmeans
@@ -190,7 +238,7 @@ if __name__=="__main__":
             Texp_zero = torch.as_tensor(Im_zero, device=cuda)
             Texp_zero *= bnb.create_circular_mask(Texp_zero)
         
-            pca_zero = bnb.create_batchExp(Texp_zero, whitening, freqBn, coef, cvecs)
+            pca_zero = bnb.create_batchExp(Texp_zero, freqBn, coef, cvecs)
         
             cl_round, _ = bnb.kmeans_pytorch_for_averages(
                 Texp_zero, pca_zero[0], cvecs, num_clusters=k_round
@@ -203,8 +251,8 @@ if __name__=="__main__":
         cl = torch.cat(all_averages, dim=0)
         del all_averages
         
-        file_cero = output+"_0.mrcs"
-        save_images(cl.cpu().detach().numpy(), sampling, file_cero) 
+        # file_cero = output+"_0.mrcs"
+        # save_images(cl.cpu().detach().numpy(), sampling, file_cero) 
         
     
     if refImages:
@@ -215,11 +263,6 @@ if __name__=="__main__":
     
     
     ### Start initial cycles
-    freqBn, cvecs, coef = pca.calculatePCAbasis(mmap, Ntrain, nBand, dim, sampling, maxRes, 
-                                            minRes=530, per_eig=per_eig_value, batchPCA=True)
-
-    grid_flat = flatGrid(freqBn, nBand)
-    
     num_cycles = 1 
     for cycles in range (num_cycles):
         batch_projExp_cpu = []
@@ -244,16 +287,14 @@ if __name__=="__main__":
             expImages = mmap.data[initBatch:endBatch].astype(np.float32)
             Texp = torch.from_numpy(expImages).float().to(cuda)
                   
-            if i < initStep: 
-                whit = 1         
-                batch_projExp_cpu.append( bnb.batchExpToCpu(Texp, whit, freqBn, coef, cvecs) )           
+            if i < initStep:          
+                batch_projExp_cpu.append( bnb.batchExpToCpu(Texp, freqBn, coef, cvecs) )           
                 if i == initStep-1:
                     mode = "create_classes"
                     print(f"\nClassification mode", flush=True)
                     print(f"Processing batch 0 - {endBatch}\n", flush=True)
-            else: 
-                whit = 1           
-                batch_projExp_cpu = bnb.create_batchExp(Texp, whit, freqBn, coef, cvecs)
+            else:            
+                batch_projExp_cpu = bnb.create_batchExp(Texp, freqBn, coef, cvecs)
                 mode = "align_classes"
                 if i == initStep:
                     print(f"\nAssignment mode", flush=True)
@@ -285,23 +326,10 @@ if __name__=="__main__":
             
                     for rot in vectorRot:            
             
-                        # print("---Precomputing the projections of the reference images---")
-                        # if mode == "create_classes" and iter > 14:
-                        #     print("ENTRO WHITENING")
-                        #     whit = whitening
-                        # else: 
-                        #     whit = 1        
-                        batch_projRef = bnb.precalculate_projection(cl, whit, freqBn, grid_flat, 
+                        # print("---Precomputing the projections of the reference images---")          
+                        batch_projRef = bnb.precalculate_projection(cl, freqBn, grid_flat, 
                                                             coef, cvecs, float(rot), vectorshift)
                 
-                        if mode == "create_classes" and iter > 12:
-                            whit = whitening
-                        elif mode == "align_classes":
-                            whit = whitening
-                        else: 
-                            whit = 1  
-                        
-                        
                         count = 0  
                         steps = initStep if mode == "create_classes" else 1 
                                     
@@ -338,19 +366,19 @@ if __name__=="__main__":
                     
                     if mode == "create_classes":
                         cl, tMatrix, batch_projExp_cpu = bnb.create_classes(
-                            mmap, whit, tMatrix, iter, subset, expBatchSize, matches, vectorshift, 
+                            mmap, tMatrix, iter, subset, expBatchSize, matches, vectorshift, 
                             classes, final_classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles)
 
                     else:
                         torch.cuda.empty_cache()
-                        cl, tMatrix, batch_projExp_cpu = bnb.align_particles_to_classes( 
-                                        expImages, whit, cl ,tMatrix, iter, subset, matches, vectorshift,
-                                        classes, freqBn, coef, cvecs, mask, sigma, sampling)
+                        cl, tMatrix, batch_projExp_cpu = bnb.align_particles_to_classes(expImages, 
+                                        cl, tMatrix, iter, subset, matches, vectorshift, classes,
+                                         freqBn, coef, cvecs, mask, sigma, sampling)
     
                     
                     # save classes
-                    file = output+"_%s_%s_%s.mrcs"%(initBatch,iter+1,cycles)
-                    save_images(cl.cpu().detach().numpy(), sampling, file)
+                    # file = output+"_%s_%s_%s.mrcs"%(initBatch,iter+1,cycles)
+                    # save_images(cl.cpu().detach().numpy(), sampling, file)
     
     
                     if cycles == num_cycles-1 and mode == "create_classes" and iter == niter-1:
