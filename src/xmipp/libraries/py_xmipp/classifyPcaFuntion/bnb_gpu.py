@@ -16,7 +16,7 @@ import math
 
 class BnBgpu:
     
-    def __init__(self, nBand, sampling, sigma):
+    def __init__(self, nBand, sampling, sigma=None):
 
         self.nBand = nBand
         self.sampling = sampling

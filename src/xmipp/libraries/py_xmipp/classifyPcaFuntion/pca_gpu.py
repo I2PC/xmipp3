@@ -292,7 +292,7 @@ class PCAgpu:
         for n in range(nBand):
             coef[n] = 2*torch.sum(freq_band==n)  
            
-        bnb = BnBgpu(nBand)    
+        bnb = BnBgpu(nBand, sampling)    
         expBatchSize = 5000  
         band = [torch.zeros(Ntrain, coef[n], device = self.cuda) for n in range(nBand)]      
          
