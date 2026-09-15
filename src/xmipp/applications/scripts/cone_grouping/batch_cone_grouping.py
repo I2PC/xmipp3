@@ -125,17 +125,156 @@ def sample_projection_directions(n: int) -> np.ndarray:
     return out
 
 
-def _nearest_orthogonal(matrix: np.ndarray):
+def generate_reference_orientations(n: int) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Generate approximately uniform reference orientations over a hemisphere.
+
+    Reference viewing directions are sampled with
+    :func:`sample_projection_directions`. The sampled azimuthal and polar
+    angles are interpreted respectively as Xmipp ``rot`` and ``tilt`` angles,
+    while ``psi`` is set to zero. Thus, each reference has a fixed in-plane
+    orientation that acts as the target orientation when particles assigned
+    to that reference are subsequently aligned.
+
+    All angles used internally are in radians.
+
+    Parameters
+    ----------
+    n : int
+        Number of reference orientations to generate.
+
+    Returns
+    -------
+    matrices : np.ndarray
+        Reference orientation matrices with shape ``(n, 3, 3)``, following
+        the Xmipp orientation convention used by
+        :func:`euler_zyz_to_matrix`.
+    directions : np.ndarray
+        Corresponding unit viewing directions with shape ``(n, 3)``. Each
+        direction is the third row of its orientation matrix.
+    """
+    spherical = sample_projection_directions(n)
+
+    rot = spherical[:, 0]
+    tilt = spherical[:, 1]
+    psi = np.asarray(0.0)
+
+    matrices = euler_zyz_to_matrix(rot, tilt, psi)
+    directions = matrices[..., 2, :]
+
+    return matrices, directions
+
+
+def _nearest_orthogonal(matrix: np.ndarray) -> np.ndarray:
     u, _, vh = np.linalg.svd(matrix)
     return u @ vh
 
 
 def compute_in_plane_alignment_matrix(
-    reference_matrix_3d: np.ndarray, rotation_matrices_3d: np.ndarray
+    reference_matrix_3d: np.ndarray,
+    rotation_matrices_3d: np.ndarray,
 ) -> np.ndarray:
+    """
+    Compute the in-plane transformations aligning orientations to references.
+
+    Orientation matrices follow the convention that they transform global
+    coordinates into the coordinate system of the corresponding projection.
+    Therefore, for a particle orientation ``E`` and reference orientation
+    ``E_ref``, the relative coordinate transformation is
+
+    ``E_ref @ E.T``.
+
+    If both orientations have exactly the same viewing direction, the upper
+    left 2x2 block of this matrix is the corresponding in-plane orthogonal
+    transformation. For particles grouped only approximately with a reference,
+    that block need not be exactly orthogonal, so it is projected onto the
+    nearest orthogonal matrix.
+
+    The resulting 2D transformation may have determinant -1 when the particle
+    and reference viewing directions are antipodal.
+
+    Parameters
+    ----------
+    reference_matrix_3d : np.ndarray
+        Reference orientation matrix or batch of matrices with shape
+        ``(..., 3, 3)``.
+    rotation_matrices_3d : np.ndarray
+        Particle orientation matrix or broadcast-compatible batch of matrices
+        with shape ``(..., 3, 3)``.
+
+    Returns
+    -------
+    np.ndarray
+        In-plane orthogonal alignment matrices with shape ``(..., 2, 2)``.
+    """
     delta_matrices_3d = reference_matrix_3d @ rotation_matrices_3d.swapaxes(-2, -1)
 
     return _nearest_orthogonal(delta_matrices_3d[..., :2, :2])
+
+
+def align_to_references(
+    particle_matrices: np.ndarray,
+    reference_matrices: np.ndarray,
+    group_indices: np.ndarray,
+    symmetries: np.ndarray,
+    symmetry_indices: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Compute the in-plane alignment of particles to their assigned references.
+
+    For each particle ``i``, ``group_indices[i]`` identifies the reference
+    orientation to which it was assigned, while ``symmetry_indices[i]``
+    identifies the symmetry operation selected during grouping.
+
+    Symmetry operations act on Xmipp orientation matrices by right
+    multiplication,
+
+    ``E_equiv = E @ S``,
+
+    so the corresponding viewing direction transforms as ``d_equiv = d @ S``.
+    The symmetry-equivalent particle orientation is first constructed and then
+    aligned in-plane to the selected reference.
+
+    A symmetry array containing a single element is assumed to represent the
+    trivial C1 group and therefore to contain the identity matrix; in that
+    case the matrix multiplication is skipped.
+
+    All returned angles are in radians.
+
+    Parameters
+    ----------
+    particle_matrices : np.ndarray
+        Particle orientation matrices with shape ``(n_particles, 3, 3)``.
+    reference_matrices : np.ndarray
+        Reference orientation matrices with shape ``(n_references, 3, 3)``.
+    group_indices : np.ndarray
+        Integer array of shape ``(n_particles,)`` containing the selected
+        reference index for each particle.
+    symmetries : np.ndarray
+        Symmetry rotation matrices with shape ``(n_symmetries, 3, 3)``.
+        The identity must be included.
+    symmetry_indices : np.ndarray
+        Integer array of shape ``(n_particles,)`` containing the symmetry
+        operation selected for each particle during grouping.
+
+    Returns
+    -------
+    psi : np.ndarray
+        Xmipp in-plane alignment angles, in radians, with shape
+        ``(n_particles,)``.
+    flip : np.ndarray
+        Boolean array of shape ``(n_particles,)`` indicating whether the
+        corresponding in-plane transformation includes a reflection.
+    """
+    if len(symmetries) > 1:
+        particle_matrices = particle_matrices @ symmetries[symmetry_indices]
+
+    alignment_2d = compute_in_plane_alignment_matrix(
+        reference_matrix_3d=reference_matrices[group_indices],
+        rotation_matrices_3d=particle_matrices,
+    )
+
+    return matrix_to_xmipp_psi_radians_flip(alignment_2d)
 
 
 def matrix_to_xmipp_psi_radians_flip(
@@ -167,219 +306,7 @@ def matrix_to_xmipp_psi_radians_flip(
     return psi, flip
 
 
-def group_in_cones_and_align(
-    rot: np.ndarray,
-    tilt: np.ndarray,
-    psi: np.ndarray,
-    n_groups: int,
-    batch_size: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Group particle orientations by projection direction and compute their
-    in-plane alignments to the corresponding group references.
-
-    The in-plane alignment includes a rotation angle ``psi`` and a ``flip`` boolean
-    flag that indicates whether the particle should be flipped around the Y axis.
-    This follows the convention for ``xmipp_transform_geometry``.
-
-    Parameters
-    ----------
-    rot, tilt, psi : np.ndarray
-        Euler angles for the particle alignment, following Xmipp's intrinsic
-        ZYZ convention:
-        $$ E_i = R_Z(- \\psi) R_Y(\\text{tilt}) R_Z(- \\text{rot}), $$
-        where $E_i$ is the matrix that transform from global coordinates to the
-        reference system of particle $i$: $x_i = E_i x$.
-        These are expected to be arrays of shape ``(n,)``.
-    n_groups : int
-        Number of groups to group the particles in.
-    batch_size : int
-        Batch size used to group the particles together.
-
-    Returns
-    -------
-    group_indices : np.ndarray
-        Array of shape ``(n,)`` containing, for each particle, the index of the
-        referenced it was grouped with.
-    psi_alignment_deg : np.ndarray
-        Array of shape ``(n,)`` containing, for each particle, the in-plane rotation
-        angle needed to align it with its group's reference; in degrees. Follows
-        Xmipp's conventions for ``xmipp_transform_geometry``.
-    flip : np.ndarray
-        Array of shape ``(n,)`` containing, for each particle, a boolean flag that
-        indicates whether the particle needs to be flipped (around the Y axis) to
-        align it with its group's reference.
-    """
-    references_spherical = sample_projection_directions(n_groups)
-
-    rot_ref = references_spherical[:, 0]
-    tilt_ref = references_spherical[:, 1]
-    psi_ref = np.asarray(0.0)
-
-    # Extract 3D Euler matrices for references and given angles (necessary for alignment)
-    reference_matrix = euler_zyz_to_matrix(rot=rot_ref, tilt=tilt_ref, psi=psi_ref)
-    particle_matrix = euler_zyz_to_matrix(rot=rot, tilt=tilt, psi=psi)
-
-    # Viewing direction is the third row of the Euler matrix (necessary for grouping)
-    reference_directions = reference_matrix[..., 2, :]
-    particle_directions = particle_matrix[..., 2, :]
-
-    group_indices = group_projection_directions(
-        directions=particle_directions,
-        references=reference_directions,
-        consider_mirrors=True,  # only sampled the z>=0 hemisphere for references, so must use consider_mirrors=True
-        batch_size=batch_size,
-    )
-
-    alignment_2d = compute_in_plane_alignment_matrix(
-        reference_matrix_3d=reference_matrix[group_indices],
-        rotation_matrices_3d=particle_matrix,
-    )
-
-    psi_alignment, flip = matrix_to_xmipp_psi_radians_flip(alignment_2d)
-
-    # xmipp expects angles in degrees, not radians
-    psi_alignment_deg = np.rad2deg(psi_alignment)
-
-    return group_indices, psi_alignment_deg, flip
-
-
-def group_in_cones_and_align_with_symmetry(
-    rot: np.ndarray,
-    tilt: np.ndarray,
-    psi: np.ndarray,
-    n_groups: int,
-    symmetries: np.ndarray,
-    batch_size: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Group particle orientations by projection direction and compute their
-    in-plane alignments to the corresponding group references.
-
-    The in-plane alignment includes a rotation angle ``psi`` and a ``flip`` boolean
-    flag that indicates whether the particle should be flipped around the Y axis.
-    This follows the convention for ``xmipp_transform_geometry``.
-
-    Parameters
-    ----------
-    rot, tilt, psi : np.ndarray
-        Euler angles for the particle alignment, following Xmipp's intrinsic
-        ZYZ convention:
-        $$ E_i = R_Z(- \\psi) R_Y(\\text{tilt}) R_Z(- \\text{rot}), $$
-        where $E_i$ is the matrix that transform from global coordinates to the
-        reference system of particle $i$: $x_i = E_i x$.
-        These are expected to be arrays of shape ``(n,)``.
-    n_groups : int
-        Number of groups to group the particles in.
-    symmetries : np.ndarray
-        Symmetry matrices for the underlying volume, shape (n_symmetries, 3, 3).
-        This must include the identity matrix as one of its elements.
-    batch_size : int
-        Batch size used to group the particles together.
-
-    Returns
-    -------
-    group_indices : np.ndarray
-        Array of shape ``(n,)`` containing, for each particle, the index of the
-        referenced it was grouped with.
-    psi_alignment_deg : np.ndarray
-        Array of shape ``(n,)`` containing, for each particle, the in-plane rotation
-        angle needed to align it with its group's reference; in degrees. Follows
-        Xmipp's conventions for ``xmipp_transform_geometry``.
-    flip : np.ndarray
-        Array of shape ``(n,)`` containing, for each particle, a boolean flag that
-        indicates whether the particle needs to be flipped (around the Y axis) to
-        align it with its group's reference.
-    """
-    references_spherical = sample_projection_directions(n_groups)
-
-    rot_ref = references_spherical[:, 0]
-    tilt_ref = references_spherical[:, 1]
-    psi_ref = np.asarray(0.0)
-
-    # Extract 3D Euler matrices for references and given angles (necessary for alignment)
-    reference_matrix = euler_zyz_to_matrix(rot=rot_ref, tilt=tilt_ref, psi=psi_ref)
-    particle_matrix = euler_zyz_to_matrix(rot=rot, tilt=tilt, psi=psi)
-
-    # Viewing direction is the third row of the Euler matrix (necessary for grouping)
-    reference_directions = reference_matrix[..., 2, :]
-    particle_directions = particle_matrix[..., 2, :]
-
-    group_indices, symmetry_indices = group_with_symmetry(
-        directions=particle_directions,
-        references=reference_directions,
-        symmetries=symmetries,
-        consider_mirrors=True,  # only sampled the z>=0 hemisphere for references, so must use consider_mirrors=True
-        batch_size=batch_size,
-    )
-
-    particle_matrix = particle_matrix @ symmetries[symmetry_indices]
-
-    alignment_2d = compute_in_plane_alignment_matrix(
-        reference_matrix_3d=reference_matrix[group_indices],
-        rotation_matrices_3d=particle_matrix,
-    )
-
-    psi_alignment, flip = matrix_to_xmipp_psi_radians_flip(alignment_2d)
-
-    # xmipp expects angles in degrees, not radians
-    psi_alignment_deg = np.rad2deg(psi_alignment)
-
-    return group_indices, psi_alignment_deg, flip
-
-
 def group_projection_directions(
-    directions: np.ndarray,
-    references: np.ndarray,
-    consider_mirrors: bool = True,
-    batch_size: int = 1024,
-) -> np.ndarray:
-    """
-    Assign each direction to its closest reference direction.
-
-    Closeness is measured by angular distance, equivalently by maximizing
-    the dot product between unit vectors. If ``consider_mirrors`` is True,
-    antipodal directions are treated as equivalent.
-
-    Parameters
-    ----------
-    directions : np.ndarray
-        Unit direction vectors with shape (n_directions, 3).
-    references : np.ndarray
-        Unit reference vectors with shape (n_references, 3).
-    consider_mirrors : bool, default=True
-        If True, directions v and -v are considered equivalent.
-    batch_size : int, default=1024
-        Number of directions processed at once.
-
-    Returns
-    -------
-    np.ndarray
-        Integer array of shape (n_directions,) containing the index of
-        the closest reference for each direction.
-    """
-    n_references = len(references)
-    n_directions = len(directions)
-
-    index_dtype = np.min_scalar_type(n_references - 1)
-    result = np.empty(n_directions, dtype=index_dtype)
-
-    start = 0
-    while start < n_directions:
-        end = min(n_directions, start + batch_size)
-        direction_batch = directions[start:end]
-
-        cos = direction_batch @ references.T
-        if consider_mirrors:
-            cos = abs(cos)
-
-        result[start:end] = np.argmax(cos, axis=1)
-        start = end
-
-    return result
-
-
-def group_with_symmetry(
     directions: np.ndarray,
     references: np.ndarray,
     symmetries: np.ndarray,
@@ -408,10 +335,12 @@ def group_with_symmetry(
     symmetries : np.ndarray
         Symmetry matrices for the underlying volume, shape (n_symmetries, 3, 3).
         This must include the identity matrix as one of its elements.
-    consider_mirrors : bool, default=True
-        If True, directions v and -v are considered equivalent.
-    batch_size : int, default=1024
-        Number of directions processed at once.
+        For asymmetric volumes, this can be the trivial symmetry group 'C1',
+        which can be generated with ``trivial_symmetry_group()``.
+    consider_mirrors : bool, optional
+        If True, directions v and -v are considered equivalent. Default is True.
+    batch_size : int, optional
+        Number of directions processed at once. Default is 1024.
 
     Returns
     -------
@@ -424,29 +353,40 @@ def group_with_symmetry(
     """
     # Compute r[i] @ s[j].T for each reference and symmetry, because comparing r @ s.T
     # with a direction d is equivalent to comparing d @ s with r
+    #
+    # references:     (n_references, 3)
+    # symmetries:     (n_symmetries, 3, 3)
+    # references_sym: (n_references, n_symmetries, 3)
     references_sym = np.tensordot(references, symmetries, axes=([1], [2]))
 
     n_directions = len(directions)
     n_references = len(references)
     n_symmetries = len(symmetries)
 
-    group_indices = np.empty(n_directions, dtype=np.min_scalar_type(n_references))
-    symmetry_indices = np.empty(n_directions, dtype=np.min_scalar_type(n_symmetries))
+    group_indices = np.empty(n_directions, dtype=np.min_scalar_type(n_references - 1))
+    symmetry_indices = np.empty(
+        n_directions, dtype=np.min_scalar_type(n_symmetries - 1)
+    )
 
     start = 0
     while start < n_directions:
         end = min(n_directions, start + batch_size)
         direction_batch = directions[start:end]
 
+        # direction_batch: (batch, 3)
+        # references_sym:  (n_references, n_symmetries, 3)
+        # cos:             (batch, n_references, n_symmetries)
         cos = np.tensordot(direction_batch, references_sym, axes=([1], [2]))
 
         if consider_mirrors:
-            cos = abs(cos)
+            np.abs(cos, out=cos)
 
         # Flatten the reference and symmetry dimensions for argmax
-        cos_flat = cos.reshape(end - start, -1)
-        flat_indices = np.argmax(cos_flat, axis=1)
+        cos_flat = cos.reshape(end - start, -1)  # (batch, n_references * n_symmetries)
+        flat_indices = np.argmax(cos_flat, axis=1)  # (batch, )
         j, k = np.unravel_index(flat_indices, shape=(n_references, n_symmetries))
+        # j: (batch, ), indexing n_references
+        # k: (batch, ), indexing n_symmetries
 
         group_indices[start:end] = j
         symmetry_indices[start:end] = k
@@ -490,19 +430,23 @@ def direct_rotation_around_x(angle_rad: float) -> np.ndarray:
     return matrix
 
 
-def generate_cn_matrices(n: int):
+def generate_cn_matrices(n: int) -> np.ndarray:
     generator_angle = 2 * np.pi / n
 
     return np.array([direct_rotation_around_z(i * generator_angle) for i in range(n)])
 
 
-def generate_dn_matrices(n: int):
+def generate_dn_matrices(n: int) -> np.ndarray:
     cn = generate_cn_matrices(n)  # shape (n, 3, 3)
 
     rotx = direct_rotation_around_x(np.pi)  # shape (3, 3)
-    reflected = rotx @ cn
+    twofold_rotations = rotx @ cn
 
-    return np.concatenate([cn, reflected])
+    return np.concatenate([cn, twofold_rotations])
+
+
+def trivial_symmetry_group() -> np.ndarray:
+    return np.eye(3)[None, ...]
 
 
 def parse_symmetry_group_string(sym: str) -> tuple[str, int]:
@@ -512,9 +456,9 @@ def parse_symmetry_group_string(sym: str) -> tuple[str, int]:
     return sym_type.lower(), order
 
 
-def generate_symmetries(sym: str | None) -> np.ndarray | None:
+def generate_symmetries(sym: str | None) -> np.ndarray:
     if sym is None:
-        return None
+        return trivial_symmetry_group()
 
     sym_type, order = parse_symmetry_group_string(sym)
 
@@ -523,7 +467,7 @@ def generate_symmetries(sym: str | None) -> np.ndarray | None:
 
     if sym_type == "c":
         if order == 1:
-            return None
+            return trivial_symmetry_group()
         return generate_cn_matrices(order)
 
     if sym_type == "d":
@@ -587,9 +531,15 @@ def build_argument_parser() -> argparse.ArgumentParser:
 
 
 def main():
-    parser = build_argument_parser()
-    args = parser.parse_args()
+    args = build_argument_parser().parse_args()
 
+    # Generate symmetries for the object
+    symmetries = generate_symmetries(sym=args.symmetry_group)
+
+    # Build the references
+    reference_matrices, reference_directions = generate_reference_orientations(
+        n=args.n_groups
+    )
     data = pd.DataFrame(starfile.read(args.input_xmd))
 
     # Xmipp stores Euler angles in degrees
@@ -597,27 +547,35 @@ def main():
     tilt = np.deg2rad(data.angleTilt.to_numpy())
     psi = np.deg2rad(data.anglePsi.to_numpy())
 
-    symmetries = generate_symmetries(sym=args.symmetry_group)
-    if symmetries is None:
-        group_indices, alignment_psi_deg, flip = group_in_cones_and_align(
-            rot, tilt, psi, n_groups=args.n_groups, batch_size=args.grouping_batch_size
-        )
-    else:
-        group_indices, alignment_psi_deg, flip = group_in_cones_and_align_with_symmetry(
-            rot,
-            tilt,
-            psi,
-            symmetries=symmetries,
-            n_groups=args.n_groups,
-            batch_size=args.grouping_batch_size,
-        )
+    particle_matrices = euler_zyz_to_matrix(rot, tilt, psi)
+    particle_directions = particle_matrices[..., 2, :]
     del rot, tilt, psi
+
+    # Grouping
+    group_indices, symmetry_indices = group_projection_directions(
+        directions=particle_directions,
+        references=reference_directions,
+        symmetries=symmetries,
+        consider_mirrors=True,
+        batch_size=args.grouping_batch_size,
+    )
+    del particle_directions, reference_directions
+
+    # Alignment
+    alignment_psi, flip = align_to_references(
+        particle_matrices=particle_matrices,
+        reference_matrices=reference_matrices,
+        group_indices=group_indices,
+        symmetries=symmetries,
+        symmetry_indices=symmetry_indices,
+    )
     del symmetries
+    del particle_matrices, reference_matrices
 
     data[args.out_group_column] = (
         group_indices.astype(np.int64) + 1
     )  # 1-based indices are preferred for class ids
-    data[MDL_ANGLE_PSI] = alignment_psi_deg
+    data[MDL_ANGLE_PSI] = np.rad2deg(alignment_psi)
     data[MDL_FLIP] = flip.astype(np.int8)
 
     starfile.write(data=data, filename=args.out_star)
