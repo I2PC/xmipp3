@@ -29,6 +29,7 @@ class IRLSMEstimator:
         self.n_its = None
         self.converged = False
 
+    @torch.inference_mode()
     def _validate_prior(
         self, prior_mean: Optional[torch.Tensor], prior_variance: Optional[torch.Tensor]
     ) -> None:
@@ -38,6 +39,7 @@ class IRLSMEstimator:
                 f"got {type(prior_mean) = }, {type(prior_variance) = }"
             )
 
+    @torch.inference_mode()
     def _get_safe_variance(
         self,
         images: torch.Tensor,
@@ -57,6 +59,41 @@ class IRLSMEstimator:
         image_std = torch.clamp_min(image_std, self.eps)
 
         return image_variance, image_std
+
+    @classmethod
+    @torch.inference_mode()
+    def calculate_update(
+        cls,
+        images: torch.Tensor,
+        weights: torch.Tensor,
+        *,
+        ctf: Optional[torch.Tensor] = None,
+        prior_mean: Optional[torch.Tensor] = None,
+        prior_variance: Optional[torch.Tensor] = None,
+        image_variance: Optional[torch.Tensor] = None,
+        eps: float = 1.0e-8,
+    ) -> torch.Tensor:
+        # New estimate calculation:
+        # x_new = (s_1 / image_variance + prior_mean / prior_variance) /
+        #         (s_2 / image_variance + 1 / prior_variance)
+        if ctf is None:
+            s_1 = torch.sum(weights * images, dim=0)
+            s_2 = torch.sum(weights, dim=0)
+        else:
+            s_1 = torch.sum(weights * ctf * images, dim=0)
+            s_2 = torch.sum(weights * ctf.square(), dim=0)
+
+        if prior_mean is None or prior_variance is None:
+            # s_2 will only be used in this calculation, can modify in-place
+            return s_1 / (s_2.clamp_min_(eps))
+
+        # Assume image variance and prior variance are safe to divide by,
+        # since the ``fit`` method ensures it
+        reciprocal_prior_variance = 1.0 / prior_variance
+        numerator = s_1 / image_variance + prior_mean * reciprocal_prior_variance
+        denominator = s_2 / image_variance + reciprocal_prior_variance
+
+        return numerator / denominator.clamp_min_(eps)
 
     @torch.inference_mode()
     def _fit_one_iteration(
@@ -80,27 +117,15 @@ class IRLSMEstimator:
             # Reshape weights to shape (batch, 1, ..., 1) to broadcast over image batch
             weights = weights.reshape(weights.shape[0], *((1,) * (images.ndim - 1)))
 
-        # New estimate calculation:
-        # x_new = (s_1 / image_variance + prior_mean / prior_variance) /
-        #         (s_2 / image_variance + 1 / prior_variance)
-        if ctf is None:
-            s_1 = torch.sum(weights * images, dim=0)
-            s_2 = torch.sum(weights, dim=0)
-        else:
-            s_1 = torch.sum(weights * ctf * images, dim=0)
-            s_2 = torch.sum(weights * ctf.square(), dim=0)
-
-        if prior_mean is None or prior_variance is None:
-            # s_2 will only be used in this iteration, can modify in-place
-            update = s_1 / (s_2.clamp_min_(self.eps))
-        else:
-            # Assume image variance and prior variance are safe to divide by,
-            # since the ``fit`` method ensures it
-            reciprocal_prior_variance = 1.0 / prior_variance
-            numerator = s_1 / image_variance + prior_mean * reciprocal_prior_variance
-            denominator = s_2 / image_variance + reciprocal_prior_variance
-
-            update = numerator / denominator.clamp_min_(self.eps)
+        update = IRLSMEstimator.calculate_update(
+            images=images,
+            weights=weights,
+            ctf=ctf,
+            prior_mean=prior_mean,
+            prior_variance=prior_variance,
+            image_variance=image_variance,
+            eps=self.eps,
+        )
 
         # Use update damping for calculating the new estimate
         eta = self.damping_coef
