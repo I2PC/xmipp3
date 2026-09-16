@@ -10,7 +10,7 @@ import starfile
 import torch
 import math
 
-class ctf:
+class ctfClass:
     
     def __init__(self, star_path):
         self.star_path = star_path

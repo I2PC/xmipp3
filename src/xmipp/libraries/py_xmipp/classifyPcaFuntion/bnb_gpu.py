@@ -11,6 +11,7 @@ import torch.nn.functional as F
 import kornia
 import random
 import math
+from xmippPyModules.classifyPcaFuntion.ctf import ctf
 
 
 
@@ -272,7 +273,9 @@ class BnBgpu:
     
     
     @torch.no_grad()
-    def create_classes(self, mmap, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes, final_classes, freqBn, coef, cvecs, mask):
+    def create_classes(self, mmap, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes, final_classes, freqBn, coef, cvecs, mask, expStar):
+        
+        ctf = ctfClass(expStar)
         
         # print("----------create-classes-------------") 
         iterSplit = 7       
@@ -361,7 +364,7 @@ class BnBgpu:
 
             # Generación del lote de CTFs especificando sus índices de partícula
             # (Requiere adaptar compute_ctfs_batch para tomar particle_indices)
-            ctf_batch = self.ctf_calculator.compute_ctfs_batch(
+            ctf_batch = ctf.compute_ctfs_batch(
                 dim=H,
                 pixel_size=self.sampling,
                 angle=0.0,
