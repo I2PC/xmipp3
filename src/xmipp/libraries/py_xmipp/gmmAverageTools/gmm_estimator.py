@@ -19,6 +19,9 @@ class RecursiveGMMEstimator:
         random_state: Optional[int] = None,
         gmm_max_iter: int = 20,
         gmm_tol: float = 1.0e-4,
+        check_degenerate_model: bool = True,
+        min_component_separation: float = 0.05,
+        min_good_component_weight: float = 0.30,
     ):
         self.model = TorchGaussianMixture(
             n_components=2,
@@ -32,6 +35,10 @@ class RecursiveGMMEstimator:
         self.max_iter = max_iter
         self.tol = tol
         self.standardize_distances = standardize_distances
+
+        self.check_degenerate_model = check_degenerate_model
+        self.min_component_separation = min_component_separation
+        self.min_good_component_weight = min_good_component_weight
 
         self.gmm_max_iter = gmm_max_iter
         self.gmm_tol = gmm_tol
@@ -88,6 +95,12 @@ class RecursiveGMMEstimator:
 
         return (distances - mean) / std, mean.item(), std.item()
 
+    def _get_good_component_idx(self, model: TorchGaussianMixture):
+        """
+        Returns the index of the component of the GMM model with a lower mean.
+        """
+        return torch.argmin(model.means_.mean(dim=1))
+
     def _responsibility_weights(
         self,
         model: TorchGaussianMixture,
@@ -101,12 +114,61 @@ class RecursiveGMMEstimator:
         The weight of an image is defined as the (posterior) probability of the image
         belonging to the good component of the GMM, given its distance to the reference.
         """
-        good_component = torch.argmin(model.means_.mean(dim=1))
+        good_component = self._get_good_component_idx(model)
         responsibilities = model.predict_proba(distances)[:, good_component]
 
         # .view(-1, 1, 1) allows the weights to broadcast over image batches
         # NOTE: this would need to be modified to generalize to other dimensional images
         return responsibilities.to(dtype=dtype, device=device).view(-1, 1, 1)
+
+    def _check_degeneracy(
+        self,
+        model: TorchGaussianMixture,
+        min_component_separation: float,
+        min_good_component_weight: float,
+    ) -> bool:
+        """
+        Checks whether the two components of a GMM model are degenerate, i.e,
+        their means are too close to represent two distinct groups OR the component
+        corresponding to 'good' images has too little weight.
+
+        Parameters
+        ----------
+        model : TorchGaussianMixture
+            One-dimensional GMM model with two components already fit to some data
+        min_component_separation : float
+            Threshold used to check for degeneracy. The model will be considered
+            degenerate if
+            ``abs(mean_2 - mean_1) / sqrt(variance_1 + variance_2) < min_component_separation``.
+        min_component_weight : float
+            Minimum weight for the 'good' GMM component. If k is the index of the
+            component with a lower mean, the model will be considered degenerate if
+            ``model.weights_[k] < min_component_weight``.
+
+        Returns
+        -------
+        bool
+            True if the model is degenerate, False otherwise
+        """
+        mean1 = model.means_[0, :]
+        mean2 = model.means_[1, :]
+
+        variance1 = model.covariances_[0]
+        variance2 = model.covariances_[1]
+
+        distance_between_means = (mean2 - mean1).square()
+
+        normalized_separation = distance_between_means / (variance1 + variance2)
+
+        degenerate_separation = bool(normalized_separation < min_component_separation**2)
+
+        good_component = self._get_good_component_idx(model)
+
+        degenerate_weight = bool(
+            model.weights_[good_component] < min_good_component_weight
+        )
+
+        return degenerate_separation or degenerate_weight
 
     def _fit_one_iteration(
         self,
@@ -166,18 +228,18 @@ class RecursiveGMMEstimator:
         Parameters
         ----------
         images : torch.Tensor
-            Tensor of shape ``(n_images, *image_shape)`` containing the images to 
-            be averaged using the robust IRLS procedure, batched along the first 
+            Tensor of shape ``(n_images, *image_shape)`` containing the images to
+            be averaged using the robust IRLS procedure, batched along the first
             dimension of the ``images`` tensor.
         reference : Optional[torch.Tensor], optional
-            Initial reference for the robust averaging (e.g. the average of 
+            Initial reference for the robust averaging (e.g. the average of
             all the images). Should match the shape of one image.
-            If not provided, it will the default to the average of the 
+            If not provided, it will the default to the average of the
             input images (i.e. ``reference = images.mean(dim=0)``).
         initialize_params : bool, optional
             If True, the GMM model's means will be initialized on the first iteration
-            to predetermined values (using the initial distance distribution's 0.2 
-            and 0.8 quantiles), and the GMM component weights will be initialized to 
+            to predetermined values (using the initial distance distribution's 0.2
+            and 0.8 quantiles), and the GMM component weights will be initialized to
             0.8 and 0.2, respectively. Default is False.
 
         Returns
@@ -222,5 +284,16 @@ class RecursiveGMMEstimator:
             if converged:
                 self.converged = True
                 break
+
+        # Only check for degeneracy if requested and at least one iteration has been done
+        if self.check_degenerate_model and weights is not None:
+
+            if self._check_degeneracy(
+                self.model,
+                min_component_separation=self.min_component_separation,
+                min_good_component_weight=self.min_good_component_weight,
+            ):
+                weights = torch.ones_like(weights)
+                reference = images.mean(dim=0)
 
         return reference, weights, distances

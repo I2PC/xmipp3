@@ -54,6 +54,8 @@ ESTIMATOR_WEIGHT_COLUMNS = {
 EXTERNAL_GMM_MAX_ITER = 15
 INTERNAL_GMM_MAX_ITER = 20
 GMM_STANDARDIZE_DISTANCES = True
+GMM_MIN_COMPONENT_SEPARATION = 0.1
+GMM_MIN_GOOD_COMPONENT_WEIGHT = 0.30
 ESTIMATOR_RANDOM_STATE = 42
 ESTIMATOR_TOL = 1.0e-4
 IRLS_MAX_ITER = 50
@@ -128,6 +130,18 @@ def build_argument_parser() -> argparse.ArgumentParser:
             "procedure, whilst 'gmm' corresponds to a GMM-reweighted version of IRLS"
         ),
     )
+    parser.add_argument(
+        "--check-degenerate-gmm",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "If the estimator type is 'gmm', the GMM model will be checked for "
+            "degeneracy after the final iteration in each class. If the model is found "
+            "to be degenerate (because its components are too close or because the "
+            "'good' component has too little weight), then every particle in that "
+            "class will be considered 'good' and assigned a weight of 1"
+        ),
+    )
 
     return parser
 
@@ -146,7 +160,10 @@ def validate_item_ids(data: pd.DataFrame, name: str) -> None:
 
 
 def initialize_estimator(
-    unmasked_images: torch.Tensor, masked_images: torch.Tensor, estimator_type: str
+    unmasked_images: torch.Tensor,
+    masked_images: torch.Tensor,
+    estimator_type: str,
+    check_degenerate_gmm: bool = False,
 ):
     # Calculate the automatic scaling parameter for the distance or weight functions.
     auto_beta = calculate_beta_auto(imgs=unmasked_images, mult=1.0)
@@ -180,6 +197,9 @@ def initialize_estimator(
             standardize_distances=GMM_STANDARDIZE_DISTANCES,
             random_state=ESTIMATOR_RANDOM_STATE,
             gmm_max_iter=INTERNAL_GMM_MAX_ITER,
+            check_degenerate_model=check_degenerate_gmm,
+            min_component_separation=GMM_MIN_COMPONENT_SEPARATION,
+            min_good_component_weight=GMM_MIN_GOOD_COMPONENT_WEIGHT,
         )
 
     # IRLS type estimator: initialize weight function (currently only supporting
@@ -280,6 +300,7 @@ def process_class(
     device: Union[torch.device, str] = "cpu",
     write_metadata: Optional[pd.DataFrame] = None,
     estimator_type: str = "gmm",
+    check_degenerate_gmm: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Estimate robust and conventional averages for one particle class.
@@ -328,6 +349,7 @@ def process_class(
         unmasked_images=images,
         masked_images=masked_images,
         estimator_type=estimator_type,
+        check_degenerate_gmm=check_degenerate_gmm,
     )
     reference = masked_images.mean(dim=0)
 
@@ -490,6 +512,7 @@ def main() -> None:
             device=device,
             write_metadata=write_metadata,
             estimator_type=args.estimator_type,
+            check_degenerate_gmm=args.check_degenerate_gmm,
         )
 
         if corrected_averages is not None:
