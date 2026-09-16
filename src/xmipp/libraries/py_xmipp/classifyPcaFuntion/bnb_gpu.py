@@ -291,6 +291,11 @@ class BnBgpu:
         total_slots = classes + split
         newCL = [[] for i in range(total_slots)]
         newProj = [[] for i in range(total_slots)]
+        
+        #INICIALIZACIÓN DE ACUMULADORES CTF (Espacio de Fourier)
+        _, H, W = mmap.data.shape
+        numerator_acc = torch.zeros((total_slots, H, W), dtype=torch.complex64, device=self.cuda)
+        denominator_acc = torch.zeros((total_slots, H, W), dtype=torch.float32, device=self.cuda)
 
         step = int(np.ceil(nExp/expBatchSize))
         batch_projExp_cpu = [0 for i in range(step)]
@@ -345,6 +350,29 @@ class BnBgpu:
             transforIm = transforIm[valid_mask]
             batch_class_indices = batch_class_indices[valid_mask]
             projs_gpu = projs_gpu[valid_mask]
+            
+            # 2. CÁLCULO DE CTF Y ACUMULACIÓN POR BATCH
+            # -------------------------------------------------------------------
+            # Índices globales absolutos de las partículas válidas de este batch
+            batch_particle_indices = torch.arange(initBatch, endBatch, device=self.cuda)[valid_mask]
+
+            # FFT 2D de las partículas transformadas válidas del batch
+            Fpart = torch.fft.fft2(transforIm)
+
+            # Generación del lote de CTFs especificando sus índices de partícula
+            # (Requiere adaptar compute_ctfs_batch para tomar particle_indices)
+            ctf_batch = self.ctf_calculator.compute_ctfs_batch(
+                dim=H,
+                pixel_size=self.sampling,
+                angle=0.0,
+                particle_indices=batch_particle_indices,
+                device=self.cuda
+            )
+
+            # Suma atómica acumulativa agrupada por clase
+            numerator_acc.index_add_(0, batch_class_indices, ctf_batch * Fpart)
+            denominator_acc.index_add_(0, batch_class_indices, ctf_batch.square())
+            # -------------------------------------------------------------------
                 
             labels = batch_class_indices
             order = torch.argsort(labels)
