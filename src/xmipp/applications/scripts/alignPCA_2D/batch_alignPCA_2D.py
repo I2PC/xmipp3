@@ -369,7 +369,7 @@ if __name__=="__main__":
                     if mode == "create_classes":
                         cl, tMatrix, batch_projExp_cpu = bnb.create_classes(
                             mmap, tMatrix, iter, subset, expBatchSize, matches, vectorshift, 
-                            classes, final_classes, freqBn, coef, cvecs, mask)
+                            classes, final_classes, freqBn, coef, cvecs, mask, expStar)
 
                     else:
                         torch.cuda.empty_cache()
