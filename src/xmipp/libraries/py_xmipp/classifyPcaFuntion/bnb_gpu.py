@@ -11,7 +11,7 @@ import torch.nn.functional as F
 import kornia
 import random
 import math
-from xmippPyModules.classifyPcaFuntion.ctf import ctf
+from xmippPyModules.classifyPcaFuntion.ctf import ctfClass
 
 
 
