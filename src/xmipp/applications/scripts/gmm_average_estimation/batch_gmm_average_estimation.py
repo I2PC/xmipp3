@@ -28,19 +28,24 @@ from xmippPyModules.gmmAverageTools.weights import (
     calculate_beta_auto,
     tagare_weight_precomputed,
     smooth_redescending_weights_modulus,
+    smooth_redescending_weights_norm,
 )
 from xmippPyModules.gmmAverageTools.distances import tagare_distance_precomputed
 
 # Utilities: masks, weighted averages
-from xmippPyModules.gmmAverageTools.masks import create_circular_mask
+from xmippPyModules.gmmAverageTools.masks import (
+    create_circular_mask,
+    create_lowpass_rfft_mask,
+)
 from xmippPyModules.gmmAverageTools.utils import weighted_average
 
-ESTIMATOR_TYPES = ("gmm", "irls", "fourier_irls", "admm")
+ESTIMATOR_TYPES = ("gmm", "irls", "fourier_irls", "admm", "fourier_masked")
 
 ESTIMATOR_WEIGHT_COLUMNS = {
     "gmm": ["wRobust", "wRobustGmm"],
     "irls": ["wRobust"],
     "fourier_irls": ["wRobust"],
+    "fourier_masked": ["wRobust"],
     "admm": ["wRobust"],
 }
 
@@ -53,7 +58,11 @@ ESTIMATOR_RANDOM_STATE = 42
 ESTIMATOR_TOL = 1.0e-4
 IRLS_MAX_ITER = 50
 IRLS_DAMPING_COEF = 0.0
-DEFAULT_SMOOTH_DELTA = 1.5  # delta parameter for the redescending weights function
+DEFAULT_SMOOTH_DELTA_PER_COEFFICIENT = 1.5  # delta parameter for the redescending weights function when calculating one weight per coefficient
+DEFAULT_SMOOTH_DELTA_PER_IMAGE = 0.1  # delta parameter for the redescending weights function when calculating one weight per image
+DEFAULT_LOWPASS_MASK_CUTOFF = (
+    0.25  # in normalized units (i.e. 0.25 means a quarter of the way to Nyquist)
+)
 ADMM_MAX_ITER = 20
 ADMM_INITIAL_MU = 1.0
 ADMM_FOURIER_MULTIPLIER = 1.0
@@ -164,7 +173,7 @@ def initialize_estimator(
                 beta=auto_beta,
             )
 
-        estimator = RecursiveGMMEstimator(
+        return RecursiveGMMEstimator(
             distance_function=distance_function,
             max_iter=EXTERNAL_GMM_MAX_ITER,
             tol=ESTIMATOR_TOL,
@@ -172,9 +181,10 @@ def initialize_estimator(
             random_state=ESTIMATOR_RANDOM_STATE,
             gmm_max_iter=INTERNAL_GMM_MAX_ITER,
         )
+
     # IRLS type estimator: initialize weight function (currently only supporting
     # Tagare weights) and other estimator params
-    elif estimator_type == "irls":
+    if estimator_type == "irls":
 
         def tagare_weight_function(
             _unused_images: torch.Tensor,
@@ -189,20 +199,24 @@ def initialize_estimator(
                 beta=auto_beta,
             )
 
-        estimator = IRLSMEstimator(
+        return IRLSMEstimator(
             weight_function=tagare_weight_function,
             max_iter=IRLS_MAX_ITER,
             tol=ESTIMATOR_TOL,
             damping_coef=IRLS_DAMPING_COEF,
         )
+
     # Fourier IRLS estimator: initialize weight function and IRLS solver
-    elif estimator_type == "fourier_irls":
+    if estimator_type == "fourier_irls":
 
         def smooth_redescending_weight_function(
             images: torch.Tensor, reference: torch.Tensor, std: torch.Tensor
         ):
             return smooth_redescending_weights_modulus(
-                images=images, reference=reference, std=std, delta=DEFAULT_SMOOTH_DELTA
+                images=images,
+                reference=reference,
+                std=std,
+                delta=DEFAULT_SMOOTH_DELTA_PER_COEFFICIENT,
             )
 
         irls_solver = IRLSMEstimator(
@@ -212,10 +226,12 @@ def initialize_estimator(
             damping_coef=IRLS_DAMPING_COEF,
         )
 
-        estimator = JointIRLSFourier(irls_solver=irls_solver)
+        return JointIRLSFourier(
+            irls_solver=irls_solver, weight_approach="per-coefficient"
+        )
 
     # ADMM estimator: initialize fourier and real space estimators, then couple them
-    elif estimator_type == "admm":
+    if estimator_type == "admm":
         real_irls = initialize_estimator(
             unmasked_images=unmasked_images,
             masked_images=masked_images,
@@ -228,17 +244,33 @@ def initialize_estimator(
             estimator_type="fourier_irls",
         )
 
-        estimator = ADMMEstimator(
+        return ADMMEstimator(
             irls_real=real_irls,
             irls_fourier=fourier_irls,
             max_iter=ADMM_MAX_ITER,
             initial_mu=ADMM_INITIAL_MU,
             fourier_multiplier=ADMM_FOURIER_MULTIPLIER,
         )
-    else:
-        raise ValueError(f"Unrecognized estimator type: {estimator_type}")
 
-    return estimator
+    if estimator_type == "fourier_masked":
+
+        def smooth_redescending_weight_function(
+            images: torch.Tensor, reference: torch.Tensor, std: torch.Tensor
+        ):
+            return smooth_redescending_weights_norm(
+                images, reference, std, delta=DEFAULT_SMOOTH_DELTA_PER_IMAGE
+            )
+
+        irls_solver = IRLSMEstimator(
+            weight_function=smooth_redescending_weight_function,
+            max_iter=IRLS_MAX_ITER,
+            tol=ESTIMATOR_TOL,
+            damping_coef=IRLS_DAMPING_COEF,
+        )
+
+        return JointIRLSFourier(irls_solver=irls_solver, weight_approach="per-image")
+
+    raise ValueError(f"Unrecognized estimator type: {estimator_type}")
 
 
 def process_class(
@@ -331,6 +363,19 @@ def process_class(
             weights_fourier.mean(dim=(1, 2)).detach().cpu().numpy().reshape(-1)
         )
         robust_weights_np = 0.5 * (weights_real_np + weights_fourier_np)
+        gmm_weights_np = None
+
+    elif estimator_type == "fourier_masked":
+        lowpass_mask = create_lowpass_rfft_mask(
+            image_shape=masked_images.shape[1:],
+            cutoff=DEFAULT_LOWPASS_MASK_CUTOFF,
+            unit="normalized",
+        )
+        _, weights = estimator.fit(
+            images=masked_images, fourier_transform_images=True, mask=lowpass_mask
+        )
+
+        robust_weights_np = weights.detach().cpu().numpy().reshape(-1)
         gmm_weights_np = None
 
     else:

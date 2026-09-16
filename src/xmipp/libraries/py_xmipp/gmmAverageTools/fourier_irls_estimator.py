@@ -1,24 +1,35 @@
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Literal
 
 import torch
 
 from xmippPyModules.gmmAverageTools.irls_estimator import IRLSMEstimator
 
+WeightApproach = Literal["per-image", "per-coefficient"]
+
 
 class JointIRLSFourier:
     """
-    Fourier estimator using one IRLS solver on complex Fourier coefficients, meant to
-    operate on the modulus of the complex residual.
+    Fourier estimator using one IRLS solver on the Fourier representation of
+    the images. It can operate on the modulus of the complex residual coefficient
+    by coefficient (which gives one scalar weight for each Fourier coefficient),
+    or on the norm of the full complex residual (which gives one scalar weight
+    per image).
     """
 
-    def __init__(self, irls_solver: IRLSMEstimator, eps: float = 1.0e-8) -> None:
+    def __init__(
+        self,
+        irls_solver: IRLSMEstimator,
+        eps: float = 1.0e-8,
+        weight_approach: WeightApproach = "per-coefficient",
+    ) -> None:
         self.solver = irls_solver
         self.eps = eps
+        self.weight_approach = weight_approach
 
     @property
     def max_iter(self):
         return self.solver.max_iter
-        
+
     def _get_safe_variance(
         self,
         fourier_images: torch.Tensor,
@@ -40,6 +51,67 @@ class JointIRLSFourier:
 
         return image_variance, image_std
 
+    def _get_masked_data(
+        self,
+        *,
+        fourier_images: torch.Tensor,
+        image_variance: Optional[torch.Tensor],
+        image_std: Optional[torch.Tensor],
+        ctf: Optional[torch.Tensor],
+        reference: Optional[torch.Tensor],
+        prior_mean: Optional[torch.Tensor],
+        prior_variance: Optional[torch.Tensor],
+        mask: Optional[torch.Tensor],
+    ) -> tuple[
+        torch.Tensor,
+        Optional[torch.Tensor],
+        Optional[torch.Tensor],
+        Optional[torch.Tensor],
+        Optional[torch.Tensor],
+        Optional[torch.Tensor],
+        Optional[torch.Tensor],
+    ]:
+        if mask is None:
+            return (
+                fourier_images,
+                image_variance,
+                image_std,
+                ctf,
+                reference,
+                prior_mean,
+                prior_variance,
+            )
+
+        fourier_images = fourier_images[:, mask]
+
+        if reference is not None:
+            reference = reference[mask]
+
+        if prior_mean is not None:
+            prior_mean = prior_mean[mask]
+
+        if prior_variance is not None and prior_variance.numel() > 1:
+            prior_variance = prior_variance[mask]
+
+        if ctf is not None:
+            ctf = ctf[:, mask]
+
+        if image_variance is not None:
+            image_variance = image_variance[mask]
+
+        if image_std is not None:
+            image_std = image_std[mask]
+
+        return (
+            fourier_images,
+            image_variance,
+            image_std,
+            ctf,
+            reference,
+            prior_mean,
+            prior_variance,
+        )
+
     @torch.inference_mode()
     def fit(
         self,
@@ -53,6 +125,7 @@ class JointIRLSFourier:
         prior_variance: Optional[torch.Tensor] = None,
         max_iter_override: Optional[int] = None,
         fourier_transform_images: bool = True,
+        mask: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """
         Executes the full Iteratively Reweighted Least Squares (IRLS) optimization
@@ -119,6 +192,10 @@ class JointIRLSFourier:
         max_iter_override : int, optional
             Maximum number of IRLS iterations to be performed by the estimator.
             If provided, this will override the object's ``max_iter`` attribute.
+        mask : torch.Tensor, optional
+            Fourier-space mask to apply to the images before the estimation.
+            This is only available for residual norm approaches (not for
+            coefficient-wise weights).
 
         Returns
         -------
@@ -135,6 +212,10 @@ class JointIRLSFourier:
         The distance function used by ``self.solver`` (which is of type
         ``IRLSMEstimator``) needs to operate correctly with complex tensors.
         """
+        if self.weight_approach == "per-coefficient" and mask is not None:
+            raise ValueError(
+                "Cannot provide a mask with per-coefficient Fourier estimators"
+            )
 
         # Make sure all inputs are set to Fourier space
         fourier_images = images
@@ -145,17 +226,53 @@ class JointIRLSFourier:
             if reference is not None:
                 reference = torch.fft.rfft2(reference)
 
-        # Make sure image variance and std are initialized from the complex modulus
-        image_variance, image_std = self._get_safe_variance(fourier_images)
-
-        # Use the IRLS solver to perform the estimation
-        return self.solver.fit(
-            images=fourier_images,
+        (
+            fourier_images_masked,
+            image_variance_masked,
+            image_std_masked,
+            ctf_masked,
+            reference_masked,
+            prior_mean_masked,
+            prior_variance_masked,
+        ) = self._get_masked_data(
+            fourier_images=fourier_images,
             image_variance=image_variance,
             image_std=image_std,
             ctf=ctf,
             reference=reference,
             prior_mean=prior_mean,
             prior_variance=prior_variance,
+            mask=mask,
+        )
+
+        # Make sure image variance and std are initialized from the complex modulus
+        image_variance, image_std = self._get_safe_variance(fourier_images)
+
+        # Use the IRLS solver to perform the estimation
+        estimate, weights = self.solver.fit(
+            images=fourier_images_masked,
+            image_variance=image_variance_masked,
+            image_std=image_std_masked,
+            ctf=ctf_masked,
+            reference=reference_masked,
+            prior_mean=prior_mean_masked,
+            prior_variance=prior_variance_masked,
             max_iter_override=max_iter_override,
         )
+
+        if mask is not None:
+            n_images = fourier_images.shape[0]
+            image_ndims = fourier_images.ndim - 1
+            weights = weights.reshape((n_images,) + (1,) * image_ndims)
+            
+            estimate = IRLSMEstimator.calculate_update(
+                images=fourier_images,
+                weights=weights,
+                ctf=ctf,
+                prior_mean=prior_mean,
+                prior_variance=prior_variance,
+                image_variance=image_variance,
+                eps=self.eps,
+            )
+
+        return estimate, weights
