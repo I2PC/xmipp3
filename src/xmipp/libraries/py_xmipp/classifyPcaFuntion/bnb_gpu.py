@@ -812,7 +812,7 @@ class BnBgpu:
                 res_out[c] = 1.0 / freq_bins[idx[0]]
     
         # ---- reemplazo de NaN/Inf por fallback ----
-        nq_save = (2 * pixel_size) / 0.8
+        nq_save = (2 * self.sampling) / 0.8
         res_out = torch.nan_to_num(res_out, nan=nq_save,
                                    posinf=nq_save, neginf=nq_save)
         
