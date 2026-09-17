@@ -39,7 +39,14 @@ from xmippPyModules.gmmAverageTools.masks import (
 )
 from xmippPyModules.gmmAverageTools.utils import weighted_average
 
-ESTIMATOR_TYPES = ("gmm", "irls", "fourier_irls", "admm", "fourier_masked")
+ESTIMATOR_TYPES = (
+    "gmm",
+    "irls",
+    "fourier_irls",
+    "fourier_masked",
+    "admm",
+    "gmm_on_fourier_masked",
+)
 
 ESTIMATOR_WEIGHT_COLUMNS = {
     "gmm": ["wRobust", "wRobustStd", "wRobustGmm"],
@@ -47,27 +54,34 @@ ESTIMATOR_WEIGHT_COLUMNS = {
     "fourier_irls": ["wRobust", "wRobustStd"],
     "fourier_masked": ["wRobust", "wRobustStd"],
     "admm": ["wRobust", "wRobustStd"],
+    "gmm_on_fourier_masked": ["wRobust", "wRobustStd", "wRobustGmm"],
 }
 
 # Estimator parameters
 # NOTE: maybe to be changed for configurable arguments in the future
+ESTIMATOR_RANDOM_STATE = 42
+ESTIMATOR_TOL = 1.0e-4
+
 EXTERNAL_GMM_MAX_ITER = 15
 INTERNAL_GMM_MAX_ITER = 20
 GMM_STANDARDIZE_DISTANCES = True
 GMM_MIN_COMPONENT_SEPARATION = 0.1
 GMM_MIN_GOOD_COMPONENT_WEIGHT = 0.30
-ESTIMATOR_RANDOM_STATE = 42
-ESTIMATOR_TOL = 1.0e-4
+
 IRLS_MAX_ITER = 50
 IRLS_DAMPING_COEF = 0.0
+
 DEFAULT_SMOOTH_DELTA_PER_COEFFICIENT = 1.5  # delta parameter for the redescending weights function when calculating one weight per coefficient
 DEFAULT_SMOOTH_DELTA_PER_IMAGE = 0.1  # delta parameter for the redescending weights function when calculating one weight per image
 DEFAULT_LOWPASS_MASK_CUTOFF = (
     0.25  # in normalized units (i.e. 0.25 means a quarter of the way to Nyquist)
 )
+
 ADMM_MAX_ITER = 20
 ADMM_INITIAL_MU = 1.0
 ADMM_FOURIER_MULTIPLIER = 1.0
+
+AUXILIAR_ESTIMATOR_MAX_ITER = 1
 
 
 def build_argument_parser() -> argparse.ArgumentParser:
@@ -250,6 +264,24 @@ def initialize_estimator(
             irls_solver=irls_solver, weight_approach="per-coefficient"
         )
 
+    if estimator_type == "fourier_masked":
+
+        def smooth_redescending_weight_function(
+            images: torch.Tensor, reference: torch.Tensor, std: torch.Tensor
+        ):
+            return smooth_redescending_weights_norm(
+                images, reference, std, delta=DEFAULT_SMOOTH_DELTA_PER_IMAGE
+            )
+
+        irls_solver = IRLSMEstimator(
+            weight_function=smooth_redescending_weight_function,
+            max_iter=IRLS_MAX_ITER,
+            tol=ESTIMATOR_TOL,
+            damping_coef=IRLS_DAMPING_COEF,
+        )
+
+        return JointIRLSFourier(irls_solver=irls_solver, weight_approach="per-image")
+
     # ADMM estimator: initialize fourier and real space estimators, then couple them
     if estimator_type == "admm":
         real_irls = initialize_estimator(
@@ -272,7 +304,7 @@ def initialize_estimator(
             fourier_multiplier=ADMM_FOURIER_MULTIPLIER,
         )
 
-    if estimator_type == "fourier_masked":
+    if estimator_type == "gmm_on_fourier_masked":
 
         def smooth_redescending_weight_function(
             images: torch.Tensor, reference: torch.Tensor, std: torch.Tensor
@@ -283,12 +315,38 @@ def initialize_estimator(
 
         irls_solver = IRLSMEstimator(
             weight_function=smooth_redescending_weight_function,
-            max_iter=IRLS_MAX_ITER,
+            max_iter=AUXILIAR_ESTIMATOR_MAX_ITER,
             tol=ESTIMATOR_TOL,
             damping_coef=IRLS_DAMPING_COEF,
         )
 
-        return JointIRLSFourier(irls_solver=irls_solver, weight_approach="per-image")
+        fourier_irls = JointIRLSFourier(
+            irls_solver=irls_solver, weight_approach="per-image"
+        )
+
+        def distance_function(
+            images: torch.Tensor,
+            reference: torch.Tensor,
+        ) -> torch.Tensor:
+            mask = create_lowpass_rfft_mask(
+                image_shape=images.shape[1:],
+                cutoff=DEFAULT_LOWPASS_MASK_CUTOFF,
+                unit="normalized",
+            )
+            _, weights = fourier_irls.fit(images, reference=reference, mask=mask)
+            return weights.negative_().view(-1)
+
+        return RecursiveGMMEstimator(
+            distance_function=distance_function,
+            max_iter=EXTERNAL_GMM_MAX_ITER,
+            tol=ESTIMATOR_TOL,
+            standardize_distances=GMM_STANDARDIZE_DISTANCES,
+            random_state=ESTIMATOR_RANDOM_STATE,
+            gmm_max_iter=INTERNAL_GMM_MAX_ITER,
+            check_degenerate_model=check_degenerate_gmm,
+            min_component_separation=GMM_MIN_COMPONENT_SEPARATION,
+            min_good_component_weight=GMM_MIN_GOOD_COMPONENT_WEIGHT,
+        )
 
     raise ValueError(f"Unrecognized estimator type: {estimator_type}")
 
@@ -354,7 +412,7 @@ def process_class(
     reference = masked_images.mean(dim=0)
 
     # Fit the estimator, storing main weights as ``weights``
-    if estimator_type == "gmm":
+    if estimator_type == "gmm" or estimator_type == "gmm_on_fourier_masked":
         _, weights, original_distances = estimator.fit(
             images=masked_images, reference=reference
         )
