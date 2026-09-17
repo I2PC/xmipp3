@@ -246,7 +246,9 @@ class JointIRLSFourier:
         )
 
         # Make sure image variance and std are initialized from the complex modulus
-        image_variance, image_std = self._get_safe_variance(fourier_images)
+        image_variance_masked, image_std_masked = self._get_safe_variance(
+            fourier_images_masked, image_variance_masked, image_std_masked
+        )
 
         # Use the IRLS solver to perform the estimation
         estimate, weights = self.solver.fit(
@@ -264,7 +266,7 @@ class JointIRLSFourier:
             n_images = fourier_images.shape[0]
             image_ndims = fourier_images.ndim - 1
             weights = weights.reshape((n_images,) + (1,) * image_ndims)
-            
+
             estimate = IRLSMEstimator.calculate_update(
                 images=fourier_images,
                 weights=weights,
