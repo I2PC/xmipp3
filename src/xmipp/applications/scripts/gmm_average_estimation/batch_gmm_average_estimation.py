@@ -42,11 +42,11 @@ from xmippPyModules.gmmAverageTools.utils import weighted_average
 ESTIMATOR_TYPES = ("gmm", "irls", "fourier_irls", "admm", "fourier_masked")
 
 ESTIMATOR_WEIGHT_COLUMNS = {
-    "gmm": ["wRobust", "wRobustGmm"],
-    "irls": ["wRobust"],
-    "fourier_irls": ["wRobust"],
-    "fourier_masked": ["wRobust"],
-    "admm": ["wRobust"],
+    "gmm": ["wRobust", "wRobustStd", "wRobustGmm"],
+    "irls": ["wRobust", "wRobustStd"],
+    "fourier_irls": ["wRobust", "wRobustStd"],
+    "fourier_masked": ["wRobust", "wRobustStd"],
+    "admm": ["wRobust", "wRobustStd"],
 }
 
 # Estimator parameters
@@ -414,6 +414,16 @@ def process_class(
 
         write_metadata.loc[class_mask, "wRobust"] = target_item_ids.map(
             robust_weights_by_id
+        ).to_numpy()
+
+        # Also write per-class standardized weights
+        robust_weights_std = (
+            robust_weights_np - robust_weights_np.mean()
+        ) / robust_weights_np.std()
+        weights_std_by_id = pd.Series(robust_weights_std, index=item_ids)
+
+        write_metadata.loc[class_mask, "wRobustStd"] = target_item_ids.map(
+            weights_std_by_id
         ).to_numpy()
 
         if gmm_weights_np is not None:
