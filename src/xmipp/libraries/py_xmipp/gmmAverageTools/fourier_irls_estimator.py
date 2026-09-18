@@ -21,10 +21,12 @@ class JointIRLSFourier:
         irls_solver: IRLSMEstimator,
         eps: float = 1.0e-8,
         weight_approach: WeightApproach = "per-coefficient",
+        mask: Optional[torch.Tensor] = None,
     ) -> None:
         self.solver = irls_solver
         self.eps = eps
         self.weight_approach = weight_approach
+        self.mask = mask
 
     @property
     def max_iter(self):
@@ -212,6 +214,8 @@ class JointIRLSFourier:
         The distance function used by ``self.solver`` (which is of type
         ``IRLSMEstimator``) needs to operate correctly with complex tensors.
         """
+        mask = self.mask if mask is None else mask
+
         if self.weight_approach == "per-coefficient" and mask is not None:
             raise ValueError(
                 "Cannot provide a mask with per-coefficient Fourier estimators"
