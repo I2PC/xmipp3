@@ -753,13 +753,17 @@ def main():
     starfile.write(data=data, filename=args.out_star)
 
     if args.out_reference_md:
+        group_counts = data[args.out_group_column].value_counts()
         reference_md = pd.DataFrame(
             {
-                "cone_group": np.arange(1, len(rot_ref) + 1), # match 1-based class ids
+                "cone_group": np.arange(1, len(rot_ref) + 1),  # match 1-based class ids
                 "angleRot": rot_ref,
                 "angleTilt": tilt_ref,
                 "anglePsi": psi_ref,
             }
+        )
+        reference_md["n_particles"] = (
+            reference_md["cone_group"].map(group_counts).fillna(0).astype(int)
         )
 
         starfile.write(data=reference_md, filename=args.out_reference_md)
