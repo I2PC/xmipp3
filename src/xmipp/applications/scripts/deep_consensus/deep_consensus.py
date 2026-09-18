@@ -175,7 +175,7 @@ class ScriptDeepScreeningTrain(XmippScript):
             learningRate: float
         '''
  
-        if gpuToUse >= 0:
+        if gpuToUse:
           numberOfThreads = None
 
         else:
