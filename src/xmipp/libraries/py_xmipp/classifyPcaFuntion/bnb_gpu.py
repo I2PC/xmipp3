@@ -427,7 +427,7 @@ class BnBgpu:
             # ---------------------------------------------------------
 
             if num_particles == 0:
-                clk_list.append(torch.zeros((H, W), dtype=mmap.data.dtype, device=self.cuda))
+                clk_list.append(torch.zeros((H, W), dtype=torch.float32, device=self.cuda))
                 continue
     
             # ---------------------------------------------------------
