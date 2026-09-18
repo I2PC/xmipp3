@@ -489,7 +489,7 @@ def initialize_estimator(
         return estimator
 
     def distance_function(images, reference):
-        _, weights = estimator.fit(images, reference=reference)
+        _, weights = estimator.fit(images, reference)
         return weights.negative_().reshape(-1)
 
     return RecursiveGMMEstimator(
@@ -524,7 +524,9 @@ def fit_estimator(
             images=masked_images, reference=reference
         )
 
-        unmasked_new_average = weighted_average(unmasked_images, weights)
+        unmasked_new_average = (
+            weighted_average(unmasked_images, weights).detach().cpu().numpy()
+        )
 
         robust_weights = -original_distances
         gmm_weights = weights
