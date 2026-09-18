@@ -275,7 +275,7 @@ class BnBgpu:
     @torch.no_grad()
     def create_classes(self, mmap, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes, final_classes, freqBn, coef, cvecs, mask, expStar):
         
-        ctf = ctfClass(expStar)
+        ctf = ctfClass(expStar, device=self.cuda)
         
         # print("----------create-classes-------------") 
         iterSplit = 7       
@@ -294,11 +294,7 @@ class BnBgpu:
         total_slots = classes + split
         newCL = [[] for i in range(total_slots)]
         newProj = [[] for i in range(total_slots)]
-        
-        #INICIALIZACIÓN DE ACUMULADORES CTF (Espacio de Fourier)
-        _, H, W = mmap.data.shape
-        numerator_acc = torch.zeros((total_slots, H, W), dtype=torch.complex64, device=self.cuda)
-        denominator_acc = torch.zeros((total_slots, H, W), dtype=torch.float32, device=self.cuda)
+        newIdx = [[] for _ in range(total_slots)] 
 
         step = int(np.ceil(nExp/expBatchSize))
         batch_projExp_cpu = [0 for i in range(step)]
@@ -308,8 +304,9 @@ class BnBgpu:
         translations = list(map(lambda i: vectorshift[i], matches[:, 4].int()))
         translations = torch.tensor(translations, device = self.cuda).view(nExp,2)
         
-        centerIm = mmap.data.shape[1]/2 
-        centerxy = torch.tensor([centerIm,centerIm], device = self.cuda)
+        _, H, W = mmap.data.shape
+        centerIm = H / 2.0
+        centerxy = torch.tensor([centerIm, centerIm],dtype=torch.float32,device=self.cuda)
         
         count = 0
         for initBatch in range(0, nExp, expBatchSize):
@@ -347,35 +344,17 @@ class BnBgpu:
                 valid_mask = torch.ones_like(batch_scores, dtype=torch.bool)
     
             if valid_mask.sum() == 0:
-                del transforIm
+                del transforIm, projs_gpu, batch_class_indices, batch_scores, valid_mask
                 continue
     
             transforIm = transforIm[valid_mask]
             batch_class_indices = batch_class_indices[valid_mask]
             projs_gpu = projs_gpu[valid_mask]
             
-            # 2. CÁLCULO DE CTF Y ACUMULACIÓN POR BATCH
-            # -------------------------------------------------------------------
-            # Índices globales absolutos de las partículas válidas de este batch
-            batch_particle_indices = torch.arange(initBatch, endBatch, device=self.cuda)[valid_mask]
-
-            # FFT 2D de las partículas transformadas válidas del batch
-            Fpart = torch.fft.fft2(transforIm)
-
-            # Generación del lote de CTFs especificando sus índices de partícula
-            # (Requiere adaptar compute_ctfs_batch para tomar particle_indices)
-            ctf_batch = ctf.compute_ctfs_batch(
-                dim=H,
-                pixel_size=self.sampling,
-                angle=0.0,
-                particle_indices=batch_particle_indices,
-                device=self.cuda
-            )
-
-            # Suma atómica acumulativa agrupada por clase
-            numerator_acc.index_add_(0, batch_class_indices, ctf_batch * Fpart)
-            denominator_acc.index_add_(0, batch_class_indices, ctf_batch.square())
-            # -------------------------------------------------------------------
+            # This is what connects every particle with its CTF.
+            # =========================================================
+            batch_particle_indices = torch.arange(initBatch, endBatch, device=self.cuda, dtype=torch.long)
+            batch_particle_indices = (batch_particle_indices[valid_mask])
                 
             labels = batch_class_indices
             order = torch.argsort(labels)
@@ -383,6 +362,8 @@ class BnBgpu:
             imgs_sorted = transforIm[order]
             projs_sorted = projs_gpu[order] 
             lbls_sorted = batch_class_indices[order]
+            # This is what connects every particle with its CTF.
+            idx_sorted = (batch_particle_indices[order])
             
             counts = torch.bincount(lbls_sorted, minlength=classes)
             
@@ -391,14 +372,17 @@ class BnBgpu:
                 if c > 0:
                     newCL[n].append(imgs_sorted[start:start+c])
                     newProj[n].append(projs_sorted[start:start+c])
+                    newIdx[n].append(idx_sorted[start:start+c])
                 start += c
             
-            del(transforIm)
+            del(transforIm, projs_gpu, batch_class_indices, idx_sorted, imgs_sorted, projs_sorted, labels, order)
 
         # Concatenación Global
         _, H, W = mmap.data.shape
         newCL = [torch.cat(l, dim=0) if len(l) > 0 else torch.empty((0,H,W), device=self.cuda) for l in newCL]
         newProj = [torch.cat(l, dim=0) if len(l) > 0 else None for l in newProj]
+         # This is what connects every particle with its CTF.
+        newIdx = [torch.cat(l, dim=0) if len(l) > 0 else torch.empty((0,), dtype=torch.long, device=self.cuda) for l in newIdx]
 
         #  Structural Split  
         if 2 <= iter < iterSplit and split > 0:
@@ -411,14 +395,74 @@ class BnBgpu:
                     part_A = newCL[n][labels == 0]
                     part_B = newCL[n][labels == 1]
                     
+                    idx_A = (newIdx[n][labels == 0])
+                    idx_B = (newIdx[n][labels == 1])
+                    
                     if n < split:
                         newCL[n] = part_A
                         newCL[n + classes] = part_B
+                        
+                        newIdx[n] = idx_A
+                        newIdx[n + classes] = idx_B
+                        
                     else:
                         newCL[n] = torch.cat([part_A, part_B], dim=0)
+                        newIdx[n] = torch.cat([idx_A, idx_B], dim=0)
+                        
+        # =============================================================
+        # CTF-CORRECTED CLASS AVERAGES
+        # =============================================================
+        clk_list = []
+        ctfBatchSize = 500
         
-        
-        clk = self.averages_createClasses(mmap, iter, newCL)       
+        for n in range(total_slots):
+
+            particles = newCL[n]
+            indices = newIdx[n]
+    
+            num_particles = particles.shape[0]
+    
+            # ---------------------------------------------------------
+            # Empty class
+            # ---------------------------------------------------------
+
+            if num_particles == 0:
+                clk_list.append(torch.zeros((H, W), dtype=mmap.data.dtype, device=self.cuda))
+                continue
+    
+            # ---------------------------------------------------------
+            # Fourier accumulators
+            # ---------------------------------------------------------
+            num_sum = torch.zeros((H, W), dtype=torch.complex64, device=self.cuda)
+            den_sum = torch.zeros((H, W), dtype=torch.float32, device=self.cuda)
+            
+            for sb in range(0, num_particles, ctfBatchSize):
+
+                end_sb = min(sb + ctfBatchSize, num_particles)
+                part_sub = (particles[sb:end_sb])
+                idx_sub = (indices[sb:end_sb])
+                
+                Fpart_sub = torch.fft.fft2(part_sub)
+                ctf_sub = (ctf.compute_ctfs_batch(
+                                dim=H,
+                                pixel_size=self.sampling,
+                                angle=0.0,
+                                particle_indices=idx_sub,
+                                device=self.cuda
+                            )
+                    )
+                
+                num_sum.add_( (Fpart_sub * ctf_sub).sum(dim=0) )
+                den_sum.add_(ctf_sub.square().sum(dim=0))
+                
+            regularizer = (1e-2 * den_sum.max())
+            avg_fft = ( num_sum / (den_sum + regularizer) )
+            avg_img = torch.real(torch.fft.ifft2(avg_fft))
+            clk_list.append(avg_img)
+            del num_sum, den_sum, avg_fft
+            
+        clk = torch.stack(clk_list, dim=0)
+        # clk = self.averages_createClasses(mmap, iter, newCL)       
 
         if iter > 1:
             # cut = (25 if iter < 5 else 20) if sampling < 3 else (35 if iter < 5 else 30)
@@ -644,117 +688,6 @@ class BnBgpu:
         centered = kornia.geometry.transform.translate(batch_input, shift, mode='bilinear', padding_mode='zeros', align_corners=True)
     
         return centered.squeeze(1)
-         
-    
-    
-    @torch.no_grad()
-    def gaussian_lowpass_filter_2D_adaptive(self, imgs, res_angstrom,
-                                            floor_res=100.0, clamp_exp=80.0,
-                                            hard_cut=False, nyquist_margin=0.95, normalize = True):
-        B, H, W = imgs.shape
-        device, eps = imgs.device, 1e-8
-    
-        # === Limitar resolución efectiva según Nyquist
-        nyquist_res = 2.0 * self.sampling           
-        safe_res = nyquist_res / nyquist_margin  
-    
-        res_eff = torch.nan_to_num(res_angstrom, nan=floor_res,
-                                   posinf=floor_res, neginf=floor_res)
-        res_eff = torch.minimum(res_eff, torch.full_like(res_eff, floor_res))
-        res_eff = torch.clamp(res_eff, min=safe_res)  # Prevenimos aliasing
-    
-        # === Coordenadas de frecuencia
-        fy, fx = (torch.fft.fftfreq(H, d=self.sampling, device=device),
-                  torch.fft.fftfreq(W, d=self.sampling, device=device))
-        gy, gx = torch.meshgrid(fy, fx, indexing='ij')
-        freq2  = (gx**2 + gy**2).unsqueeze(0)  # [1, H, W]
-        
-        del fy, fx, gy, gx
-    
-        # === Filtro Gaussiano adaptativo
-        ln2    = torch.log(torch.tensor(2.0, device=device))
-        D0     = (1.0 / res_eff).view(B,1,1)                            
-        sigma2 = (D0 / torch.sqrt(2*ln2))**2 
-        
-        # scale_factor = torch.tensor(H/128, device=device)  # referencia 128px
-        # sigma2 = ((D0 / torch.sqrt(2*ln2)) * scale_factor)**2            
-    
-        exponent = (-freq2) / (2*sigma2 + eps)
-        
-        filt = torch.exp(exponent.clamp(max=clamp_exp))
-    
-        if hard_cut:
-            filt = torch.where(freq2 > D0**2, 0.0, filt)
-        
-        del sigma2, exponent, freq2, D0
-    
-        # === Aplicar filtro y transformar inversa
-        img_filt = torch.fft.ifft2(torch.fft.fft2(imgs, norm="forward") * filt, norm="forward").real
-        img_filt = torch.nan_to_num(img_filt)
-        del filt
-    
-        # === Restaurar contraste original
-        if normalize:
-            mean0 = imgs.mean(dim=(1,2), keepdim=True)
-            std0  = imgs.std (dim=(1,2), keepdim=True)
-            
-            mean_f = img_filt.mean(dim=(1,2), keepdim=True)
-            std_f  = img_filt.std (dim=(1,2), keepdim=True)
-            valid  = std_f > 1e-6
-            img_filt = torch.where(valid,
-                                   (img_filt - mean_f)/(std_f+eps)*std0 + mean0,
-                                   imgs)
-            del mean0, std0, mean_f, std_f, valid
-    
-        return img_filt
-
-    
-
-    def update_classes_rmsprop(self, cl, clk, learning_rate, decay_rate, epsilon, grad_squared):
-        
-        grad = clk - cl
-        
-        grad_squared = decay_rate * grad_squared + (1 - decay_rate) * grad**2        
-        update = learning_rate * grad / (torch.sqrt(grad_squared) + epsilon)
-        cl = torch.add(cl, update)
-
-        return cl, grad_squared
-    
-    
-    def contrast_dominant_mask(self, imgs,
-                            window=3,
-                            contrast_percentile=80,
-                            intensity_percentile=50,
-                            contrast_weight=1.5,
-                            intensity_weight=1.0,
-                            smooth_sigma=1.0):
-        N, H, W = imgs.shape
-        imgs = imgs.float().unsqueeze(1)  # [N, 1, H, W]
-        
-        mean_local = F.avg_pool2d(imgs, window, stride=1, padding=window // 2)
-        mean_sq_local = F.avg_pool2d(imgs**2, window, stride=1, padding=window // 2)
-        std_local = torch.sqrt((mean_sq_local - mean_local**2).clamp(min=0))  # [N, 1, H, W]
-    
-        contrast_thresh = torch.quantile(std_local.view(N, -1), contrast_percentile / 100.0, dim=1).view(N, 1, 1, 1)
-        intensity_thresh = torch.quantile(imgs.view(N, -1), intensity_percentile / 100.0, dim=1).view(N, 1, 1, 1)
-    
-        mask = ((std_local > contrast_thresh) & (imgs > intensity_thresh)).float()  # [N, 1, H, W]
-    
-        # === Suavizado con gaussiana ===
-        if smooth_sigma > 0:
-            kernel_size = int(2 * round(2 * smooth_sigma) + 1)
-            padding = kernel_size // 2
-    
-            x = torch.arange(-padding, padding + 1, device=imgs.device).float()
-            gauss = torch.exp(-0.5 * (x / smooth_sigma)**2)
-            gauss = gauss / gauss.sum()
-    
-            gauss_2d = gauss[:, None] * gauss[None, :]
-            gauss_2d = gauss_2d.unsqueeze(0).unsqueeze(0)  # [1, 1, K, K]
-    
-            mask = F.conv2d(mask, gauss_2d, padding=padding, groups=1)
-    
-        return mask.squeeze(1)  # [N, H, W]
     
     
     @torch.no_grad()
@@ -852,7 +785,70 @@ class BnBgpu:
         del r_bin, freq_bins
         
         return res_out#, frc_curves, freq_bins
-
+         
+    
+    
+    @torch.no_grad()
+    def gaussian_lowpass_filter_2D_adaptive(self, imgs, res_angstrom,
+                                            floor_res=100.0, clamp_exp=80.0,
+                                            hard_cut=False, nyquist_margin=0.95, normalize = True):
+        B, H, W = imgs.shape
+        device, eps = imgs.device, 1e-8
+    
+        # === Limitar resolución efectiva según Nyquist
+        nyquist_res = 2.0 * self.sampling           
+        safe_res = nyquist_res / nyquist_margin  
+    
+        res_eff = torch.nan_to_num(res_angstrom, nan=floor_res,
+                                   posinf=floor_res, neginf=floor_res)
+        res_eff = torch.minimum(res_eff, torch.full_like(res_eff, floor_res))
+        res_eff = torch.clamp(res_eff, min=safe_res)  # Prevenimos aliasing
+    
+        # === Coordenadas de frecuencia
+        fy, fx = (torch.fft.fftfreq(H, d=self.sampling, device=device),
+                  torch.fft.fftfreq(W, d=self.sampling, device=device))
+        gy, gx = torch.meshgrid(fy, fx, indexing='ij')
+        freq2  = (gx**2 + gy**2).unsqueeze(0)  # [1, H, W]
+        
+        del fy, fx, gy, gx
+    
+        # === Filtro Gaussiano adaptativo
+        ln2    = torch.log(torch.tensor(2.0, device=device))
+        D0     = (1.0 / res_eff).view(B,1,1)                            
+        sigma2 = (D0 / torch.sqrt(2*ln2))**2 
+        
+        # scale_factor = torch.tensor(H/128, device=device)  # referencia 128px
+        # sigma2 = ((D0 / torch.sqrt(2*ln2)) * scale_factor)**2            
+    
+        exponent = (-freq2) / (2*sigma2 + eps)
+        
+        filt = torch.exp(exponent.clamp(max=clamp_exp))
+    
+        if hard_cut:
+            filt = torch.where(freq2 > D0**2, 0.0, filt)
+        
+        del sigma2, exponent, freq2, D0
+    
+        # === Aplicar filtro y transformar inversa
+        img_filt = torch.fft.ifft2(torch.fft.fft2(imgs, norm="forward") * filt, norm="forward").real
+        img_filt = torch.nan_to_num(img_filt)
+        del filt
+    
+        # === Restaurar contraste original
+        if normalize:
+            mean0 = imgs.mean(dim=(1,2), keepdim=True)
+            std0  = imgs.std (dim=(1,2), keepdim=True)
+            
+            mean_f = img_filt.mean(dim=(1,2), keepdim=True)
+            std_f  = img_filt.std (dim=(1,2), keepdim=True)
+            valid  = std_f > 1e-6
+            img_filt = torch.where(valid,
+                                   (img_filt - mean_f)/(std_f+eps)*std0 + mean0,
+                                   imgs)
+            del mean0, std0, mean_f, std_f, valid
+    
+        return img_filt
+    
     
     @torch.no_grad()
     def highpass_cosine_sharpen(
@@ -968,6 +964,57 @@ class BnBgpu:
             del mean_orig, std_orig, mean_filt, std_filt
     
         return filtered#, boost_max, sharpen_power
+
+    
+
+    def update_classes_rmsprop(self, cl, clk, learning_rate, decay_rate, epsilon, grad_squared):
+        
+        grad = clk - cl
+        
+        grad_squared = decay_rate * grad_squared + (1 - decay_rate) * grad**2        
+        update = learning_rate * grad / (torch.sqrt(grad_squared) + epsilon)
+        cl = torch.add(cl, update)
+
+        return cl, grad_squared
+    
+    
+    def contrast_dominant_mask(self, imgs,
+                            window=3,
+                            contrast_percentile=80,
+                            intensity_percentile=50,
+                            contrast_weight=1.5,
+                            intensity_weight=1.0,
+                            smooth_sigma=1.0):
+        N, H, W = imgs.shape
+        imgs = imgs.float().unsqueeze(1)  # [N, 1, H, W]
+        
+        mean_local = F.avg_pool2d(imgs, window, stride=1, padding=window // 2)
+        mean_sq_local = F.avg_pool2d(imgs**2, window, stride=1, padding=window // 2)
+        std_local = torch.sqrt((mean_sq_local - mean_local**2).clamp(min=0))  # [N, 1, H, W]
+    
+        contrast_thresh = torch.quantile(std_local.view(N, -1), contrast_percentile / 100.0, dim=1).view(N, 1, 1, 1)
+        intensity_thresh = torch.quantile(imgs.view(N, -1), intensity_percentile / 100.0, dim=1).view(N, 1, 1, 1)
+    
+        mask = ((std_local > contrast_thresh) & (imgs > intensity_thresh)).float()  # [N, 1, H, W]
+    
+        # === Suavizado con gaussiana ===
+        if smooth_sigma > 0:
+            kernel_size = int(2 * round(2 * smooth_sigma) + 1)
+            padding = kernel_size // 2
+    
+            x = torch.arange(-padding, padding + 1, device=imgs.device).float()
+            gauss = torch.exp(-0.5 * (x / smooth_sigma)**2)
+            gauss = gauss / gauss.sum()
+    
+            gauss_2d = gauss[:, None] * gauss[None, :]
+            gauss_2d = gauss_2d.unsqueeze(0).unsqueeze(0)  # [1, 1, K, K]
+    
+            mask = F.conv2d(mask, gauss_2d, padding=padding, groups=1)
+    
+        return mask.squeeze(1)  # [N, H, W]
+
+    
+
   
 
     @torch.no_grad()
