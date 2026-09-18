@@ -169,7 +169,7 @@ if __name__=="__main__":
     mmap, nExp, dim = create_mmap_from_star(expStar, tempfile)
     os.remove(tempfile)
     
-    # mmap = mrcfile.mmap(expFile, permissive=True)
+    mmap = mrcfile.mmap(expFile, permissive=True)
     # nExp = mmap.data.shape[0]
     # dim = mmap.data.shape[1]
     
