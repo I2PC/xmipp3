@@ -136,7 +136,9 @@ def sample_projection_directions(n: int) -> np.ndarray:
     return out
 
 
-def generate_reference_orientations(n: int) -> tuple[np.ndarray, np.ndarray]:
+def generate_reference_orientations(
+    n: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Generate approximately uniform reference orientations over a hemisphere.
 
@@ -173,7 +175,7 @@ def generate_reference_orientations(n: int) -> tuple[np.ndarray, np.ndarray]:
     matrices = euler_zyz_to_matrix(rot, tilt, psi)
     directions = matrices[..., 2, :]
 
-    return matrices, directions
+    return rot, tilt, psi, matrices, directions
 
 
 def _nearest_orthogonal(matrix: np.ndarray) -> np.ndarray:
@@ -638,6 +640,20 @@ def build_argument_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--out-group-column",
+        type=str,
+        default="cone_group",
+        help=(
+            "Name for the column in the output metadata file that "
+            "contains the index for each particle's group"
+        ),
+    )
+    parser.add_argument(
+        "--out-reference-md",
+        type=Path,
+        help=("Path to the output .star file with info about the generated references"),
+    )
+    parser.add_argument(
         "--n-groups",
         type=int,
         default=100,
@@ -648,15 +664,6 @@ def build_argument_parser() -> argparse.ArgumentParser:
         type=int,
         default=1024,
         help="Batch size used to process the viewing directions when grouping",
-    )
-    parser.add_argument(
-        "--out-group-column",
-        type=str,
-        default="cone_group",
-        help=(
-            "Name for the column in the output metadata file that "
-            "contains the index for each particle's group"
-        ),
     )
     parser.add_argument(
         "--symmetry-group",
@@ -685,12 +692,10 @@ def build_argument_parser() -> argparse.ArgumentParser:
 def main():
     args = build_argument_parser().parse_args()
 
-    # Generate symmetries for the object
     symmetries = generate_symmetries(sym=args.symmetry_group)
 
-    # Build the references
-    reference_matrices, reference_directions = generate_reference_orientations(
-        n=args.n_groups
+    rot_ref, tilt_ref, psi_ref, reference_matrices, reference_directions = (
+        generate_reference_orientations(n=args.n_groups)
     )
 
     if args.deduplicate_references:
@@ -707,11 +712,12 @@ def main():
 
         reference_matrices = reference_matrices[keep_mask]
         reference_directions = reference_directions[keep_mask]
+        rot_ref = rot_ref[keep_mask]
+        tilt_ref = tilt_ref[keep_mask]
+        # psi_ref is a scalar (0.0) shared for all references, so masking is not required
 
-    # Read particle alignment angles
+    # Read particle alignment angles - Xmipp stores Euler angles in degrees
     data = pd.DataFrame(starfile.read(args.input_xmd))
-
-    # Xmipp stores Euler angles in degrees
     rot = np.deg2rad(data.angleRot.to_numpy())
     tilt = np.deg2rad(data.angleTilt.to_numpy())
     psi = np.deg2rad(data.anglePsi.to_numpy())
@@ -720,7 +726,6 @@ def main():
     particle_directions = particle_matrices[..., 2, :]
     del rot, tilt, psi
 
-    # Grouping
     group_indices, symmetry_indices = group_projection_directions(
         directions=particle_directions,
         references=reference_directions,
@@ -730,7 +735,6 @@ def main():
     )
     del particle_directions, reference_directions
 
-    # Alignment
     alignment_psi, flip = align_to_references(
         particle_matrices=particle_matrices,
         reference_matrices=reference_matrices,
@@ -741,13 +745,24 @@ def main():
     del symmetries
     del particle_matrices, reference_matrices
 
-    data[args.out_group_column] = (
-        group_indices.astype(np.int64) + 1
-    )  # 1-based indices are preferred for class ids
+    # 1-based indices are preferred for class ids
+    data[args.out_group_column] = group_indices.astype(np.int64) + 1
     data[MDL_ANGLE_PSI] = np.rad2deg(alignment_psi)
     data[MDL_FLIP] = flip.astype(np.int8)
 
     starfile.write(data=data, filename=args.out_star)
+
+    if args.out_reference_md:
+        reference_md = pd.DataFrame(
+            {
+                "cone_group": np.arange(1, len(rot_ref) + 1), # match 1-based class ids
+                "angleRot": rot_ref,
+                "angleTilt": tilt_ref,
+                "anglePsi": psi_ref,
+            }
+        )
+
+        starfile.write(data=reference_md, filename=args.out_reference_md)
 
 
 if __name__ == "__main__":
