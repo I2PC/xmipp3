@@ -12,6 +12,8 @@ import pandas as pd
 
 MDL_ANGLE_PSI = "anglePsi"
 MDL_FLIP = "flip"
+SHIFT_X_COL = "shiftX"
+SHIFT_Y_COL = "shiftY"
 
 
 # The functions ``euler_zyz_to_matrix``, ``sample_projection_directions``,
@@ -226,12 +228,13 @@ def compute_in_plane_alignment_matrix(
 
 
 def align_to_references(
-    particle_matrices: np.ndarray,
-    reference_matrices: np.ndarray,
+    particle_matrices_3d: np.ndarray,
+    particle_shifts_2d: np.ndarray,
+    reference_matrices_3d: np.ndarray,
     group_indices: np.ndarray,
     symmetries: np.ndarray,
     symmetry_indices: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Compute the in-plane alignment of particles to their assigned references.
 
@@ -256,9 +259,14 @@ def align_to_references(
 
     Parameters
     ----------
-    particle_matrices : np.ndarray
+    particle_matrices_3d : np.ndarray
         Particle orientation matrices with shape ``(n_particles, 3, 3)``.
-    reference_matrices : np.ndarray
+    particle_shifts_2d : np.ndarray
+        Shifts encoding the translation part of the alignment matrix, shape
+        ``(n_particles, 2)`` where ``particle_shifts_2d[:, 0]`` corresponds
+        to shifts in X and ``particle_shifts_2d[:, 1]`` corresponds to shifts
+        in Y.
+    reference_matrices_3d : np.ndarray
         Reference orientation matrices with shape ``(n_references, 3, 3)``.
     group_indices : np.ndarray
         Integer array of shape ``(n_particles,)`` containing the selected
@@ -278,16 +286,25 @@ def align_to_references(
     flip : np.ndarray
         Boolean array of shape ``(n_particles,)`` indicating whether the
         corresponding in-plane transformation includes a reflection.
+    aligned_shifts : np.ndarray
+        Translation component of the new 2D affine alignment, with shape
+        ``(n_particles, 2)``. If ``Q`` is the new in-plane alignment and
+        ``s`` is the original centering shift, the returned shift is
+        ``Q @ s``, so that the final transform is ``Q @ (x + s)``.
     """
     if len(symmetries) > 1:
-        particle_matrices = particle_matrices @ symmetries[symmetry_indices]
+        particle_matrices_3d = particle_matrices_3d @ symmetries[symmetry_indices]
 
     alignment_2d = compute_in_plane_alignment_matrix(
-        reference_matrix_3d=reference_matrices[group_indices],
-        rotation_matrices_3d=particle_matrices,
+        reference_matrix_3d=reference_matrices_3d[group_indices],
+        rotation_matrices_3d=particle_matrices_3d,
     )
 
-    return matrix_to_xmipp_psi_radians_flip(alignment_2d)
+    aligned_shifts = (alignment_2d @ particle_shifts_2d[..., None])[..., 0]
+    aligned_shifts = np.einsum("nij,nj->ni", alignment_2d, particle_shifts_2d)
+    psi, flip = matrix_to_xmipp_psi_radians_flip(alignment_2d)
+
+    return psi, flip, aligned_shifts
 
 
 def matrix_to_xmipp_psi_radians_flip(
@@ -721,6 +738,7 @@ def main():
     rot = np.deg2rad(data.angleRot.to_numpy())
     tilt = np.deg2rad(data.angleTilt.to_numpy())
     psi = np.deg2rad(data.anglePsi.to_numpy())
+    shifts = data[[SHIFT_X_COL, SHIFT_Y_COL]].to_numpy(dtype=float)
 
     particle_matrices = euler_zyz_to_matrix(rot, tilt, psi)
     particle_directions = particle_matrices[..., 2, :]
@@ -735,9 +753,10 @@ def main():
     )
     del particle_directions, reference_directions
 
-    alignment_psi, flip = align_to_references(
-        particle_matrices=particle_matrices,
-        reference_matrices=reference_matrices,
+    alignment_psi, flip, aligned_shifts = align_to_references(
+        particle_matrices_3d=particle_matrices,
+        particle_shifts_2d=shifts,
+        reference_matrices_3d=reference_matrices,
         group_indices=group_indices,
         symmetries=symmetries,
         symmetry_indices=symmetry_indices,
@@ -749,6 +768,8 @@ def main():
     data[args.out_group_column] = group_indices.astype(np.int64) + 1
     data[MDL_ANGLE_PSI] = np.rad2deg(alignment_psi)
     data[MDL_FLIP] = flip.astype(np.int8)
+    data[SHIFT_X_COL] = aligned_shifts[:, 0]
+    data[SHIFT_Y_COL] = aligned_shifts[:, 1]
 
     starfile.write(data=data, filename=args.out_star)
 
@@ -757,9 +778,9 @@ def main():
         reference_md = pd.DataFrame(
             {
                 "cone_group": np.arange(1, len(rot_ref) + 1),  # match 1-based class ids
-                "angleRot": rot_ref,
-                "angleTilt": tilt_ref,
-                "anglePsi": psi_ref,
+                "angleRot": np.rad2deg(rot_ref),
+                "angleTilt": np.rad2deg(tilt_ref),
+                "anglePsi": np.rad2deg(psi_ref),
             }
         )
         reference_md["n_particles"] = (
