@@ -301,7 +301,6 @@ def align_to_references(
     )
 
     aligned_shifts = (alignment_2d @ particle_shifts_2d[..., None])[..., 0]
-    aligned_shifts = np.einsum("nij,nj->ni", alignment_2d, particle_shifts_2d)
     psi, flip = matrix_to_xmipp_psi_radians_flip(alignment_2d)
 
     return psi, flip, aligned_shifts
