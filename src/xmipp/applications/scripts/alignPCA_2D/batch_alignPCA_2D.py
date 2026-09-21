@@ -165,13 +165,13 @@ if __name__=="__main__":
     print("Free memory %s" %free_memory)
 
     #Read Images
-    tempfile = output+"_temp.mrcs"
-    mmap, nExp, dim = create_mmap_from_star(expStar, tempfile)
-    os.remove(tempfile)
+    # tempfile = output+"_temp.mrcs"
+    # mmap, nExp, dim = create_mmap_from_star(expStar, tempfile)
+    # os.remove(tempfile)
     
     mmap = mrcfile.mmap(expFile, permissive=True)
-    # nExp = mmap.data.shape[0]
-    # dim = mmap.data.shape[1]
+    nExp = mmap.data.shape[0]
+    dim = mmap.data.shape[1]
     
     if mask and (sigma is None):
         sigma = dim/3
@@ -209,7 +209,7 @@ if __name__=="__main__":
     else:
         initStep = int(min(numFirstBatch, np.ceil(nExp/expBatchSize)))
         
-        num_clusters_total = final_classes * 60 // 100  
+        num_clusters_total = final_classes #* 60 // 100  
         max_classes_per_round = 50
         
         clusters_per_round = []

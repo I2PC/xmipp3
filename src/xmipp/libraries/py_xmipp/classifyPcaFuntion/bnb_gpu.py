@@ -409,59 +409,59 @@ class BnBgpu:
                         newCL[n] = torch.cat([part_A, part_B], dim=0)
                         newIdx[n] = torch.cat([idx_A, idx_B], dim=0)
                         
-        # =============================================================
-        # CTF-CORRECTED CLASS AVERAGES
-        # =============================================================
-        clk_list = []
-        ctfBatchSize = 500
-        
-        for n in range(total_slots):
-
-            particles = newCL[n]
-            indices = newIdx[n]
-    
-            num_particles = particles.shape[0]
-    
-            # ---------------------------------------------------------
-            # Empty class
-            # ---------------------------------------------------------
-
-            if num_particles == 0:
-                clk_list.append(torch.zeros((H, W), dtype=torch.float32, device=self.cuda))
-                continue
-    
-            # ---------------------------------------------------------
-            # Fourier accumulators
-            # ---------------------------------------------------------
-            num_sum = torch.zeros((H, W), dtype=torch.complex64, device=self.cuda)
-            den_sum = torch.zeros((H, W), dtype=torch.float32, device=self.cuda)
-            
-            for sb in range(0, num_particles, ctfBatchSize):
-
-                end_sb = min(sb + ctfBatchSize, num_particles)
-                part_sub = (particles[sb:end_sb])
-                idx_sub = (indices[sb:end_sb])
-                
-                Fpart_sub = torch.fft.fft2(part_sub)
-                ctf_sub = (ctf.compute_ctfs_batch(
-                                dim=H,
-                                pixel_size=self.sampling,
-                                angle=0.0,
-                                particle_indices=idx_sub,
-                                device=self.cuda
-                            )
-                    )
-                
-                num_sum.add_( (Fpart_sub * ctf_sub).sum(dim=0) )
-                den_sum.add_(ctf_sub.square().sum(dim=0))
-                
-            regularizer = (1e-2 * den_sum.max())
-            avg_fft = ( num_sum / (den_sum + regularizer) )
-            avg_img = torch.real(torch.fft.ifft2(avg_fft))
-            clk_list.append(avg_img)
-            del num_sum, den_sum, avg_fft
-            
-        clk = torch.stack(clk_list, dim=0)
+        # # =============================================================
+        # # CTF-CORRECTED CLASS AVERAGES
+        # # =============================================================
+        # clk_list = []
+        # ctfBatchSize = 500
+        #
+        # for n in range(total_slots):
+        #
+        #     particles = newCL[n]
+        #     indices = newIdx[n]
+        #
+        #     num_particles = particles.shape[0]
+        #
+        #     # ---------------------------------------------------------
+        #     # Empty class
+        #     # ---------------------------------------------------------
+        #
+        #     if num_particles == 0:
+        #         clk_list.append(torch.zeros((H, W), dtype=torch.float32, device=self.cuda))
+        #         continue
+        #
+        #     # ---------------------------------------------------------
+        #     # Fourier accumulators
+        #     # ---------------------------------------------------------
+        #     num_sum = torch.zeros((H, W), dtype=torch.complex64, device=self.cuda)
+        #     den_sum = torch.zeros((H, W), dtype=torch.float32, device=self.cuda)
+        #
+        #     for sb in range(0, num_particles, ctfBatchSize):
+        #
+        #         end_sb = min(sb + ctfBatchSize, num_particles)
+        #         part_sub = (particles[sb:end_sb])
+        #         idx_sub = (indices[sb:end_sb])
+        #
+        #         Fpart_sub = torch.fft.fft2(part_sub)
+        #         ctf_sub = (ctf.compute_ctfs_batch(
+        #                         dim=H,
+        #                         pixel_size=self.sampling,
+        #                         angle=0.0,
+        #                         particle_indices=idx_sub,
+        #                         device=self.cuda
+        #                     )
+        #             )
+        #
+        #         num_sum.add_( (Fpart_sub * ctf_sub).sum(dim=0) )
+        #         den_sum.add_(ctf_sub.square().sum(dim=0))
+        #
+        #     regularizer = (1e-2 * den_sum.max())
+        #     avg_fft = ( num_sum / (den_sum + regularizer) )
+        #     avg_img = torch.real(torch.fft.ifft2(avg_fft))
+        #     clk_list.append(avg_img)
+        #     del num_sum, den_sum, avg_fft
+        #
+        # clk = torch.stack(clk_list, dim=0)
         # clk = self.averages_createClasses(mmap, iter, newCL)       
 
         if iter > 1:
