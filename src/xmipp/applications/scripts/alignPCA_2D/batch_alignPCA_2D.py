@@ -257,8 +257,8 @@ if __name__=="__main__":
         cl = torch.cat(all_averages, dim=0)
         del all_averages
         
-        # file_cero = output+"_0.mrcs"
-        # save_images(cl.cpu().detach().numpy(), sampling, file_cero) 
+        file_cero = output+"_0.mrcs"
+        save_images(cl.cpu().detach().numpy(), sampling, file_cero) 
         
     
     if refImages:
