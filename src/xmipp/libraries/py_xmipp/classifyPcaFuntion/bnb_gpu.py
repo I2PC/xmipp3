@@ -479,7 +479,19 @@ class BnBgpu:
         
         clk = torch.stack(clk_list, dim=0)
         
-        # clk = self.averages_createClasses(mmap, iter, newCL)       
+        # clk = self.averages_createClasses(mmap, iter, newCL)
+        clk_ctf = self.averages_createClasses(mmap, iter, newCL)  
+        
+        dim = (-2, -1)  # Dimensiones espaciales (H, W)
+
+        mean_clk = clk.mean(dim=dim, keepdim=True)
+        std_clk = clk.std(dim=dim, keepdim=True)
+        
+        mean_ctf = clk_ctf.mean(dim=dim, keepdim=True)
+        std_ctf = clk_ctf.std(dim=dim, keepdim=True)
+        
+        clk = ((clk - mean_clk) / (std_clk + 1e-8)) * std_ctf + mean_ctf  
+        del clk_ctf, mean_clk, std_clk, mean_ctf, std_ctf
 
         # if iter > 1:
         #     # cut = (25 if iter < 5 else 20) if sampling < 3 else (35 if iter < 5 else 30)
