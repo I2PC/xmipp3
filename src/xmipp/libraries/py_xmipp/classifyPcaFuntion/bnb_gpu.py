@@ -458,7 +458,7 @@ class BnBgpu:
                 part_sub = (particles[sb:end_sb])
                 idx_sub = (indices[sb:end_sb])
         
-                Fpart_sub = torch.fft.fft2(part_sub)
+                Fpart_sub = torch.fft.fft2(part_sub, norm="forward")
                 ctf_sub = (ctf.compute_ctfs_batch(
                                 dim=H,
                                 pixel_size=self.sampling,
@@ -473,7 +473,7 @@ class BnBgpu:
         
             regularizer = (1e-2 * den_sum.max())
             avg_fft = ( num_sum / (den_sum + regularizer) )
-            avg_img = torch.real(torch.fft.ifft2(avg_fft))
+            avg_img = torch.real(torch.fft.ifft2(avg_fft, norm="forward"))
             clk_list.append(avg_img)
             del num_sum, den_sum, avg_fft
         

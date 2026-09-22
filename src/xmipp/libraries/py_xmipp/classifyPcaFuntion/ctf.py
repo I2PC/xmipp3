@@ -256,7 +256,7 @@ class ctfClass:
     ):
 
         Fpart = torch.fft.fft2(
-            particles
+            particles, norm="forward"
         )
 
         ctf_batch = self.compute_ctfs_batch(
@@ -285,7 +285,7 @@ class ctfClass:
         )
 
         avg = torch.real(
-            torch.fft.ifft2(avg_fft)
+            torch.fft.ifft2(avg_fft, norm="forward")
         )
 
         return avg
