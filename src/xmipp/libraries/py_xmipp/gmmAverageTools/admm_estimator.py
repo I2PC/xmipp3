@@ -71,8 +71,12 @@ class ADMMEstimator:
         real_irls_max_iter: Optional[int] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Solves the real-space subproblem with IRLS"""
+        # Pass signal shape from real reference to preserve odd dimensions
+        real_shape = state.reference_real.shape[-2:]
         prior_mean = torch.fft.irfft2(
-            state.reference_fourier + state.dual_vars / state.mu, norm="ortho"
+            state.reference_fourier + state.dual_vars / state.mu,
+            s=real_shape,
+            norm="ortho",
         )
         return self.irls_real.solve(
             images=data.real.images,
@@ -211,7 +215,10 @@ class ADMMEstimator:
         # for something better
 
         # Return mean of real and fourier references as final reference
-        fourier_ref_to_real = torch.fft.irfft2(state.reference_fourier, norm="ortho")
+        real_shape = state.reference_real.shape[-2:]
+        fourier_ref_to_real = torch.fft.irfft2(
+            state.reference_fourier, s=real_shape, norm="ortho"
+        )
         estimate = 0.5 * (state.reference_real + fourier_ref_to_real)
 
         # Aggregate real and fourier weights into per-image scores

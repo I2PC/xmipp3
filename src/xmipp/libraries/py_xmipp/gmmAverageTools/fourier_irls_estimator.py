@@ -273,6 +273,7 @@ class JointIRLSFourier:
         max_iter_override: Optional[int] = None,
         fourier_transform_images: bool = True,
         mask: Optional[torch.Tensor] = None,
+        real_shape: Optional[Tuple[int, int]] = None
     ) -> EstimatorResult:
         """
         Executes Fourier-domain IRLS optimization and returns a real-space EstimatorResult.
@@ -307,6 +308,10 @@ class JointIRLSFourier:
             - ``estimate``: Real-space reconstructed estimate of shape ``image_shape``.
             - ``weights``: Aggregated weight tensor with shape ``(n_images, 1, ..., 1)``.
         """
+        # Save real spatial shape if available to prevent odd dimension truncation in irfft2
+        if real_shape is None and fourier_transform_images:
+            real_shape = (images.shape[-2], images.shape[-1])
+
         fourier_estimate, weights = self.solve(
             images=images,
             image_variance=image_variance,
@@ -330,6 +335,6 @@ class JointIRLSFourier:
         agg_weights = agg_weights.view(target_weight_shape)
 
         return EstimatorResult(
-            estimate=torch.fft.irfft2(fourier_estimate),
+            estimate=torch.fft.irfft2(fourier_estimate, s=real_shape),
             weights=agg_weights,
         )
