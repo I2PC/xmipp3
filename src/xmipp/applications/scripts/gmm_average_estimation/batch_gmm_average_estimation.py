@@ -568,8 +568,9 @@ def initialize_estimator(
         return estimator
 
     def distance_function(images, reference):
-        _, weights = estimator.fit(images, reference=reference)
-        return weights.negative_().reshape(-1)
+        weights = estimator.fit(images, reference=reference).weights
+        # Weights are aggregated per-image and have shape (n, 1, ..., 1)
+        return -weights.reshape(-1)
 
     return RecursiveGMMEstimator(
         distance_function=distance_function,
@@ -595,44 +596,8 @@ def fit_estimator(
     per-image GMM weights for GMM-type estimators.
     Also returns an estimate using the unmasked images and the estimator's weights.
     """
-    n_images = unmasked_images.shape[0]
-
-    gmm_weights = None
-    if isinstance(estimator, RecursiveGMMEstimator):
-        _, weights, original_distances = estimator.fit(
-            images=masked_images, reference=reference
-        )
-
-        unmasked_new_average = weighted_average(unmasked_images, weights)
-
-        robust_weights = -original_distances
-        gmm_weights = weights
-
-    elif isinstance(estimator, ADMMEstimator):
-        _, weights_real, weights_fourier = estimator.fit(images=masked_images)
-
-        estimate_real = weighted_average(unmasked_images, weights_real)
-        images_fourier = torch.fft.rfft2(unmasked_images)
-        estimate_fourier = torch.fft.irfft2(
-            weighted_average(images_fourier, weights_fourier)
-        )
-        unmasked_new_average = 0.5 * (estimate_real + estimate_fourier)
-
-        weights_real = weights_real.view(n_images, -1).mean(dim=1)
-        weights_fourier = weights_fourier.view(n_images, -1).mean(dim=1)
-
-        robust_weights = 0.5 * (weights_real + weights_fourier)
-
-    elif isinstance(estimator, JointIRLSFourier):
-        _, weights = estimator.fit(
-            images=masked_images, reference=reference, fourier_transform_images=True
-        )
-
-        unmasked_images_fourier = torch.fft.rfft2(unmasked_images)
-        fourier_unmasked_average = weighted_average(unmasked_images_fourier, weights)
-        unmasked_new_average = torch.fft.irfft2(fourier_unmasked_average)
-
-        robust_weights = weights.view(n_images, -1).mean(dim=1)
+    # Estimators return an EstimatorResult object with estimate, weights, gmm_diagnostics
+    result = estimator.fit(images=masked_images, reference=reference)
 
     if result.gmm_diagnostics is not None:
         robust_weights = -result.gmm_diagnostics.distances
