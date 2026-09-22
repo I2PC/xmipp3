@@ -6,6 +6,7 @@ import numpy as np
 
 from xmippPyModules.gmmAverageTools.irls_estimator import IRLSMEstimator
 from xmippPyModules.gmmAverageTools.fourier_irls_estimator import JointIRLSFourier
+from xmippPyModules.gmmAverageTools.results import EstimatorResult
 
 
 class ImageData(NamedTuple):
@@ -73,7 +74,7 @@ class ADMMEstimator:
         prior_mean = torch.fft.irfft2(
             state.reference_fourier + state.dual_vars / state.mu, norm="ortho"
         )
-        return self.irls_real.fit(
+        return self.irls_real.solve(
             images=data.real.images,
             image_variance=data.real.variance,
             image_std=data.real.std,
@@ -95,7 +96,7 @@ class ADMMEstimator:
         prior_mean = next_real_transformed - state.dual_vars / state.mu
         prior_variance = self.fourier_multiplier * (1.0 / state.mu)
 
-        return self.irls_fourier.fit(
+        return self.irls_fourier.solve(
             images=data.fourier.images,
             image_variance=data.fourier.variance,
             image_std=data.fourier.std,
@@ -143,6 +144,7 @@ class ADMMEstimator:
         self,
         images: torch.Tensor,
         *,
+        reference: Optional[torch.Tensor] = None,
         images_fourier: Optional[torch.Tensor] = None,
         initial_reference_real: Optional[torch.Tensor] = None,
         initial_reference_fourier: Optional[torch.Tensor] = None,
@@ -151,7 +153,7 @@ class ADMMEstimator:
         image_variance_fourier: Optional[torch.Tensor] = None,
         image_std_fourier: Optional[torch.Tensor] = None,
         ctf: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
+    ) -> EstimatorResult:
         data = self._prepare_data(
             images=images,
             images_fourier=images_fourier,
@@ -164,12 +166,13 @@ class ADMMEstimator:
 
         state = self._initialize_state(
             data=data,
+            reference=reference,
             initial_reference_real=initial_reference_real,
             initial_reference_fourier=initial_reference_fourier,
         )
 
+        results = None
         self.converged = False
-
         for i in range(self.max_iter):
             results = self._fit_one_iteration(
                 data=data,
@@ -195,23 +198,40 @@ class ADMMEstimator:
                 primal_residual=primal_residual,
             )
 
-            # Update references
             state.reference_real = results.next_real
             state.reference_fourier = results.next_fourier
 
-            # ADMM convergence check
             if primal_norm < eps_primal and dual_norm < eps_dual:
                 self.converged = True
                 break
 
-            # Penalty parameter update
             state.mu = self._mu_update(state.mu, primal_norm, dual_norm)
 
-        # Calculate final estimate as the mean of real and fourier references
-        fourier_ref_to_real = torch.fft.irfft2(state.reference_fourier, norm="ortho")
-        estimate = (state.reference_real + fourier_ref_to_real) / 2
+        # NOTE: final estimate calculation and weight aggregation could be changed
+        # for something better
 
-        return estimate, results.weights_real, results.weights_fourier
+        # Return mean of real and fourier references as final reference
+        fourier_ref_to_real = torch.fft.irfft2(state.reference_fourier, norm="ortho")
+        estimate = 0.5 * (state.reference_real + fourier_ref_to_real)
+
+        # Aggregate real and fourier weights into per-image scores
+        if results is None:
+            weight_shape = (images.shape[0],) + (1,) * (images.ndim - 1)
+            agg_weights = torch.ones(
+                size=weight_shape, dtype=images.dtype, device=images.device
+            )
+        else:
+            spatial_dims = tuple(range(1, images.ndim))  # first dim is batch
+            agg_weights_real = results.weights_real.mean(dim=spatial_dims, keepdim=True)
+            agg_weights_fourier = results.weights_fourier.mean(
+                dim=spatial_dims, keepdim=True
+            )
+            agg_weights = 0.5 * (agg_weights_real + agg_weights_fourier)
+
+        return EstimatorResult(
+            estimate=estimate,
+            weights=agg_weights,
+        )
 
     def _mu_update(self, mu: float, primal_norm: float, dual_norm: float) -> float:
         if primal_norm > 10 * dual_norm:
@@ -294,10 +314,24 @@ class ADMMEstimator:
     def _initialize_state(
         self,
         data: ADMMData,
+        reference: Optional[torch.Tensor] = None,
         initial_reference_real: Optional[torch.Tensor] = None,
         initial_reference_fourier: Optional[torch.Tensor] = None,
     ) -> ADMMState:
         """Initialize references, dual variables, and penalty parameter."""
+        given_general_reference = reference is not None
+        given_specific_references = (
+            initial_reference_real is not None or initial_reference_fourier is not None
+        )
+        if given_general_reference and given_specific_references:
+            raise ValueError(
+                "Cannot provide both a general ``reference`` and space-specific references for ADMM"
+            )
+
+        if reference is not None:
+            initial_reference_real = reference
+            initial_reference_fourier = torch.fft.rfft2(reference)
+
         if initial_reference_real is None:
             initial_reference_real = data.real.images.mean(dim=0)
 

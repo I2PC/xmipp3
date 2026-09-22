@@ -5,6 +5,7 @@ import torch
 from xmippPyModules.gmmAverageTools.distances import DistanceFunction
 from xmippPyModules.gmmAverageTools.utils import weighted_average
 from xmippPyModules.gmmAverageTools.torch_gaussian_mixture import TorchGaussianMixture
+from xmippPyModules.gmmAverageTools.results import EstimatorResult, GMMDiagnostics
 
 
 class RecursiveGMMEstimator:
@@ -95,11 +96,32 @@ class RecursiveGMMEstimator:
 
         return (distances - mean) / std, mean.item(), std.item()
 
-    def _get_good_component_idx(self, model: TorchGaussianMixture):
+    def _get_good_component_idx(self):
         """
         Returns the index of the component of the GMM model with a lower mean.
         """
-        return torch.argmin(model.means_.mean(dim=1))
+        return torch.argmin(self.model.means_.mean(dim=1))
+
+    def _get_model_means(self) -> tuple[float, float]:
+        """
+        Returns the GMM model's two scalar means
+        """
+        return self.model.means_[0, 0].item(), self.model.means_[1, 0].item()
+
+    def _get_model_variances(self) -> tuple[float, float]:
+        """
+        Returns the GMM model's two scalar variances
+        """
+        return self.model.covariances_[0].item(), self.model.covariances_[1].item()
+
+    def _get_model_component_weights(self) -> tuple[float, float]:
+        """
+        Returns the GMM model's weight for each of its components. The order
+        they are returned in matches the internal model's order, which does
+        not necessarily mean the 'good' component is the first one. To identify
+        the good coomponent use ``self._get_good_component_idx()`
+        """
+        return self.model.weights_[0].item(), self.model.weights_[1].item()
 
     def _responsibility_weights(
         self,
@@ -114,7 +136,7 @@ class RecursiveGMMEstimator:
         The weight of an image is defined as the (posterior) probability of the image
         belonging to the good component of the GMM, given its distance to the reference.
         """
-        good_component = self._get_good_component_idx(model)
+        good_component = self._get_good_component_idx()
         responsibilities = model.predict_proba(distances)[:, good_component]
 
         # .view(-1, 1, 1) allows the weights to broadcast over image batches
@@ -150,23 +172,19 @@ class RecursiveGMMEstimator:
         bool
             True if the model is degenerate, False otherwise
         """
-        mean1 = model.means_[0, :]
-        mean2 = model.means_[1, :]
+        mean1, mean2 = self._get_model_means()
+        variance1, variance2 = self._get_model_variances()
 
-        variance1 = model.covariances_[0]
-        variance2 = model.covariances_[1]
-
-        distance_between_means = (mean2 - mean1).square()
-
-        normalized_separation = distance_between_means / (variance1 + variance2)
-
-        degenerate_separation = bool(normalized_separation < min_component_separation**2)
-
-        good_component = self._get_good_component_idx(model)
-
-        degenerate_weight = bool(
-            model.weights_[good_component] < min_good_component_weight
+        distance_between_means_sq = (mean2 - mean1) ** 2
+        normalized_separation_sq = distance_between_means_sq / (variance1 + variance2)
+        degenerate_separation = bool(
+            normalized_separation_sq < min_component_separation**2
         )
+
+        good_component_weight = self._get_model_component_weights()[
+            self._get_good_component_idx()
+        ]
+        degenerate_weight = good_component_weight < min_good_component_weight
 
         return degenerate_separation or degenerate_weight
 
@@ -213,7 +231,7 @@ class RecursiveGMMEstimator:
         images: torch.Tensor,
         reference: Optional[torch.Tensor] = None,
         initialize_params: bool = False,
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
+    ) -> EstimatorResult:
         """
         Coordinates the whole GMM robust estimation process:
         1. Calculate initial reference (if not provided)
@@ -285,15 +303,29 @@ class RecursiveGMMEstimator:
                 self.converged = True
                 break
 
-        # Only check for degeneracy if requested and at least one iteration has been done
+        # Avoid overwriting weights so that the responsibilities are available for diagnostics
+        final_weights = weights
         if self.check_degenerate_model and weights is not None:
-
             if self._check_degeneracy(
                 self.model,
                 min_component_separation=self.min_component_separation,
                 min_good_component_weight=self.min_good_component_weight,
             ):
-                weights = torch.ones_like(weights)
+                final_weights = torch.ones_like(weights)
                 reference = images.mean(dim=0)
 
-        return reference, weights, distances
+        diagnostics = GMMDiagnostics(
+            distances=distances,
+            standardized_distances=self.standardize_distances,
+            means=self._get_model_means(),
+            variances=self._get_model_variances(),
+            component_weights=self._get_model_component_weights(),
+            responsibilities=weights,
+        )
+        result = EstimatorResult(
+            estimate=reference,
+            weights=final_weights,
+            gmm_diagnostics=diagnostics,
+        )
+
+        return result

@@ -3,6 +3,7 @@ from typing import Optional, Tuple, Literal
 import torch
 
 from xmippPyModules.gmmAverageTools.irls_estimator import IRLSMEstimator
+from xmippPyModules.gmmAverageTools.results import EstimatorResult
 
 WeightApproach = Literal["per-image", "per-coefficient"]
 
@@ -115,7 +116,7 @@ class JointIRLSFourier:
         )
 
     @torch.inference_mode()
-    def fit(
+    def solve(
         self,
         images: torch.Tensor,
         *,
@@ -128,61 +129,31 @@ class JointIRLSFourier:
         max_iter_override: Optional[int] = None,
         fourier_transform_images: bool = True,
         mask: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Executes the full Iteratively Reweighted Least Squares (IRLS) optimization
-        in Fourier space.
+        Executes the low-level IRLS optimization in Fourier space.
 
         Parameters
         ----------
         images : torch.Tensor
-            Tensor of shape ``(n_images, *image_shape)`` containing the images to
-            be averaged using the robust IRLS procedure, batched along the first
-            dimension of the ``images`` tensor.
-            This tensor can either contain the real-space representation of the
-            images, in which case ``fourier_transform_images`` should be set to
-            ``True``; or the Fourier transform of the images, in which case
-            ``fourier_transform_images`` should be set to ``False``.
+            Tensor of shape ``(n_images, *image_shape)`` containing images in real
+            space (if ``fourier_transform_images=True``) or Fourier space.
         image_variance : torch.Tensor, optional
-            Variance of the complex modulus of the Fourier transform of the
-            input images. It can be provided as:
-            - A tensor matching the shape of the Fourier transform of one image,
-            in which case it will be interpreted as the variance of each frequency
-            in the Fourier domain.
-            - A scalar, indicating a global variance value for the whole
-            (Fourier transform of the) image.
-            If not provided, it defaults to the variance of the modulus of the
-            Fourier-transformed images along the batch dimension.
+            Variance of the Fourier transform modulus of input images.
+            Can be a tensor matching ``image_shape`` (per-coefficient variance) or a 
+            scalar (global image variance).
+            Defaults to ``fourier_images.abs().var(dim=0)``.
         image_std : torch.Tensor, optional
-            Standard deviation of the modulus of the Fourier transform of the
-            input images. If given as input, it should be the element-wise square
-            root of the ``image_variance`` input.
-            It can be provided as an argument to avoid repeated computation of
-            ``image_variance.sqrt()``.
+            Standard deviation of the Fourier transform modulus. Pre-calculated square 
+            root of ``image_variance`` to avoid redundant computation.
         ctf : torch.Tensor, optional
-            CTF of the input images. In principle it should be a tensor matching
-            the shape of the Fourier-transformed images, although it can be any shape
-            broadcastable to that. If not provided, the CTF will be ignored, which
-            amounts to assuming that the input particles have been previously
-            CTF-corrected .
+            CTF of the input images matching or broadcastable to Fourier images. 
+            If None, images are assumed to be CTF-corrected.
         reference : torch.Tensor, optional
-            Initial reference for the robust averaging (e.g. the average of
-            all the images).
-            Its shape should match the shape of one of the input images. Its domain
-            should also match that of the input images: for example, if the input images
-            are in real space (``fourier_transform_images=True``), then ``prior_mean``
-            should also be in real space.
-            If not provided, it will the default to the average of the Fourier
-            representation of the input images.
+            Initial reference in the same domain as ``images``.
+            Defaults to the average of the Fourier images.
         prior_mean : torch.Tensor, optional
-            Prior mean for the estimator. This will bias the produced estimation
-            towards the prior mean, serving as a type of regularization (e.g. the
-            prior mean might be a tensor of zeros, keeping the values of the
-            reconstructed averages closer to zero).
-            Its shape should match the shape of one of the input images. Its domain
-            should also match that of the input images: for example, if the input images
-            are in real space (``fourier_transform_images=True``), then ``prior_mean``
-            should also be in real space.
+            Prior mean in the same domain as ``images``.
             Cannot be provided without also providing a value for ``prior_variance``.
             If not provided, no regularization will be applied.
         prior_variance : torch.Tensor, optional
@@ -193,21 +164,22 @@ class JointIRLSFourier:
             If not provided, no regularization will be applied.
         max_iter_override : int, optional
             Maximum number of IRLS iterations to be performed by the estimator.
-            If provided, this will override the object's ``max_iter`` attribute.
+            Overrides the estimator's default ``max_iter`` for this run.
         mask : torch.Tensor, optional
-            Fourier-space mask to apply to the images before the estimation.
-            This is only available for residual norm approaches (not for
-            coefficient-wise weights).
+            Fourier-space boolean mask to apply to the images before the estimation.
+            Only valid when ``weight_approach="per-image"``.
 
         Returns
         -------
-        torch.Tensor
-            The robust average produced by the estimator
-        torch.Tensor or None
-            The weights each particle received on the last iteration of the
-            estimation process. The robust average output is the average
-            of the input images weighted by these weights. Will only be None
-            if the maximum number of iterations is set to zero.
+        estimate : torch.Tensor
+            Fourier-space estimated robust average tensor.
+        weights : torch.Tensor
+            Particle weights from final iteration.
+
+        Raises
+        ------
+        ValueError
+            If a ``mask`` is provided when ``weight_approach == "per-coefficient"``.
 
         Notes
         -----
@@ -255,7 +227,7 @@ class JointIRLSFourier:
         )
 
         # Use the IRLS solver to perform the estimation
-        estimate, weights = self.solver.fit(
+        estimate, weights = self.solver.solve(
             images=fourier_images_masked,
             image_variance=image_variance_masked,
             image_std=image_std_masked,
@@ -267,10 +239,7 @@ class JointIRLSFourier:
         )
 
         if mask is not None:
-            n_images = fourier_images.shape[0]
-            image_ndims = fourier_images.ndim - 1
-            weights = weights.reshape((n_images,) + (1,) * image_ndims)
-
+            # Re-calculate estimate with unmasked images
             estimate = IRLSMEstimator.calculate_update(
                 images=fourier_images,
                 weights=weights,
@@ -282,3 +251,78 @@ class JointIRLSFourier:
             )
 
         return estimate, weights
+
+    @torch.inference_mode()
+    def fit(
+        self,
+        images: torch.Tensor,
+        *,
+        image_variance: Optional[torch.Tensor] = None,
+        image_std: Optional[torch.Tensor] = None,
+        ctf: Optional[torch.Tensor] = None,
+        reference: Optional[torch.Tensor] = None,
+        prior_mean: Optional[torch.Tensor] = None,
+        prior_variance: Optional[torch.Tensor] = None,
+        max_iter_override: Optional[int] = None,
+        fourier_transform_images: bool = True,
+        mask: Optional[torch.Tensor] = None,
+    ) -> EstimatorResult:
+        """
+        Executes Fourier-domain IRLS optimization and returns a real-space EstimatorResult.
+
+        Parameters
+        ----------
+        images : torch.Tensor
+            Input images tensor.
+        image_variance : torch.Tensor, optional
+            See ``JointIRLSFourier.solve()``.
+        image_std : torch.Tensor, optional
+            See ``JointIRLSFourier.solve()``.
+        ctf : torch.Tensor, optional
+            See ``JointIRLSFourier.solve()``.
+        reference : torch.Tensor, optional
+            See ``JointIRLSFourier.solve()``.
+        prior_mean : torch.Tensor, optional
+            See ``JointIRLSFourier.solve()``.
+        prior_variance : torch.Tensor, optional
+            See ``JointIRLSFourier.solve()``.
+        max_iter_override : int, optional
+            See ``JointIRLSFourier.solve()``.
+        fourier_transform_images : bool, default=True
+            See ``JointIRLSFourier.solve()``.
+        mask : torch.Tensor, optional
+            See ``JointIRLSFourier.solve()``.
+
+        Returns
+        -------
+        EstimatorResult
+            Dataclass containing:
+            - ``estimate``: Real-space reconstructed estimate of shape ``image_shape``.
+            - ``weights``: Aggregated weight tensor with shape ``(n_images, 1, ..., 1)``.
+        """
+        fourier_estimate, weights = self.solve(
+            images=images,
+            image_variance=image_variance,
+            image_std=image_std,
+            ctf=ctf,
+            reference=reference,
+            prior_mean=prior_mean,
+            prior_variance=prior_variance,
+            max_iter_override=max_iter_override,
+            fourier_transform_images=fourier_transform_images,
+            mask=mask,
+        )
+
+        # Aggregate and reshape weights to (n_images, 1, ..., 1) convention
+        # The shape of weights might not match images due to masking
+        weight_spatial_dims = tuple(range(1, weights.ndim))
+        agg_weights = weights.mean(dim=weight_spatial_dims, keepdim=True)
+
+        # Reshape to (n_images, 1, ..., 1) convention
+        target_weight_shape = (images.shape[0],) + (1,) * (images.ndim - 1)
+        agg_weights = agg_weights.view(target_weight_shape)
+
+        return EstimatorResult(
+            estimate=torch.fft.irfft2(fourier_estimate),
+            weights=agg_weights,
+        )

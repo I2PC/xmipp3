@@ -19,6 +19,8 @@ from xmippPyModules.gmmAverageTools.data import (
     MDL_ITEM_ID_COLUMN,
 )
 
+from xmippPyModules.gmmAverageTools.results import GMMDiagnostics
+
 # Import estimator types
 from xmippPyModules.gmmAverageTools.gmm_estimator import RecursiveGMMEstimator
 from xmippPyModules.gmmAverageTools.irls_estimator import IRLSMEstimator
@@ -105,6 +107,37 @@ class PipelineConfig:
     io: IOConfig
     estimator: EstimatorConfig
     gmm: Optional[GMMConfig] = None
+
+
+@dataclass
+class ClassProcessingResults:
+    """
+    Object containing the results of processing a class that will be used later
+    in the pipeline.
+
+    Attributes
+    ----------
+    unmasked_corrected_average : np.ndarray
+        The robust weighted average produced by the estimator.
+    unmasked_original_average : np.ndarray
+        The conventional unweighted class average.
+    robust_weights : np.ndarray
+        Array of shape ``(n,)`` containing the weight (or aggregated per-image score)
+        each image received in the robust estimation.
+        For GMM estimators, this will contain the pre-GMM weights.
+    gmm_weights : np.ndarray, optional
+        Array of shape ``(n,)`` containing the weight each image received after
+        GMM reweighting. Set to None for non-GMM estimators. Default is None.
+    gmm_diagnostics : np.ndarray, optional
+        Diagnostics object for assessing the GMM fit.
+        Set to None for non-GMM estimators. Default is None.
+    """
+
+    unmasked_corrected_average: np.ndarray
+    unmasked_original_average: np.ndarray
+    robust_weights: np.ndarray
+    gmm_weights: Optional[np.ndarray] = None
+    gmm_diagnostics: Optional[GMMDiagnostics] = None
 
 
 def build_argument_parser() -> argparse.ArgumentParser:
@@ -322,7 +355,7 @@ def parse_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
         if approach in DEFAULT_SMOOTH_DELTA:
             method_params["delta"] = DEFAULT_SMOOTH_DELTA[approach]
 
-    # Resolve dynamic defaeult for max_iter
+    # Resolve dynamic default for max_iter
     max_iter = args.estimator_max_iter
     if max_iter is None:
         max_iter = DEFAULT_MAX_ITERATIONS.get(args.estimator_type, 50)
@@ -338,9 +371,6 @@ def parse_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
 
     gmm_cfg = None
     if args.gmm:
-        if estimator_cfg.estimator_type == "admm":
-            raise ValueError("GMM reweighting is not supported for ADMM estimator")
-
         gmm_cfg = GMMConfig(
             external_max_iter=args.gmm_external_max_iter,
             internal_max_iter=args.gmm_internal_max_iter,
@@ -489,8 +519,9 @@ def initialize_estimator(
         return estimator
 
     def distance_function(images, reference):
-        _, weights = estimator.fit(images, reference=reference)
-        return -weights.flatten(start_dim=1).mean(dim=1)
+        weights = estimator.fit(images, reference=reference).weights
+        # Weights are aggregated per-image and have shape (n, 1, ..., 1)
+        return -weights.reshape(-1)
 
     return RecursiveGMMEstimator(
         distance_function=distance_function,
@@ -510,79 +541,46 @@ def fit_estimator(
     masked_images: torch.Tensor,
     unmasked_images: torch.Tensor,
     reference: torch.Tensor,
-) -> Tuple[np.ndarray, Optional[np.ndarray], np.ndarray]:
+) -> Tuple[np.ndarray, Optional[np.ndarray], np.ndarray, Optional[GMMDiagnostics]]:
     """
     Fit the estimator and return a set of per-image weights and an optional set of
     per-image GMM weights for GMM-type estimators.
     Also returns an estimate using the unmasked images and the estimator's weights.
     """
-    n_images = unmasked_images.shape[0]
+    # Estimators return an EstimatorResult object with estimate, weights, gmm_diagnostics
+    result = estimator.fit(images=masked_images, reference=reference)
 
-    gmm_weights = None
-    if isinstance(estimator, RecursiveGMMEstimator):
-        _, weights, original_distances = estimator.fit(
-            images=masked_images, reference=reference
-        )
-
-        unmasked_new_average = weighted_average(unmasked_images, weights)
-
-        robust_weights = -original_distances
-        gmm_weights = weights
-
-    elif isinstance(estimator, ADMMEstimator):
-        _, weights_real, weights_fourier = estimator.fit(images=masked_images)
-
-        estimate_real = weighted_average(unmasked_images, weights_real)
-        images_fourier = torch.fft.rfft2(unmasked_images)
-        estimate_fourier = torch.fft.irfft2(
-            weighted_average(images_fourier, weights_fourier)
-        )
-        unmasked_new_average = 0.5 * (estimate_real + estimate_fourier)
-
-        weights_real = weights_real.view(n_images, -1).mean(dim=1)
-        weights_fourier = weights_fourier.view(n_images, -1).mean(dim=1)
-
-        robust_weights = 0.5 * (weights_real + weights_fourier)
-
-    elif isinstance(estimator, JointIRLSFourier):
-        _, weights = estimator.fit(
-            images=masked_images, reference=reference, fourier_transform_images=True
-        )
-
-        unmasked_images_fourier = torch.fft.rfft2(unmasked_images)
-        fourier_unmasked_average = weighted_average(unmasked_images_fourier, weights)
-        unmasked_new_average = torch.fft.irfft2(fourier_unmasked_average)
-
-        robust_weights = weights.view(n_images, -1).mean(dim=1)
-
+    if result.gmm_diagnostics is not None:
+        robust_weights = -result.gmm_diagnostics.distances
+        gmm_weights = result.weights
+        weights = gmm_weights
     else:
-        _, weights = estimator.fit(images=masked_images, reference=reference)
+        robust_weights = result.weights
+        gmm_weights = None
+        weights = robust_weights
 
-        unmasked_new_average = weighted_average(unmasked_images, weights)
-
-        # Aggregate possibly local weights into global per-image scores
-        robust_weights = weights.view(n_images, -1).mean(dim=1)
+    unmasked_new_average = weighted_average(unmasked_images, weights)
 
     return (
         robust_weights.detach().cpu().numpy().reshape(-1),
         None if gmm_weights is None else gmm_weights.detach().cpu().numpy().reshape(-1),
         unmasked_new_average.detach().cpu().numpy(),
+        result.gmm_diagnostics,
     )
 
 
 def process_class(
-    data: pd.DataFrame,
+    class_data: pd.DataFrame,
     pipeline_config: PipelineConfig,
     group_by_value: int,
-    write_metadata: Optional[pd.DataFrame] = None,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> ClassProcessingResults:
     """
     Estimate robust and conventional averages for one particle class.
 
     Parameters
     ----------
-    data : pandas.DataFrame
-        Metadata describing the preprocessed particles.
+    class_data : pandas.DataFrame
+        Metadata describing the preprocessed particles for the requested class.
     pipeline_config : PipelineConfig
         Pipeline configuration object
     group_by_value : int
@@ -593,13 +591,9 @@ def process_class(
 
     Returns
     -------
-    numpy.ndarray
-        Robust weighted class average.
-    numpy.ndarray
-        Conventional unweighted class average.
+    ClassProcessingResults
+        Results object (see ``ClassProcessingResults`` for details)
     """
-    group_by_column = pipeline_config.io.group_by_column
-    class_data = data[data[group_by_column] == group_by_value]
     images = read_images(data=class_data, device=pipeline_config.device)
 
     mask_np = create_circular_mask(
@@ -617,25 +611,23 @@ def process_class(
     )
     reference = masked_images.mean(dim=0)
 
-    robust_weights_np, gmm_weights_np, unmasked_new_average = fit_estimator(
-        estimator,
-        masked_images=masked_images,
-        unmasked_images=images,
-        reference=reference,
+    robust_weights_np, gmm_weights_np, unmasked_corrected_average, gmm_diagnostics = (
+        fit_estimator(
+            estimator,
+            masked_images=masked_images,
+            unmasked_images=images,
+            reference=reference,
+        )
     )
     unmasked_original_average = images.mean(dim=0).detach().cpu().numpy()
 
-    if write_metadata is not None:
-        write_weights_to_dataframe(
-            group_by_column=group_by_column,
-            group_by_value=group_by_value,
-            write_metadata=write_metadata,
-            item_ids=class_data[MDL_ITEM_ID_COLUMN].to_numpy(),
-            robust_weights_np=robust_weights_np,
-            gmm_weights_np=gmm_weights_np,
-        )
-
-    return unmasked_new_average, unmasked_original_average
+    return ClassProcessingResults(
+        unmasked_corrected_average=unmasked_corrected_average,
+        unmasked_original_average=unmasked_original_average,
+        robust_weights=robust_weights_np,
+        gmm_weights=gmm_weights_np,
+        gmm_diagnostics=gmm_diagnostics,
+    )
 
 
 def write_weights_to_dataframe(
@@ -739,7 +731,7 @@ def main() -> None:
     input_metadata_df = pd.DataFrame(starfile.read(args.input_xmd))
     validate_item_ids(input_metadata_df, name="Input")
 
-    group_by_values = sorted(
+    group_by_values: Iterable[int] = sorted(
         input_metadata_df[pipeline_config.io.group_by_column].unique()
     )
 
@@ -752,19 +744,34 @@ def main() -> None:
     )
 
     for index, class_value in enumerate(group_by_values):
-        corrected_avg, original_avg = process_class(
-            data=input_metadata_df,
+        group_by_column = pipeline_config.io.group_by_column
+        class_rows = input_metadata_df[group_by_column] == class_value
+        class_data = input_metadata_df[class_rows]
+
+        class_results = process_class(
+            class_data=class_data,
             pipeline_config=pipeline_config,
             group_by_value=class_value,
-            write_metadata=write_metadata,
         )
 
         if corrected_averages is not None:
-            corrected_averages[index] = corrected_avg
+            corrected_averages[index] = class_results.unmasked_corrected_average
 
         if original_averages is not None:
-            original_averages[index] = original_avg
+            original_averages[index] = class_results.unmasked_original_average
 
+        if write_metadata is not None:
+            write_weights_to_dataframe(
+                group_by_column=group_by_column,
+                group_by_value=class_value,
+                write_metadata=write_metadata,
+                item_ids=class_data[MDL_ITEM_ID_COLUMN].to_numpy(),
+                robust_weights_np=class_results.robust_weights,
+                gmm_weights_np=class_results.gmm_weights,
+            )
+
+        # TODO: produce visual gmm diagnostics using class_results.gmm_diagnostics
+ 
     if corrected_averages is not None:
         mrcfile.write(
             name=pipeline_config.io.out_corrected_avgs, data=corrected_averages
