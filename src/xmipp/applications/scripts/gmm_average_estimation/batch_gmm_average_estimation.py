@@ -289,6 +289,33 @@ def build_argument_parser() -> argparse.ArgumentParser:
         default=15,
         help="Maximum number of iterations for the real-space and Fourier-space sub-estimators",
     )
+    admm_parser.add_argument(
+        "--fourier-delta",
+        type=float,
+        help="Delta scale parameter for the Fourier estimator",
+    )
+    admm_parser.add_argument(
+        "--fourier-weight-approach",
+        type=str,
+        choices=get_args(WeightApproach),
+        default="per-coefficient",
+        help="Weight approach for the Fourier estimator",
+    )
+    admm_parser.add_argument(
+        "--fourier-lowpass-mask",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Use a lowpass mask in the Fourier estimator",
+    )
+    admm_parser.add_argument(
+        "--fourier-lowpass-mask-cutoff",
+        type=float,
+        help=(
+            "Normalized lowpass mask cutoff frequency. Only used if "
+            "'--fourier-lowpass-mask' is also passed as an argument "
+            f"(default is {DEFAULT_LOWPASS_MASK_CUTOFF})."
+        ),
+    )
 
     # Fourier IRLS options
     fourier_irls_parser = subparsers.add_parser(
@@ -312,13 +339,15 @@ def build_argument_parser() -> argparse.ArgumentParser:
         "--lowpass-mask",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="Normalized lowpass mask cutoff frequency",
+        help="Use lowpass mask",
     )
     fourier_irls_parser.add_argument(
         "--lowpass-mask-cutoff",
         type=float,
-        default=DEFAULT_LOWPASS_MASK_CUTOFF,
-        help="Normalized lowpass mask cutoff frequency",
+        help=(
+            "Normalized lowpass mask cutoff frequency. Only used if '--lowpass-mask' "
+            f"is also passed as an argument (default is {DEFAULT_LOWPASS_MASK_CUTOFF})."
+        ),
     )
 
     return parser
@@ -335,25 +364,37 @@ def parse_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
     )
 
     if args.estimator_type == "fourier_irls":
+        if args.lowpass_mask and args.lowpass_mask_cutoff is None:
+            args.lowpass_mask_cutoff = DEFAULT_LOWPASS_MASK_CUTOFF
         method_params = {
             "delta": args.delta,
             "weight_approach": args.weight_approach,
+            "lowpass_mask": args.lowpass_mask,
             "lowpass_mask_cutoff": args.lowpass_mask_cutoff,
         }
     elif args.estimator_type == "admm":
+        if args.fourier_lowpass_mask and args.fourier_lowpass_mask_cutoff is None:
+            args.fourier_lowpass_mask_cutoff = DEFAULT_LOWPASS_MASK_CUTOFF
         method_params = {
             "initial_mu": args.initial_mu,
             "fourier_multiplier": args.fourier_multiplier,
             "internal_max_iter": args.internal_max_iter,
+            "fourier_delta": args.fourier_delta,
+            "fourier_weight_approach": args.fourier_weight_approach,
+            "fourier_lowpass_mask": args.fourier_lowpass_mask,
+            "fourier_lowpass_mask_cutoff": args.fourier_lowpass_mask_cutoff,
         }
     else:
         method_params = {}
 
-    # Resolve dynamic default for 'delta'
-    if method_params.get("delta") is None:
-        approach = method_params.get("weight_approach")
-        if approach in DEFAULT_SMOOTH_DELTA:
-            method_params["delta"] = DEFAULT_SMOOTH_DELTA[approach]
+    # Resolve dynamic default for 'delta' and 'fourier_delta'
+    for param_prefix in ["", "fourier_"]:
+        param_name = param_prefix + "delta"
+        if method_params.get(param_name) is None:
+            weight_approach_name = param_prefix + "weight_approach"
+            approach = method_params.get(weight_approach_name)
+            if approach in DEFAULT_SMOOTH_DELTA:
+                method_params[param_name] = DEFAULT_SMOOTH_DELTA[approach]
 
     # Resolve dynamic default for max_iter
     max_iter = args.estimator_max_iter
@@ -478,12 +519,20 @@ def _initialize_admm(
 ) -> ADMMEstimator:
     params = config.params
 
-    internal_config = replace(config, max_iter=params["internal_max_iter"])
+    real_irls_config = replace(config, max_iter=params["internal_max_iter"])
+    real_irls = _initialize_irls(real_irls_config, unmasked_images, masked_images)
 
-    real_irls = _initialize_irls(internal_config, unmasked_images, masked_images)
-
+    fourier_params = {
+        "delta": params["fourier_delta"],
+        "weight_approach": params["fourier_weight_approach"],
+        "lowpass_mask": params["fourier_lowpass_mask"],
+        "lowpass_mask_cutoff": params["fourier_lowpass_mask_cutoff"],
+    }
+    fourier_irls_config = replace(
+        config, max_iter=params["internal_max_iter"], params=fourier_params
+    )
     fourier_irls = _initialize_fourier_irls(
-        internal_config, unmasked_images, masked_images
+        fourier_irls_config, unmasked_images, masked_images
     )
 
     return ADMMEstimator(
@@ -771,7 +820,7 @@ def main() -> None:
             )
 
         # TODO: produce visual gmm diagnostics using class_results.gmm_diagnostics
- 
+
     if corrected_averages is not None:
         mrcfile.write(
             name=pipeline_config.io.out_corrected_avgs, data=corrected_averages

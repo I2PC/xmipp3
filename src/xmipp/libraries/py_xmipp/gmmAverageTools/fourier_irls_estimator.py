@@ -140,14 +140,14 @@ class JointIRLSFourier:
             space (if ``fourier_transform_images=True``) or Fourier space.
         image_variance : torch.Tensor, optional
             Variance of the Fourier transform modulus of input images.
-            Can be a tensor matching ``image_shape`` (per-coefficient variance) or a 
+            Can be a tensor matching ``image_shape`` (per-coefficient variance) or a
             scalar (global image variance).
             Defaults to ``fourier_images.abs().var(dim=0)``.
         image_std : torch.Tensor, optional
-            Standard deviation of the Fourier transform modulus. Pre-calculated square 
+            Standard deviation of the Fourier transform modulus. Pre-calculated square
             root of ``image_variance`` to avoid redundant computation.
         ctf : torch.Tensor, optional
-            CTF of the input images matching or broadcastable to Fourier images. 
+            CTF of the input images matching or broadcastable to Fourier images.
             If None, images are assumed to be CTF-corrected.
         reference : torch.Tensor, optional
             Initial reference in the same domain as ``images``.
@@ -239,6 +239,13 @@ class JointIRLSFourier:
         )
 
         if mask is not None:
+            # Aggregate and reshape weights to make averaging possible
+            # NOTE: there are other possibilities that could be considered here for
+            # local weights, although masking will mostly be used with global weights
+            weight_spatial_dims = tuple(range(1, weights.ndim))
+            target_weight_shape = (images.shape[0],) + (1,) * (images.ndim - 1)
+            weights = weights.mean(dim=weight_spatial_dims).view(target_weight_shape)
+
             # Re-calculate estimate with unmasked images
             estimate = IRLSMEstimator.calculate_update(
                 images=fourier_images,
