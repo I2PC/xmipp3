@@ -413,7 +413,7 @@ def _initialize_fourier_irls(
 ) -> JointIRLSFourier:
     params = config.params
 
-    if params["weight_approach"] == "per-image":
+    if params["weight_approach"] == "per-coefficient":
         weight_function = partial(
             smooth_redescending_weights_modulus, delta=params["delta"]
         )
@@ -490,7 +490,7 @@ def initialize_estimator(
 
     def distance_function(images, reference):
         _, weights = estimator.fit(images, reference=reference)
-        return weights.negative_().reshape(-1)
+        return -weights.flatten(start_dim=1).mean(dim=1)
 
     return RecursiveGMMEstimator(
         distance_function=distance_function,
