@@ -280,14 +280,14 @@ class BnBgpu:
         # print("----------create-classes-------------") 
         iterSplit = 7       
             
-        # if iter == 2: 
-        #     split = (final_classes - classes) * 60 // 100
-        # elif 3 <= iter < iterSplit and final_classes > classes:
-        #     split = final_classes - classes
-        # else:
-        #     split = 0
+        if iter == 2: 
+            split = (final_classes - classes) * 60 // 100
+        elif 3 <= iter < iterSplit and final_classes > classes:
+            split = final_classes - classes
+        else:
+            split = 0
             
-        split = 0
+        # split = 0
         
         # --- Z-score thresholds por clase ---    
         if iter < 10: # Filters the best-scoring particles
@@ -401,29 +401,29 @@ class BnBgpu:
         newIdx = [torch.cat(l, dim=0) if len(l) > 0 else torch.empty((0,), dtype=torch.long, device=self.cuda) for l in newIdx]
 
         #  Structural Split  
-        # if 2 <= iter < iterSplit and split > 0:
-        #     for n in range(classes):
-        #         if newCL[n].shape[0] > 20: # Minimum particles to consider
-        #
-        #             #K-means over PCA proj
-        #             _, labels = self.kmeans_pytorch_for_averages(newCL[n], newProj[n], cvecs, num_clusters=2, num_iters=15)
-        #
-        #             part_A = newCL[n][labels == 0]
-        #             part_B = newCL[n][labels == 1]
-        #
-        #             idx_A = (newIdx[n][labels == 0])
-        #             idx_B = (newIdx[n][labels == 1])
-        #
-        #             if n < split:
-        #                 newCL[n] = part_A
-        #                 newCL[n + classes] = part_B
-        #
-        #                 newIdx[n] = idx_A
-        #                 newIdx[n + classes] = idx_B
-        #
-        #             else:
-        #                 newCL[n] = torch.cat([part_A, part_B], dim=0)
-        #                 newIdx[n] = torch.cat([idx_A, idx_B], dim=0)
+        if 2 <= iter < iterSplit and split > 0:
+            for n in range(classes):
+                if newCL[n].shape[0] > 20: # Minimum particles to consider
+        
+                    #K-means over PCA proj
+                    _, labels = self.kmeans_pytorch_for_averages(newCL[n], newProj[n], cvecs, num_clusters=2, num_iters=15)
+        
+                    part_A = newCL[n][labels == 0]
+                    part_B = newCL[n][labels == 1]
+        
+                    idx_A = (newIdx[n][labels == 0])
+                    idx_B = (newIdx[n][labels == 1])
+        
+                    if n < split:
+                        newCL[n] = part_A
+                        newCL[n + classes] = part_B
+        
+                        newIdx[n] = idx_A
+                        newIdx[n + classes] = idx_B
+        
+                    else:
+                        newCL[n] = torch.cat([part_A, part_B], dim=0)
+                        newIdx[n] = torch.cat([idx_A, idx_B], dim=0)
                         
         # =============================================================
         # CTF-CORRECTED CLASS AVERAGES
