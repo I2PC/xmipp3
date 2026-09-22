@@ -315,7 +315,7 @@ class BnBgpu:
             
             endBatch = min(initBatch+expBatchSize, nExp)
                         
-            transforIm, tMatrix[initBatch:endBatch] = self.center_particles_inverse_save_matrix(mmap.data[initBatch:endBatch], tMatrix[initBatch:endBatch], 
+            transforIm, tMatrix_ctf[initBatch:endBatch] = self.center_particles_inverse_save_matrix(mmap.data[initBatch:endBatch], tMatrix[initBatch:endBatch], 
                                                                              rotBatch[initBatch:endBatch], translations[initBatch:endBatch], centerxy)
             
    
