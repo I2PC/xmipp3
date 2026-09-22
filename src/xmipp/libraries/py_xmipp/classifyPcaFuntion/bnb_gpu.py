@@ -493,36 +493,36 @@ class BnBgpu:
         clk = ((clk - mean_clk) / (std_clk + 1e-8)) * std_ctf + mean_ctf  
         del clk_ctf, mean_clk, std_clk, mean_ctf, std_ctf
 
-        # if iter > 1:
-        #     # cut = (25 if iter < 5 else 20) if sampling < 3 else (35 if iter < 5 else 30)
-        #     # cut_res = 100 if iter < (iterSplit-1) else 50
-        #     cut=50
-        #     cut_res = 50           
-        #     res_classes = self.frc_resolution_tensor(newCL, fallback_res=cut_res, rcut=cut)
-        #     clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes)
-        #
-        #     boost = None
-        #     clk = self.highpass_cosine_sharpen(clk, res_classes, factorR = boost)
-        #
-        #
-        # if iter < (iterSplit + 1): #order by size
-        #
-        #     lengths = torch.tensor([len(cls) for cls in newCL], device=clk.device)
-        #     valid_mask = lengths > 0
-        #     # res_classes = res_classes[valid_mask]
-        #     sizes = lengths[valid_mask]
-        #     clk = clk[valid_mask]
-        #     # clk = clk[torch.argsort(res_classes)]
-        #     clk = clk[torch.argsort(sizes, descending=True)]
-        #
-        #
-        #
-        # if iter in [10, 13]:
-        #     clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
-        #                         intensity_percentile=50, smooth_sigma=1.0)
-        # if 1 < iter < 7 and iter % 2 == 0:
-        #     clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
-        #                         intensity_percentile=50, smooth_sigma=1.0)
+        if iter > 1:
+            # cut = (25 if iter < 5 else 20) if sampling < 3 else (35 if iter < 5 else 30)
+            # cut_res = 100 if iter < (iterSplit-1) else 50
+            cut=50
+            cut_res = 50           
+            res_classes = self.frc_resolution_tensor(newCL, fallback_res=cut_res, rcut=cut)
+            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes)
+        
+            boost = None
+            clk = self.highpass_cosine_sharpen(clk, res_classes, factorR = boost)
+        
+        
+        if iter < (iterSplit + 1): #order by size
+        
+            lengths = torch.tensor([len(cls) for cls in newCL], device=clk.device)
+            valid_mask = lengths > 0
+            # res_classes = res_classes[valid_mask]
+            sizes = lengths[valid_mask]
+            clk = clk[valid_mask]
+            # clk = clk[torch.argsort(res_classes)]
+            clk = clk[torch.argsort(sizes, descending=True)]
+        
+        
+        
+        if iter in [10, 13]:
+            clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
+                                intensity_percentile=50, smooth_sigma=1.0)
+        if 1 < iter < 7 and iter % 2 == 0:
+            clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
+                                intensity_percentile=50, smooth_sigma=1.0)
 
         
         if iter > 2 and iter < 12:
@@ -1151,9 +1151,9 @@ class BnBgpu:
                 numFirstBatch = 2
                 initClBatch = 80000
             elif dim <= 128:
-                expBatchSize = 5000#15000 
+                expBatchSize = 15000 
                 expBatchSize2 = 20000
-                numFirstBatch = 3#5
+                numFirstBatch = 5
                 initClBatch = 50000
             elif dim <= 256:
                 expBatchSize = 5000 
