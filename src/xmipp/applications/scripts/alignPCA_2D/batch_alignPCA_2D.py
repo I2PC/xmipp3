@@ -165,13 +165,13 @@ if __name__=="__main__":
     print("Free memory %s" %free_memory)
 
     #Read Images
-    # tempfile = output+"_temp.mrcs"
-    # mmap, nExp, dim = create_mmap_from_star(expStar, tempfile)
-    # os.remove(tempfile)
+    tempfile = output+"_temp.mrcs"
+    mmap_star, nExp, dim = create_mmap_from_star(expStar, tempfile)
+    os.remove(tempfile)
     
     mmap = mrcfile.mmap(expFile, permissive=True)
-    nExp = mmap.data.shape[0]
-    dim = mmap.data.shape[1]
+    # nExp = mmap.data.shape[0]
+    # dim = mmap.data.shape[1]
     
     if mask and (sigma is None):
         sigma = dim/3
@@ -368,7 +368,7 @@ if __name__=="__main__":
                     
                     if mode == "create_classes":
                         cl, tMatrix, batch_projExp_cpu = bnb.create_classes(
-                            mmap, tMatrix, iter, subset, expBatchSize, matches, vectorshift, 
+                            mmap, mmap_star, tMatrix, iter, subset, expBatchSize, matches, vectorshift, 
                             classes, final_classes, freqBn, coef, cvecs, mask, expStar)
 
                     else:

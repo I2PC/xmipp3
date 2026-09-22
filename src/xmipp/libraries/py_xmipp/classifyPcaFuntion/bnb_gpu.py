@@ -273,7 +273,7 @@ class BnBgpu:
     
     
     @torch.no_grad()
-    def create_classes(self, mmap, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes, final_classes, freqBn, coef, cvecs, mask, expStar):
+    def create_classes(self, mmap, mmap_star, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes, final_classes, freqBn, coef, cvecs, mask, expStar):
         
         ctf = ctfClass(expStar, device=self.cuda)
         
@@ -330,6 +330,20 @@ class BnBgpu:
             proj_batch = self.batchExpToCpu(transforIm, freqBn, coef, cvecs)
             batch_projExp_cpu[count] = proj_batch
             count+=1
+            del transforIm
+            
+            
+            transforIm_forCtf, tMatrix[initBatch:endBatch] = self.center_particles_inverse_save_matrix(mmap_star.data[initBatch:endBatch], tMatrix[initBatch:endBatch], 
+                                                                             rotBatch[initBatch:endBatch], translations[initBatch:endBatch], centerxy)
+            
+   
+            if mask:
+                sigma_gauss = (0.75*self.sigma) if (iter < 10 and iter % 2 == 1) else (self.sigma)# if iter < 10 else sigma
+
+                transforIm_forCtf = transforIm_forCtf * self.create_gaussian_mask(transforIm_forCtf, sigma_gauss)
+            else:
+                transforIm_forCtf = transforIm_forCtf * self.create_circular_mask(transforIm_forCtf)
+            
 
             #Create classes for batches
             
@@ -346,10 +360,10 @@ class BnBgpu:
                 valid_mask = torch.ones_like(batch_scores, dtype=torch.bool)
     
             if valid_mask.sum() == 0:
-                del transforIm, projs_gpu, batch_class_indices, batch_scores, valid_mask
+                del transforIm_forCtf, projs_gpu, batch_class_indices, batch_scores, valid_mask
                 continue
     
-            transforIm = transforIm[valid_mask]
+            transforIm_forCtf = transforIm_forCtf[valid_mask]
             batch_class_indices = batch_class_indices[valid_mask]
             projs_gpu = projs_gpu[valid_mask]
             
@@ -361,7 +375,7 @@ class BnBgpu:
             labels = batch_class_indices
             order = torch.argsort(labels)
             
-            imgs_sorted = transforIm[order]
+            imgs_sorted = transforIm_forCtf[order]
             projs_sorted = projs_gpu[order] 
             lbls_sorted = batch_class_indices[order]
             # This is what connects every particle with its CTF.
@@ -377,10 +391,9 @@ class BnBgpu:
                     newIdx[n].append(idx_sorted[start:start+c])
                 start += c
             
-            del(transforIm, projs_gpu, batch_class_indices, idx_sorted, imgs_sorted, projs_sorted, labels, order)
+            del(transforIm_forCtf, projs_gpu, batch_class_indices, idx_sorted, imgs_sorted, projs_sorted, labels, order)
 
         # Concatenación Global
-        _, H, W = mmap.data.shape
         newCL = [torch.cat(l, dim=0) if len(l) > 0 else torch.empty((0,H,W), device=self.cuda) for l in newCL]
         newProj = [torch.cat(l, dim=0) if len(l) > 0 else None for l in newProj]
          # This is what connects every particle with its CTF.
@@ -411,60 +424,61 @@ class BnBgpu:
         #                 newCL[n] = torch.cat([part_A, part_B], dim=0)
         #                 newIdx[n] = torch.cat([idx_A, idx_B], dim=0)
                         
-        # # =============================================================
-        # # CTF-CORRECTED CLASS AVERAGES
-        # # =============================================================
-        # clk_list = []
-        # ctfBatchSize = 500
-        #
-        # for n in range(total_slots):
-        #
-        #     particles = newCL[n]
-        #     indices = newIdx[n]
-        #
-        #     num_particles = particles.shape[0]
-        #
-        #     # ---------------------------------------------------------
-        #     # Empty class
-        #     # ---------------------------------------------------------
-        #
-        #     if num_particles == 0:
-        #         clk_list.append(torch.zeros((H, W), dtype=torch.float32, device=self.cuda))
-        #         continue
-        #
-        #     # ---------------------------------------------------------
-        #     # Fourier accumulators
-        #     # ---------------------------------------------------------
-        #     num_sum = torch.zeros((H, W), dtype=torch.complex64, device=self.cuda)
-        #     den_sum = torch.zeros((H, W), dtype=torch.float32, device=self.cuda)
-        #
-        #     for sb in range(0, num_particles, ctfBatchSize):
-        #
-        #         end_sb = min(sb + ctfBatchSize, num_particles)
-        #         part_sub = (particles[sb:end_sb])
-        #         idx_sub = (indices[sb:end_sb])
-        #
-        #         Fpart_sub = torch.fft.fft2(part_sub)
-        #         ctf_sub = (ctf.compute_ctfs_batch(
-        #                         dim=H,
-        #                         pixel_size=self.sampling,
-        #                         angle=0.0,
-        #                         particle_indices=idx_sub,
-        #                         device=self.cuda
-        #                     )
-        #             )
-        #
-        #         num_sum.add_( (Fpart_sub * ctf_sub).sum(dim=0) )
-        #         den_sum.add_(ctf_sub.square().sum(dim=0))
-        #
-        #     regularizer = (1e-2 * den_sum.max())
-        #     avg_fft = ( num_sum / (den_sum + regularizer) )
-        #     avg_img = torch.real(torch.fft.ifft2(avg_fft))
-        #     clk_list.append(avg_img)
-        #     del num_sum, den_sum, avg_fft
-        #
-        # clk = torch.stack(clk_list, dim=0)
-        clk = self.averages_createClasses(mmap, iter, newCL)       
+        # =============================================================
+        # CTF-CORRECTED CLASS AVERAGES
+        # =============================================================
+        clk_list = []
+        ctfBatchSize = 500
+        
+        for n in range(total_slots):
+        
+            particles = newCL[n]
+            indices = newIdx[n]
+        
+            num_particles = particles.shape[0]
+        
+            # ---------------------------------------------------------
+            # Empty class
+            # ---------------------------------------------------------
+        
+            if num_particles == 0:
+                clk_list.append(torch.zeros((H, W), dtype=torch.float32, device=self.cuda))
+                continue
+        
+            # ---------------------------------------------------------
+            # Fourier accumulators
+            # ---------------------------------------------------------
+            num_sum = torch.zeros((H, W), dtype=torch.complex64, device=self.cuda)
+            den_sum = torch.zeros((H, W), dtype=torch.float32, device=self.cuda)
+        
+            for sb in range(0, num_particles, ctfBatchSize):
+        
+                end_sb = min(sb + ctfBatchSize, num_particles)
+                part_sub = (particles[sb:end_sb])
+                idx_sub = (indices[sb:end_sb])
+        
+                Fpart_sub = torch.fft.fft2(part_sub)
+                ctf_sub = (ctf.compute_ctfs_batch(
+                                dim=H,
+                                pixel_size=self.sampling,
+                                angle=0.0,
+                                particle_indices=idx_sub,
+                                device=self.cuda
+                            )
+                    )
+        
+                num_sum.add_( (Fpart_sub * ctf_sub).sum(dim=0) )
+                den_sum.add_(ctf_sub.square().sum(dim=0))
+        
+            regularizer = (1e-2 * den_sum.max())
+            avg_fft = ( num_sum / (den_sum + regularizer) )
+            avg_img = torch.real(torch.fft.ifft2(avg_fft))
+            clk_list.append(avg_img)
+            del num_sum, den_sum, avg_fft
+        
+        clk = torch.stack(clk_list, dim=0)
+        
+        # clk = self.averages_createClasses(mmap, iter, newCL)       
 
         if iter > 1:
             # cut = (25 if iter < 5 else 20) if sampling < 3 else (35 if iter < 5 else 30)
@@ -1124,9 +1138,9 @@ class BnBgpu:
                 numFirstBatch = 2
                 initClBatch = 80000
             elif dim <= 128:
-                expBatchSize = 15000 
+                expBatchSize = 5000#15000 
                 expBatchSize2 = 20000
-                numFirstBatch = 5
+                numFirstBatch = 3#5
                 initClBatch = 50000
             elif dim <= 256:
                 expBatchSize = 5000 
