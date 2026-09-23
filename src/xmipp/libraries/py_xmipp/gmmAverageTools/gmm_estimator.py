@@ -143,12 +143,7 @@ class RecursiveGMMEstimator:
         # NOTE: this would need to be modified to generalize to other dimensional images
         return responsibilities.to(dtype=dtype, device=device).view(-1, 1, 1)
 
-    def _check_degeneracy(
-        self,
-        model: TorchGaussianMixture,
-        min_component_separation: float,
-        min_good_component_weight: float,
-    ) -> bool:
+    def _degeneracy_checks(self) -> Tuple[bool, bool]:
         """
         Checks whether the two components of a GMM model are degenerate, i.e,
         their means are too close to represent two distinct groups OR the component
@@ -178,15 +173,15 @@ class RecursiveGMMEstimator:
         distance_between_means_sq = (mean2 - mean1) ** 2
         normalized_separation_sq = distance_between_means_sq / (variance1 + variance2)
         degenerate_separation = bool(
-            normalized_separation_sq < min_component_separation**2
+            normalized_separation_sq < self.min_component_separation**2
         )
 
         good_component_weight = self._get_model_component_weights()[
             self._get_good_component_idx()
         ]
-        degenerate_weight = good_component_weight < min_good_component_weight
+        degenerate_weight = good_component_weight < self.min_good_component_weight
 
-        return degenerate_separation or degenerate_weight
+        return degenerate_separation, degenerate_weight
 
     def _fit_one_iteration(
         self,
@@ -306,12 +301,11 @@ class RecursiveGMMEstimator:
         # Avoid overwriting weights so that the responsibilities are available for diagnostics
         final_weights = weights
         decided_degenerate = None
+        degenerate_separation = None
+        degenerate_weight = None
         if self.check_degenerate_model and weights is not None:
-            if self._check_degeneracy(
-                self.model,
-                min_component_separation=self.min_component_separation,
-                min_good_component_weight=self.min_good_component_weight,
-            ):
+            degenerate_separation, degenerate_weight = self._degeneracy_checks()
+            if degenerate_separation or degenerate_weight:
                 final_weights = torch.ones_like(weights)
                 reference = images.mean(dim=0)
                 decided_degenerate = True
@@ -326,6 +320,8 @@ class RecursiveGMMEstimator:
             component_weights=self._get_model_component_weights(),
             responsibilities=weights,
             decided_degenerate=decided_degenerate,
+            decided_too_close=degenerate_separation,
+            decided_too_small=degenerate_weight,
         )
         result = EstimatorResult(
             estimate=reference,

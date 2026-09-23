@@ -44,6 +44,8 @@ class GMMDiagnostics:
     component_weights: tuple[float, float]
     responsibilities: torch.Tensor | None = None
     decided_degenerate: bool | None = None
+    decided_too_close: bool | None = None
+    decided_too_small: bool | None = None
 
     @property
     def checked_degeneracy(self) -> bool:
@@ -58,7 +60,9 @@ class GMMDiagnostics:
             "weight_component1": self.component_weights[0],
             "weight_component2": self.component_weights[1],
             "checked_degeneracy": self.checked_degeneracy,
-            "decided_degenerate": bool(self.decided_degenerate) # convert None to False
+            "decided_degenerate": bool(self.decided_degenerate), # convert None to False
+            "decided_too_close": bool(self.decided_too_close), # convert None to False
+            "decided_too_small": bool(self.decided_too_small), # convert None to False
         }
 
 
