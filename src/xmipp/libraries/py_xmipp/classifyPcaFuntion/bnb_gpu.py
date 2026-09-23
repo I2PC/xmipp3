@@ -272,6 +272,17 @@ class BnBgpu:
         return thr_low, thr_high
     
     
+    def save_images(self, data, voxel, outfilename):
+        data = data.astype('float32')
+        
+        if data.ndim == 2:
+            data = np.expand_dims(data, axis=0)
+            
+        with mrcfile.new(outfilename, overwrite=True) as mrc:
+            mrc.set_data(data)
+            mrc.voxel_size = (voxel, voxel, 1)
+            mrc.update_header_stats()
+    
     @torch.no_grad()
     def create_classes(self, mmap, mmap_star, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes, final_classes, freqBn, coef, cvecs, mask, expStar):
         
@@ -406,7 +417,9 @@ class BnBgpu:
                 if newCL[n].shape[0] > 20: # Minimum particles to consider
         
                     #K-means over PCA proj
-                    _, labels = self.kmeans_pytorch_for_averages(newCL[n], newProj[n], cvecs, num_clusters=2, num_iters=15)
+                    avgMeans, labels = self.kmeans_pytorch_for_averages(newCL[n], newProj[n], cvecs, num_clusters=2, num_iters=15)
+                    file_avg = avg+"_%s_%s.mrcs"%(initBatch,iter+1)
+                    self.save_images(avgMeans.cpu().detach().numpy(), sampling, file_avg)
         
                     part_A = newCL[n][labels == 0]
                     part_B = newCL[n][labels == 1]
@@ -514,7 +527,7 @@ class BnBgpu:
     
     
     @torch.no_grad()
-    def align_particles_to_classes(self, data, data_star, cl, tMatrix, iter, expBatchSize, matches, vectorshift, classes, freqBn, coef, cvecs, mask):
+    def align_particles_to_classes(self, data, data_star, cl, tMatrix, iter, expBatchSize, matches, vectorshift, classes, freqBn, coef, cvecs, mask, expStar):
         
         ctf = ctfClass(expStar, device=self.cuda)
         
