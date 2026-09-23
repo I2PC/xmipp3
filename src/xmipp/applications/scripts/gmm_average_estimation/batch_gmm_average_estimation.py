@@ -742,6 +742,13 @@ def get_output_buffers(
         # Metadata files can be large, avoid reading the same file twice if possible
         if io_config.base_xmd != io_config.input_xmd:
             write_metadata = pd.DataFrame(starfile.read(io_config.base_xmd))
+
+            # Filter out particles not present in input xmd to avoid errors
+            write_metadata = write_metadata[
+                write_metadata[MDL_ITEM_ID_COLUMN].isin(
+                    input_metadata_df[MDL_ITEM_ID_COLUMN]
+                )
+            ]
         else:
             write_metadata = input_metadata_df
 
