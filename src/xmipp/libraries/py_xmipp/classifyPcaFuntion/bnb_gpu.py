@@ -418,7 +418,7 @@ class BnBgpu:
         
                     #K-means over PCA proj
                     avgMeans, labels = self.kmeans_pytorch_for_averages(newCL[n], newProj[n], cvecs, num_clusters=2, num_iters=15)
-                    file_avg = avg+"_%s_%s.mrcs"%(initBatch,iter+1)
+                    file_avg = "avg_%s_%s.mrcs"%(initBatch,iter+1)
                     self.save_images(avgMeans.cpu().detach().numpy(), sampling, file_avg)
         
                     part_A = newCL[n][labels == 0]
