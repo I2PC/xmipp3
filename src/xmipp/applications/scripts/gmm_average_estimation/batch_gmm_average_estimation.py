@@ -688,6 +688,7 @@ def write_weights_to_dataframe(
     item_ids: np.ndarray,
     group_by_column: str,
     group_by_value: int,
+    eps_std: float = 1.0e-6,
 ):
     """
     Write weights to metadata file, ensuring the association is correct by using
@@ -704,9 +705,14 @@ def write_weights_to_dataframe(
 
     # Per-class standardized weights are useful because different classes might have
     # different weight distributions
-    robust_weights_std = (
-        robust_weights_np - robust_weights_np.mean()
-    ) / robust_weights_np.std()
+    std = robust_weights_np.std()
+    if std > eps_std:
+        robust_weights_std = (
+            robust_weights_np - robust_weights_np.mean()
+        ) / robust_weights_np.std()
+    else:
+        robust_weights_std = np.zeros_like(robust_weights_np)
+
     weights_std_by_id = pd.Series(robust_weights_std, index=item_ids)
 
     write_metadata.loc[class_mask, STD_ROBUST_WEIGHT_COL] = target_item_ids.map(
@@ -736,6 +742,13 @@ def get_output_buffers(
         # Metadata files can be large, avoid reading the same file twice if possible
         if io_config.base_xmd != io_config.input_xmd:
             write_metadata = pd.DataFrame(starfile.read(io_config.base_xmd))
+
+            # Filter out particles not present in input xmd to avoid errors
+            write_metadata = write_metadata[
+                write_metadata[MDL_ITEM_ID_COLUMN].isin(
+                    input_metadata_df[MDL_ITEM_ID_COLUMN]
+                )
+            ]
         else:
             write_metadata = input_metadata_df
 
