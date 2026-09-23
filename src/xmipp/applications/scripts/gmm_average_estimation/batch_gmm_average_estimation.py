@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import os
 import argparse
 from pathlib import Path
 import warnings
@@ -79,6 +80,7 @@ class IOConfig:
     out_corrected_avgs: Optional[Path] = None
     out_original_avgs: Optional[Path] = None
     group_by_column: str = MDL_REF_COLUMN
+    out_gmm_diagnostics: Optional[Path] = None
 
 
 @dataclass
@@ -195,6 +197,11 @@ def build_argument_parser() -> argparse.ArgumentParser:
         type=str,
         default=MDL_REF_COLUMN,
         help=f"Column by which images are grouped (default: '{MDL_REF_COLUMN}')",
+    )
+    io_group.add_argument(
+        "--out-gmm-diagnostics",
+        type=Path,
+        help="Path to a directory where the information about GMM fits will be stored.",
     )
 
     # Shared estimator hyperparameters
@@ -361,6 +368,7 @@ def parse_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
         out_corrected_avgs=args.out_corrected_avgs,
         out_original_avgs=args.out_original_avgs,
         group_by_column=args.group_by_column,
+        out_gmm_diagnostics=args.out_gmm_diagnostics,
     )
 
     if args.estimator_type == "fourier_irls":
@@ -621,7 +629,6 @@ def fit_estimator(
 def process_class(
     class_data: pd.DataFrame,
     pipeline_config: PipelineConfig,
-    group_by_value: int,
 ) -> ClassProcessingResults:
     """
     Estimate robust and conventional averages for one particle class.
@@ -632,11 +639,6 @@ def process_class(
         Metadata describing the preprocessed particles for the requested class.
     pipeline_config : PipelineConfig
         Pipeline configuration object
-    group_by_value : int
-        Identifier of the class to process.
-    write_metadata : pandas.DataFrame, optional
-        Metadata table in which the calculated particle weights are stored.
-        Particles are matched using their item identifiers.
 
     Returns
     -------
@@ -785,12 +787,19 @@ def main() -> None:
     )
 
     weight_columns = get_weight_columns(pipeline_config)
-    write_metadata, corrected_averages, original_averages = get_output_buffers(
+    out_md, robust_avgs, original_avgs = get_output_buffers(
         io_config=pipeline_config.io,
         input_metadata_df=input_metadata_df,
         weight_columns=weight_columns,
         n_classes=len(group_by_values),
     )
+
+    gmm_fits_info = []
+    distances_dict = {}
+
+    gmm_out_path = pipeline_config.io.out_gmm_diagnostics
+    if gmm_out_path is not None:
+        gmm_out_path.mkdir(exist_ok=True)
 
     for index, class_value in enumerate(group_by_values):
         group_by_column = pipeline_config.io.group_by_column
@@ -800,38 +809,48 @@ def main() -> None:
         class_results = process_class(
             class_data=class_data,
             pipeline_config=pipeline_config,
-            group_by_value=class_value,
         )
 
-        if corrected_averages is not None:
-            corrected_averages[index] = class_results.unmasked_corrected_average
+        if robust_avgs is not None:
+            robust_avgs[index] = class_results.unmasked_corrected_average
 
-        if original_averages is not None:
-            original_averages[index] = class_results.unmasked_original_average
+        if original_avgs is not None:
+            original_avgs[index] = class_results.unmasked_original_average
 
-        if write_metadata is not None:
+        if out_md is not None:
             write_weights_to_dataframe(
                 group_by_column=group_by_column,
                 group_by_value=class_value,
-                write_metadata=write_metadata,
+                write_metadata=out_md,
                 item_ids=class_data[MDL_ITEM_ID_COLUMN].to_numpy(),
                 robust_weights_np=class_results.robust_weights,
                 gmm_weights_np=class_results.gmm_weights,
             )
 
-        # TODO: produce visual gmm diagnostics using class_results.gmm_diagnostics
+        diagnostics = class_results.gmm_diagnostics
+        if gmm_out_path is not None and diagnostics is not None:
+            fit_info = diagnostics.get_fit_info_dict()
+            distances = diagnostics.distances.detach().cpu().numpy().reshape(-1)
 
-    if corrected_averages is not None:
-        mrcfile.write(
-            name=pipeline_config.io.out_corrected_avgs, data=corrected_averages
-        )
-    if original_averages is not None:
-        mrcfile.write(name=pipeline_config.io.out_original_avgs, data=original_averages)
-    if write_metadata is not None:
-        if write_metadata[weight_columns].isna().any().any():
+            dict_key = str(class_value)
+            distances_dict[dict_key] = distances
+
+            fit_info["class_id"] = class_value
+            gmm_fits_info.append(fit_info)
+
+    if robust_avgs is not None:
+        mrcfile.write(name=pipeline_config.io.out_corrected_avgs, data=robust_avgs)
+    if original_avgs is not None:
+        mrcfile.write(name=pipeline_config.io.out_original_avgs, data=original_avgs)
+    if out_md is not None:
+        if out_md[weight_columns].isna().any().any():
             raise RuntimeError("Some particles were not assigned weights.")
 
-        starfile.write(data=write_metadata, filename=args.out_star)
+        starfile.write(data=out_md, filename=args.out_star)
+    if gmm_out_path is not None and gmm_fits_info:
+        np.savez_compressed(gmm_out_path / "distances.npz", **distances_dict)
+        gmm_df = pd.DataFrame(gmm_fits_info)
+        gmm_df.to_csv(gmm_out_path / "gmmFits.csv", index=False)
 
 
 if __name__ == "__main__":
