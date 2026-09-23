@@ -750,16 +750,11 @@ def get_output_buffers(
                 )
             ]
         else:
-            write_metadata = input_metadata_df
+            write_metadata = input_metadata_df.copy()
 
-        # Initialize the weight and group columns with invalid values to help catch
-        # any particles that don't get assigned a group or weights
+        # Initialize the weight to nan to later catch particles that without weights
         for column in weight_columns:
             write_metadata[column] = np.nan
-
-        write_metadata[group_by_column] = pd.Series(
-            UNASSIGNED_GROUP_VALUE, index=write_metadata.index, dtype=int
-        )
 
     stack_path = Path(
         str(input_metadata_df["image"].to_numpy()[0]).split("@", maxsplit=1)[1]
