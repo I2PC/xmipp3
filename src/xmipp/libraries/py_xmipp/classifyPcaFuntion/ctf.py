@@ -239,7 +239,6 @@ class ctfClass:
             self.K3
         )
 
-        # EXACTAMENTE tu convención
         return -torch.sin(gamma)
 
     # =============================================================
@@ -252,42 +251,68 @@ class ctfClass:
         particles,
         dim,
         pixel_size,
-        angle
+        angle=0.0,
+        particle_indices=None,
+        batch_size=500
     ):
+        
+        num_particles = particles.shape[0]
+        numerator = torch.zeros((dim, dim), dtype=torch.complex64, device=particles.device)
+        denominator = torch.zeros((dim, dim), dtype=torch.float32, device=particles.device)
 
-        Fpart = torch.fft.fft2(
-            particles, norm="forward"
-        )
+        for start in range(0, num_particles, batch_size):
 
-        ctf_batch = self.compute_ctfs_batch(
-            dim=dim,
-            pixel_size=pixel_size,
-            angle=angle,
-            device=particles.device
-        )
+            end = min(start + batch_size,num_particles)
+    
+            part_sub = particles[start:end]
+    
+            if particle_indices is not None:
+                idx_sub = particle_indices[start:end]
+            else:
+                idx_sub = None
+    
 
-        numerator = (
-            ctf_batch * Fpart
-        ).sum(dim=0)
-
-        denominator = (
-            ctf_batch.square()
-        ).sum(dim=0)
-
-        # Mantener exactamente tu regularización
+            # FFT
+            Fpart = torch.fft.fft2(part_sub, norm="forward")
+    
+            # CTF de este batch    
+            ctf_batch = self.compute_ctfs_batch(
+                dim=dim,
+                pixel_size=pixel_size,
+                angle=angle,
+                particle_indices=idx_sub,
+                device=particles.device
+            )
+    
+            # Acumulación
+            numerator.add_(
+                (ctf_batch * Fpart).sum(dim=0)
+            )
+    
+            denominator.add_(
+                ctf_batch.square().sum(dim=0)
+            )
+    
+            del Fpart
+            del ctf_batch
+    
+        # Regularización    
         regularizer = (
             1e-2 * denominator.max()
         )
-
-        avg_fft = (
-            numerator /
-            (denominator + regularizer)
+    
+        avg_fft = numerator / (
+            denominator + regularizer
         )
-
+    
+        # IFFT    
         avg = torch.real(
-            torch.fft.ifft2(avg_fft, norm="forward")
+            torch.fft.ifft2(
+                avg_fft,
+                norm="forward"
+            )
         )
-
+    
         return avg
     
     
