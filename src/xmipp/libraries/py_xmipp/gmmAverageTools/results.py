@@ -31,6 +31,10 @@ class GMMDiagnostics:
         Tensor of shape ``(n, 2)`` containing the posterior probabilities (responsibilities)
         of each sample belonging to each GMM component.
         Default is None.
+    decided_degenerate : bool, optional
+        Whether the GMM model was determined to be degenerate after the final estimator
+        iteration. Set to None for estimators that don't check for degeneracy.
+        Default is None.
     """
 
     distances: torch.Tensor
@@ -39,6 +43,11 @@ class GMMDiagnostics:
     variances: tuple[float, float]
     component_weights: tuple[float, float]
     responsibilities: torch.Tensor | None = None
+    decided_degenerate: bool | None = None
+
+    @property
+    def checked_degeneracy(self) -> bool:
+        return self.decided_degenerate is not None
 
     def get_fit_info_dict(self) -> dict[str, float]:
         return {
@@ -48,6 +57,8 @@ class GMMDiagnostics:
             "variance2": self.variances[1],
             "weight_component1": self.component_weights[0],
             "weight_component2": self.component_weights[1],
+            "checked_degeneracy": self.checked_degeneracy,
+            "decided_degenerate": bool(self.decided_degenerate) # convert None to False
         }
 
 

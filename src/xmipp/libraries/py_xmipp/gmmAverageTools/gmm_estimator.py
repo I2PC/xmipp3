@@ -305,6 +305,7 @@ class RecursiveGMMEstimator:
 
         # Avoid overwriting weights so that the responsibilities are available for diagnostics
         final_weights = weights
+        decided_degenerate = None
         if self.check_degenerate_model and weights is not None:
             if self._check_degeneracy(
                 self.model,
@@ -313,6 +314,9 @@ class RecursiveGMMEstimator:
             ):
                 final_weights = torch.ones_like(weights)
                 reference = images.mean(dim=0)
+                decided_degenerate = True
+            else:
+                decided_degenerate = False
 
         diagnostics = GMMDiagnostics(
             distances=distances,
@@ -321,6 +325,7 @@ class RecursiveGMMEstimator:
             variances=self._get_model_variances(),
             component_weights=self._get_model_component_weights(),
             responsibilities=weights,
+            decided_degenerate=decided_degenerate,
         )
         result = EstimatorResult(
             estimate=reference,
