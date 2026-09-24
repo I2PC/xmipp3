@@ -1180,21 +1180,19 @@ class BnBgpu:
         return torch.stack(averages),labels
     
     
-    def normalize_images(self, img_tensor, mask=1):
-        """
-        Normaliza un lote de imágenes [N, H, W] usando una máscara [H, W]
-        para que tengan media 0 y varianza 1.
-        """
-        masked_img = img_tensor * mask
-        pixel_count = mask.sum()
-        
-        mean = masked_img.sum(dim=(-2, -1), keepdim=True) / pixel_count
-        centered = (img_tensor - mean) * mask        
-        var = (centered ** 2).sum(dim=(-2, -1), keepdim=True) / pixel_count
-        std = torch.sqrt(var + 1e-8)
-        
-        normalized = centered / std
-        return normalized
+    def normalize_images(self, img_tensor):
+
+            H, W = img_tensor.shape[-2:]
+            pixel_count = H * W
+            
+            mean = img_tensor.sum(dim=(-2, -1), keepdim=True) / pixel_count
+            centered = img_tensor - mean        
+            
+            var = (centered ** 2).sum(dim=(-2, -1), keepdim=True) / pixel_count
+            std = torch.sqrt(var + 1e-8)
+            
+            normalized = centered / std
+            return normalized
     
     
 
