@@ -752,9 +752,10 @@ def get_output_buffers(
         else:
             write_metadata = input_metadata_df.copy()
 
-        # Initialize the weight to nan to later catch particles that without weights
+        # Initialize the weight to nan to later catch particles without weights
         for column in weight_columns:
             write_metadata[column] = np.nan
+        write_metadata[group_by_column] = UNASSIGNED_GROUP_VALUE
 
     stack_path = Path(
         str(input_metadata_df["image"].to_numpy()[0]).split("@", maxsplit=1)[1]
@@ -787,12 +788,17 @@ def main() -> None:
     args = parser.parse_args()
     pipeline_config = parse_pipeline_config(args)
 
-    input_metadata_df = pd.DataFrame(starfile.read(args.input_xmd))
+    group_by_column = pipeline_config.io.group_by_column
+    input_metadata_df = pd.DataFrame(starfile.read(pipeline_config.io.input_xmd))
+
+    # Ensure the grouping column is of integer type
+    input_metadata_df[group_by_column] = (
+        input_metadata_df[group_by_column].fillna(UNASSIGNED_GROUP_VALUE).astype(int)
+    )
+
     validate_item_ids(input_metadata_df, name="Input")
 
-    group_by_values: Iterable[int] = sorted(
-        input_metadata_df[pipeline_config.io.group_by_column].unique()
-    )
+    group_by_values: Iterable[int] = sorted(input_metadata_df[group_by_column].unique())
 
     weight_columns = get_weight_columns(pipeline_config)
     out_md, robust_avgs, original_avgs = get_output_buffers(
@@ -810,7 +816,6 @@ def main() -> None:
         gmm_out_path.mkdir(exist_ok=True)
 
     for index, class_value in enumerate(group_by_values):
-        group_by_column = pipeline_config.io.group_by_column
         class_rows = input_metadata_df[group_by_column] == class_value
         class_data = input_metadata_df[class_rows]
 
@@ -854,6 +859,10 @@ def main() -> None:
         if out_md[weight_columns].isna().any().any():
             raise RuntimeError("Some particles were not assigned weights.")
 
+        # Ensure output grouping column is of integer type without NaNs
+        out_md[group_by_column] = (
+            out_md[group_by_column].fillna(UNASSIGNED_GROUP_VALUE).astype(int)
+        )
         starfile.write(data=out_md, filename=args.out_star)
     if gmm_out_path is not None and gmm_fits_info:
         np.savez_compressed(gmm_out_path / "distances.npz", **distances_dict)
