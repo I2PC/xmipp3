@@ -288,6 +288,7 @@ if __name__=="__main__":
             
             expImages = mmap.data[initBatch:endBatch].astype(np.float32)
             Texp = torch.from_numpy(expImages).float().to(cuda)
+            Texp = bnb.normalize_images(Texp)
                   
             if i < initStep:          
                 batch_projExp_cpu.append( bnb.batchExpToCpu(Texp, freqBn, coef, cvecs) )           

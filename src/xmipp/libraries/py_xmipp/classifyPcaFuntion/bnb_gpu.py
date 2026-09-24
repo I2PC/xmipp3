@@ -339,7 +339,8 @@ class BnBgpu:
             else:
                 transforIm = transforIm * self.create_circular_mask(transforIm)
                 
-
+            transforIm = self.normalize_images(transforIm)
+            
             proj_batch = self.batchExpToCpu(transforIm, freqBn, coef, cvecs)
             batch_projExp_cpu[count] = proj_batch
             count+=1
@@ -471,6 +472,7 @@ class BnBgpu:
             clk_list.append(avg_img)
         
         clk = torch.stack(clk_list, dim=0)
+        clk = self.normalize_images(clk)
         
         # clk = self.averages_createClasses(mmap, iter, newCL)
         # clk_ctf = self.averages_createClasses(mmap, iter, newCL)  
@@ -1176,6 +1178,24 @@ class BnBgpu:
         del X, centroids, distances
     
         return torch.stack(averages),labels
+    
+    
+    def normalize_images(self, img_tensor, mask=1):
+        """
+        Normaliza un lote de imágenes [N, H, W] usando una máscara [H, W]
+        para que tengan media 0 y varianza 1.
+        """
+        masked_img = img_tensor * mask
+        pixel_count = mask.sum()
+        
+        mean = masked_img.sum(dim=(-2, -1), keepdim=True) / pixel_count
+        centered = (img_tensor - mean) * mask        
+        var = (centered ** 2).sum(dim=(-2, -1), keepdim=True) / pixel_count
+        std = torch.sqrt(var + 1e-8)
+        
+        normalized = centered / std
+        return normalized
+    
     
 
     def determine_batches(self, free_memory, dim):
