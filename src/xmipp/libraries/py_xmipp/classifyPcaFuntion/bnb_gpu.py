@@ -340,6 +340,8 @@ class BnBgpu:
                 transforIm = transforIm * self.create_circular_mask(transforIm)
                 
             transforIm = self.normalize_images(transforIm)
+            p_mean = transforIm.mean(dim=(-2, -1), keepdim=True)
+            p_cent = transforIm - p_mean
             
             proj_batch = self.batchExpToCpu(transforIm, freqBn, coef, cvecs)
             batch_projExp_cpu[count] = proj_batch
@@ -473,6 +475,13 @@ class BnBgpu:
         
         clk = torch.stack(clk_list, dim=0)
         clk = self.normalize_images(clk)
+        
+        r_mean = clk.mean(dim=(-2, -1), keepdim=True)
+        r_cent = clk - r_mean
+        numerator = (r_cent * p_cent).sum(dim=(-2, -1), keepdim=True)
+        denominator = (r_cent ** 2).sum(dim=(-2, -1), keepdim=True) + 1e-8
+        scale_factor = numerator / denominator        
+        clk = (r_cent * scale_factor) + p_mean
         
         # clk = self.averages_createClasses(mmap, iter, newCL)
         # clk_ctf = self.averages_createClasses(mmap, iter, newCL)  
