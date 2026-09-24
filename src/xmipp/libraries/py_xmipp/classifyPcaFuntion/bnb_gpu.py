@@ -329,7 +329,7 @@ class BnBgpu:
                         
             transforIm, tMatrix = self.center_particles_inverse_save_matrix(mmap.data[initBatch:endBatch], tMatrix[initBatch:endBatch], 
                                                                              rotBatch[initBatch:endBatch], translations[initBatch:endBatch], centerxy)
-            del tMatrix_ctf
+            # del tMatrix_ctf
             
    
             if mask:
