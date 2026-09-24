@@ -340,8 +340,6 @@ class BnBgpu:
                 transforIm = transforIm * self.create_circular_mask(transforIm)
                 
             transforIm = self.normalize_images(transforIm)
-            p_mean = transforIm.mean(dim=(-2, -1), keepdim=True)
-            p_cent = transforIm - p_mean
             
             proj_batch = self.batchExpToCpu(transforIm, freqBn, coef, cvecs)
             batch_projExp_cpu[count] = proj_batch
@@ -445,45 +443,39 @@ class BnBgpu:
         # =============================================================
         # CTF-CORRECTED CLASS AVERAGES
         # =============================================================
-        clk_list = []
+        # clk_list = []
+        #
+        # for n in range(total_slots):
+        #
+        #     particles = newCL[n]
+        #     indices = newIdx[n]
+        #
+        #     if particles.shape[0] == 0:
+        #         clk_list.append(
+        #             torch.zeros(
+        #                 (H, W),
+        #                 dtype=torch.float32,
+        #                 device=self.cuda
+        #             )
+        #         )
+        #         continue
+        #
+        #     avg_img = ctf.apply_ctf_to_average(
+        #         particles=particles,
+        #         dim=H,
+        #         pixel_size=self.sampling,
+        #         angle=0.0,
+        #         particle_indices=indices,
+        #         batch_size=500
+        #     )
+        #
+        #     clk_list.append(avg_img)
+        #
+        # clk = torch.stack(clk_list, dim=0)
+        # clk = self.normalize_images(clk)
         
-        for n in range(total_slots):
-        
-            particles = newCL[n]
-            indices = newIdx[n]
-        
-            if particles.shape[0] == 0:
-                clk_list.append(
-                    torch.zeros(
-                        (H, W),
-                        dtype=torch.float32,
-                        device=self.cuda
-                    )
-                )
-                continue
-        
-            avg_img = ctf.apply_ctf_to_average(
-                particles=particles,
-                dim=H,
-                pixel_size=self.sampling,
-                angle=0.0,
-                particle_indices=indices,
-                batch_size=500
-            )
-        
-            clk_list.append(avg_img)
-        
-        clk = torch.stack(clk_list, dim=0)
+        clk = self.averages_createClasses(mmap, iter, newCL)
         clk = self.normalize_images(clk)
-        
-        r_mean = clk.mean(dim=(-2, -1), keepdim=True)
-        r_cent = clk - r_mean
-        numerator = (r_cent * p_cent).sum(dim=(-2, -1), keepdim=True)
-        denominator = (r_cent ** 2).sum(dim=(-2, -1), keepdim=True) + 1e-8
-        scale_factor = numerator / denominator        
-        clk = (r_cent * scale_factor) + p_mean
-        
-        # clk = self.averages_createClasses(mmap, iter, newCL)
         # clk_ctf = self.averages_createClasses(mmap, iter, newCL)  
         #
         # dim = (-2, -1)  # Dimensiones espaciales (H, W)
