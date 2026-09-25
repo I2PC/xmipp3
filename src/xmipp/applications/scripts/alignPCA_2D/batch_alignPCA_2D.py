@@ -209,7 +209,7 @@ if __name__=="__main__":
     else:
         initStep = int(min(numFirstBatch, np.ceil(nExp/expBatchSize)))
         
-        num_clusters_total = final_classes * 60 // 100  
+        num_clusters_total = final_classes #* 60 // 100  
         max_classes_per_round = 50
         
         clusters_per_round = []
@@ -288,7 +288,7 @@ if __name__=="__main__":
             
             expImages = mmap.data[initBatch:endBatch].astype(np.float32)
             Texp = torch.from_numpy(expImages).float().to(cuda)
-            Texp = bnb.normalize_images(Texp)
+            # Texp = bnb.normalize_images(Texp)
                   
             if i < initStep:          
                 batch_projExp_cpu.append( bnb.batchExpToCpu(Texp, freqBn, coef, cvecs) )           

@@ -292,14 +292,14 @@ class BnBgpu:
         # print("----------create-classes-------------") 
         iterSplit = 7       
             
-        if iter == 2: 
-            split = (final_classes - classes) * 60 // 100
-        elif 3 <= iter < iterSplit and final_classes > classes:
-            split = final_classes - classes
-        else:
-            split = 0
+        # if iter == 2: 
+        #     split = (final_classes - classes) * 60 // 100
+        # elif 3 <= iter < iterSplit and final_classes > classes:
+        #     split = final_classes - classes
+        # else:
+        #     split = 0
             
-        # split = 0
+        split = 0
         
         # --- Z-score thresholds por clase ---    
         if iter < 10: # Filters the best-scoring particles
@@ -339,7 +339,7 @@ class BnBgpu:
             else:
                 transforIm = transforIm * self.create_circular_mask(transforIm)
                 
-            transforIm = self.normalize_images(transforIm)
+            # transforIm = self.normalize_images(transforIm)
             
             proj_batch = self.batchExpToCpu(transforIm, freqBn, coef, cvecs)
             batch_projExp_cpu[count] = proj_batch
@@ -414,80 +414,81 @@ class BnBgpu:
         newIdx = [torch.cat(l, dim=0) if len(l) > 0 else torch.empty((0,), dtype=torch.long, device=self.cuda) for l in newIdx]
 
         #  Structural Split  
-        if 2 <= iter < iterSplit and split > 0:
-            for n in range(classes):
-                if newCL[n].shape[0] > 20: # Minimum particles to consider
-        
-                    #K-means over PCA proj
-                    avgMeans, labels = self.kmeans_pytorch_for_averages(newCL[n], newProj[n], cvecs, num_clusters=2, num_iters=15)
-                    file_avg = "avg_%s_%s_%s.mrcs"%(initBatch,iter+1, n+1)
-                    self.save_images(avgMeans.cpu().detach().numpy(), self.sampling, file_avg)
-        
-                    part_A = newCL[n][labels == 0]
-                    part_B = newCL[n][labels == 1]
-        
-                    idx_A = (newIdx[n][labels == 0])
-                    idx_B = (newIdx[n][labels == 1])
-        
-                    if n < split:
-                        newCL[n] = part_A
-                        newCL[n + classes] = part_B
-        
-                        newIdx[n] = idx_A
-                        newIdx[n + classes] = idx_B
-        
-                    else:
-                        newCL[n] = torch.cat([part_A, part_B], dim=0)
-                        newIdx[n] = torch.cat([idx_A, idx_B], dim=0)
+        # if 2 <= iter < iterSplit and split > 0:
+        #     for n in range(classes):
+        #         if newCL[n].shape[0] > 20: # Minimum particles to consider
+        #
+        #             #K-means over PCA proj
+        #             avgMeans, labels = self.kmeans_pytorch_for_averages(newCL[n], newProj[n], cvecs, num_clusters=2, num_iters=15)
+        #             file_avg = "avg_%s_%s_%s.mrcs"%(initBatch,iter+1, n+1)
+        #             self.save_images(avgMeans.cpu().detach().numpy(), self.sampling, file_avg)
+        #
+        #             part_A = newCL[n][labels == 0]
+        #             part_B = newCL[n][labels == 1]
+        #
+        #             idx_A = (newIdx[n][labels == 0])
+        #             idx_B = (newIdx[n][labels == 1])
+        #
+        #             if n < split:
+        #                 newCL[n] = part_A
+        #                 newCL[n + classes] = part_B
+        #
+        #                 newIdx[n] = idx_A
+        #                 newIdx[n + classes] = idx_B
+        #
+        #             else:
+        #                 newCL[n] = torch.cat([part_A, part_B], dim=0)
+        #                 newIdx[n] = torch.cat([idx_A, idx_B], dim=0)
                         
         # =============================================================
         # CTF-CORRECTED CLASS AVERAGES
         # =============================================================
-        # clk_list = []
-        #
-        # for n in range(total_slots):
-        #
-        #     particles = newCL[n]
-        #     indices = newIdx[n]
-        #
-        #     if particles.shape[0] == 0:
-        #         clk_list.append(
-        #             torch.zeros(
-        #                 (H, W),
-        #                 dtype=torch.float32,
-        #                 device=self.cuda
-        #             )
-        #         )
-        #         continue
-        #
-        #     avg_img = ctf.apply_ctf_to_average(
-        #         particles=particles,
-        #         dim=H,
-        #         pixel_size=self.sampling,
-        #         angle=0.0,
-        #         particle_indices=indices,
-        #         batch_size=500
-        #     )
-        #
-        #     clk_list.append(avg_img)
-        #
-        # clk = torch.stack(clk_list, dim=0)
+        clk_list = []
+        
+        for n in range(total_slots):
+        
+            particles = newCL[n]
+            indices = newIdx[n]
+        
+            if particles.shape[0] == 0:
+                clk_list.append(
+                    torch.zeros(
+                        (H, W),
+                        dtype=torch.float32,
+                        device=self.cuda
+                    )
+                )
+                continue
+        
+            avg_img = ctf.apply_ctf_to_average(
+                particles=particles,
+                dim=H,
+                pixel_size=self.sampling,
+                angle=0.0,
+                particle_indices=indices,
+                batch_size=500
+            )
+        
+            clk_list.append(avg_img)
+        
+        clk = torch.stack(clk_list, dim=0)
         # clk = self.normalize_images(clk)
         
-        clk = self.averages_createClasses(mmap, iter, newCL)
-        clk = self.normalize_images(clk)
-        # clk_ctf = self.averages_createClasses(mmap, iter, newCL)  
-        #
-        # dim = (-2, -1)  # Dimensiones espaciales (H, W)
-        #
-        # mean_clk = clk.mean(dim=dim, keepdim=True)
-        # std_clk = clk.std(dim=dim, keepdim=True)
-        #
-        # mean_ctf = clk_ctf.mean(dim=dim, keepdim=True)
-        # std_ctf = clk_ctf.std(dim=dim, keepdim=True)
-        #
-        # clk = ((clk - mean_clk) / (std_clk + 1e-8)) * std_ctf + mean_ctf  
-        # del clk_ctf, mean_clk, std_clk, mean_ctf, std_ctf
+        # clk = self.averages_createClasses(mmap, iter, newCL)
+        # clk = self.normalize_images(clk)
+        
+        clk_ctf = self.averages_createClasses(mmap, iter, newCL)  
+        
+        dim = (-2, -1)  # Dimensiones espaciales (H, W)
+        
+        mean_clk = clk.mean(dim=dim, keepdim=True)
+        std_clk = clk.std(dim=dim, keepdim=True)
+        
+        mean_ctf = clk_ctf.mean(dim=dim, keepdim=True)
+        std_ctf = clk_ctf.std(dim=dim, keepdim=True)
+        
+        clk = ((clk - mean_clk) / (std_clk + 1e-8)) * std_ctf + mean_ctf  
+        del clk_ctf, mean_clk, std_clk, mean_ctf, std_ctf
 
         if iter > 1:
             # cut = (25 if iter < 5 else 20) if sampling < 3 else (35 if iter < 5 else 30)
