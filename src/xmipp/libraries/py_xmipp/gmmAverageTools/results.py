@@ -27,9 +27,11 @@ class GMMDiagnostics:
     component_weights : tuple[float, float]
         The mixture weights (prior probabilities) associated with each component,
         summing to 1.
-    responsibilities : torch.Tensor, optional
-        Tensor of shape ``(n, 2)`` containing the posterior probabilities (responsibilities)
-        of each sample belonging to each GMM component.
+    weights : torch.Tensor, optional
+        Tensor of shape ``(n, 2)`` containing the weights assigned to each sample
+        by the GMM estimator to each sample. These are the posterior probabilities
+        of each sample belonging to each GMM component, with some post-processing
+        to ensure weights are non-increasing with distance.
         Default is None.
     decided_degenerate : bool, optional
         Whether the GMM model was determined to be degenerate after the final estimator
@@ -42,7 +44,7 @@ class GMMDiagnostics:
     means: tuple[float, float]
     variances: tuple[float, float]
     component_weights: tuple[float, float]
-    responsibilities: torch.Tensor | None = None
+    weights: torch.Tensor | None = None
     decided_degenerate: bool | None = None
     decided_too_close: bool | None = None
     decided_too_small: bool | None = None

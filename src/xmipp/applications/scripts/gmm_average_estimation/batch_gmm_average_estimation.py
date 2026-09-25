@@ -819,6 +819,7 @@ def main() -> None:
 
     gmm_fits_info = []
     distances_dict = {}
+    gmm_weights_dict = {}
 
     gmm_out_path = pipeline_config.io.out_gmm_diagnostics
     if gmm_out_path is not None:
@@ -853,9 +854,11 @@ def main() -> None:
         if gmm_out_path is not None and diagnostics is not None:
             fit_info = diagnostics.get_fit_info_dict()
             distances = diagnostics.distances.detach().cpu().numpy().reshape(-1)
+            weights = diagnostics.weights.detach().cpu().numpy().reshape(-1)
 
             dict_key = str(class_value)
             distances_dict[dict_key] = distances
+            gmm_weights_dict[dict_key] = weights
 
             fit_info["class_id"] = class_value
             gmm_fits_info.append(fit_info)
@@ -875,6 +878,7 @@ def main() -> None:
         starfile.write(data=out_md, filename=args.out_star)
     if gmm_out_path is not None and gmm_fits_info:
         np.savez_compressed(gmm_out_path / "distances.npz", **distances_dict)
+        np.savez_compressed(gmm_out_path / "gmmWeights.npz", **gmm_weights_dict)
         gmm_df = pd.DataFrame(gmm_fits_info)
         gmm_df.to_csv(gmm_out_path / "gmmFits.csv", index=False)
 

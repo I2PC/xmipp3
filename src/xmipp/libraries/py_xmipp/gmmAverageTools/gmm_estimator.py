@@ -141,9 +141,19 @@ class RecursiveGMMEstimator:
         good_component = self._get_good_component_idx()
         responsibilities = model.predict_proba(distances)[:, good_component]
 
-        # .view(-1, 1, 1) allows the weights to broadcast over image batches
-        # NOTE: this would need to be modified to generalize to other dimensional images
-        return responsibilities.to(dtype=dtype, device=device).view(-1, 1, 1)
+        # Sort by distance to enforce non-increasing weights as distance grows
+        _, sorted_indices = torch.sort(distances, descending=False)
+        sorted_indices = sorted_indices[..., 0]
+        sorted_resps = responsibilities[sorted_indices]
+
+        # Maximum distance is last, so gets the minimum weight, and so on
+        monotonic_resps = torch.cummin(sorted_resps, dim=0).values
+
+        # Restore original batch order
+        weights = torch.empty_like(responsibilities)
+        weights[sorted_indices] = monotonic_resps
+
+        return weights
 
     def _degeneracy_checks(self) -> Tuple[bool, bool]:
         """
@@ -208,13 +218,15 @@ class RecursiveGMMEstimator:
         if initialize_params:
             self._initialize_model_params(std_distances)
 
-        # Fit GMM to the distance distribution
         self.model.fit(std_distances)
-
-        # Get weights and update reference
         weights = self._responsibility_weights(
             self.model, std_distances, dtype=images.dtype, device=images.device
         )
+
+        # Reshape weights to allow broadcasting over images
+        weight_shape = (images.shape[0],) + (1,) * (images.ndim - 1)
+        weights = weights.view(weight_shape)
+
         next_reference = weighted_average(images, weights)
         rel_change = torch.linalg.norm(next_reference - reference) / (
             torch.linalg.norm(reference) + 1.0e-8
@@ -277,8 +289,12 @@ class RecursiveGMMEstimator:
         reference = (
             images.mean(dim=0) if reference is None else reference.to(images.device)
         )
-        weights = None
-        distances = None
+
+        # Convention: if no iterations are performed, weights are all one and distances are all zero
+        weights = torch.ones(
+            size=(images.shape[0], 1, 1), dtype=images.dtype, device=images.device
+        )
+        distances = torch.zeros_like(weights)
 
         self.converged = False
         for i in range(self.max_iter):
@@ -314,14 +330,14 @@ class RecursiveGMMEstimator:
             means=self._get_model_means(),
             variances=self._get_model_variances(),
             component_weights=self._get_model_component_weights(),
-            responsibilities=weights,
+            weights=weights,
             decided_degenerate=decided_degenerate,
             decided_too_close=degenerate_separation,
             decided_too_small=degenerate_weight,
         )
         result = EstimatorResult(
             estimate=reference,
-            weights=final_weights,
+            weights=final_weights.view(-1, 1, 1),
             gmm_diagnostics=diagnostics,
         )
 
