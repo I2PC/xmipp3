@@ -88,6 +88,7 @@ class GMMConfig:
     external_max_iter: int = 15
     internal_max_iter: int = 25
     standardize_distances: bool = True
+    initialize_params: bool = True
     check_degenerate: bool = True
     min_component_separation: float = 0.5
     min_good_component_weight: float = 0.4
@@ -258,6 +259,12 @@ def build_argument_parser() -> argparse.ArgumentParser:
         help="Standardize the distances before fitting the GMM model to them.",
     )
     gmm_group.add_argument(
+        "--gmm-initialize-params",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="For each image class, initialize the GMM model's means and weights to default values.",
+    )
+    gmm_group.add_argument(
         "--gmm-check-degenerate",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -424,6 +431,7 @@ def parse_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
             external_max_iter=args.gmm_external_max_iter,
             internal_max_iter=args.gmm_internal_max_iter,
             standardize_distances=args.gmm_standardize_distances,
+            initialize_params=args.gmm_initialize_params,
             check_degenerate=args.gmm_check_degenerate,
             min_component_separation=args.gmm_min_component_sep,
             min_good_component_weight=args.gmm_min_good_weight,
@@ -585,6 +593,7 @@ def initialize_estimator(
         max_iter=gmm_config.external_max_iter,
         tol=estimator_config.tolerance,
         standardize_distances=gmm_config.standardize_distances,
+        initialize_params=gmm_config.initialize_params,
         random_state=estimator_config.random_state,
         gmm_max_iter=gmm_config.internal_max_iter,
         check_degenerate_model=gmm_config.check_degenerate,
