@@ -17,6 +17,7 @@ class RecursiveGMMEstimator:
         max_iter: int = 1,
         tol: float = 1.0e-4,
         standardize_distances: bool = True,
+        initialize_params: bool = True,
         random_state: Optional[int] = None,
         gmm_max_iter: int = 20,
         gmm_tol: float = 1.0e-4,
@@ -36,6 +37,7 @@ class RecursiveGMMEstimator:
         self.max_iter = max_iter
         self.tol = tol
         self.standardize_distances = standardize_distances
+        self.initialize_params = initialize_params
 
         self.check_degenerate_model = check_degenerate_model
         self.min_component_separation = min_component_separation
@@ -68,15 +70,15 @@ class RecursiveGMMEstimator:
         - Bad (higher distance) class: weight 0.2, mean equal to the 0.8 quantile of distances.
         """
         component_weights = torch.tensor(
-            [0.8, 0.2],
+            [0.95, 0.05],
             dtype=distances.dtype,
             device=distances.device,
         )
 
-        component_means = torch.quantile(
-            distances.reshape(-1),
-            1.0 - component_weights,
+        quantiles_for_means = torch.tensor(
+            [0.5, 0.95], dtype=distances.dtype, device=distances.device
         )
+        component_means = torch.quantile(distances.reshape(-1), quantiles_for_means)
 
         self.model.means_init = component_means.reshape(2, 1)
         self.model.weights_init = component_weights
@@ -225,7 +227,6 @@ class RecursiveGMMEstimator:
         self,
         images: torch.Tensor,
         reference: Optional[torch.Tensor] = None,
-        initialize_params: bool = False,
     ) -> EstimatorResult:
         """
         Coordinates the whole GMM robust estimation process:
@@ -249,11 +250,6 @@ class RecursiveGMMEstimator:
             all the images). Should match the shape of one image.
             If not provided, it will the default to the average of the
             input images (i.e. ``reference = images.mean(dim=0)``).
-        initialize_params : bool, optional
-            If True, the GMM model's means will be initialized on the first iteration
-            to predetermined values (using the initial distance distribution's 0.2
-            and 0.8 quantiles), and the GMM component weights will be initialized to
-            0.8 and 0.2, respectively. Default is False.
 
         Returns
         -------
@@ -287,7 +283,7 @@ class RecursiveGMMEstimator:
         self.converged = False
         for i in range(self.max_iter):
             distances, weights, next_reference, converged = self._fit_one_iteration(
-                images, reference, initialize_params=initialize_params and i == 0
+                images, reference, initialize_params=self.initialize_params and i == 0
             )
 
             # Update reference
