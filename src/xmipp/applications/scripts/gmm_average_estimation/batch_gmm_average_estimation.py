@@ -55,7 +55,7 @@ ESTIMATOR_TYPES: Tuple[str, ...] = get_args(EstimatorType)
 UNASSIGNED_GROUP_VALUE = -1
 
 DEFAULT_SMOOTH_DELTA: Dict[WeightApproach, float] = {
-    "per-image": 0.05,
+    "per-image": 1.5,
     "per-coefficient": 1.5,
 }
 

@@ -238,69 +238,26 @@ def smooth_redescending_weights_modulus(
     return square_residuals.neg_().div_(variance_scale).exp_()
 
 
-def image_batch_mean_norm(
-    batch_tensor: torch.Tensor, keepdim: bool = True
-) -> torch.Tensor:
-    """
-    Calculates the mean square norm of a tensor. If the given tensor has 2 or more
-    dimensions, the first dimension is kept as a batch dimension.
-
-    Parameters
-    ----------
-    batch_tensor : torch.Tensor
-        Tensor to calculate the norm of.
-    keepdim : bool, optional
-        If ``keepdim`` is True and ``batch_tensor`` has at least 2 dimensions, then
-        any dimensions that are squeezed by the norm calculation will be kept.
-        Default is True.
-
-    Returns
-    -------
-    torch.Tensor
-        Norm of the input tensor (along its first dimension if ``batch_tensor.ndim >= 2``).
-    """
-    if batch_tensor.ndim <= 1:
-        return torch.vdot(batch_tensor, batch_tensor) / batch_tensor.numel()
-
-    dims = tuple(range(1, batch_tensor.ndim))
-
-    elements_per_sample = batch_tensor[0].numel()
-
-    sq_norm = torch.linalg.vector_norm(batch_tensor, dim=dims, keepdim=keepdim)
-    sq_norm /= elements_per_sample
-    return sq_norm
-
-
 def smooth_redescending_weights_norm(
     images: torch.Tensor,
     reference: torch.Tensor,
     std: Union[torch.Tensor, float],
     delta: float,
-):
+) -> torch.Tensor:
     """
-    Computes smooth redescending M-estimator weights using a Gaussian-like influence metric.
-    Calculates the norm of the differences between the images and the reference in
-    order to assign a single weight per image.
-
-    Parameters
-    ----------
-    images : torch.Tensor
-        Images tensor of shape (n, *image_shape).
-    reference : torch.Tensor
-        Reference template tensor of shape image_shape.
-    std : torch.Tensor | float
-        Standard deviation scale factor.
-    delta : float
-        Tuning parameter governing the rejection scale threshold of outlier features.
-
-    Returns
-    -------
-    torch.Tensor
-        Tensor of shape (n,) + (1,) * len(image_shape) containing the smooth
-        redescending weights.
+    Compute one redescending weight per image from the mean squared
+    standardized residual.
     """
     residuals = (images - reference) / std
-    residual_norm_sq = image_batch_mean_norm(residuals, keepdim=True).square_()
-    variance_scale = delta**2
 
-    return residual_norm_sq.neg_().div_(variance_scale).exp_()
+    dims = tuple(range(1, residuals.ndim))
+    mean_squared_residual = (
+        residuals.abs()
+        .square()
+        .mean(
+            dim=dims,
+            keepdim=True,
+        )
+    )
+
+    return torch.exp(-mean_squared_residual / delta**2)
