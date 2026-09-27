@@ -83,13 +83,16 @@ class RecursiveGMMEstimator:
         self.model.means_init = component_means.reshape(2, 1)
         self.model.weights_init = component_weights
 
-    def _standardize(
+    def _preprocess_distances(
         self, distances: torch.Tensor
     ) -> Tuple[torch.Tensor, float, float]:
         """
-        If self.standardize_distances is True, returns the standardized distances to
-        a mean of zero and standard deviation of one.
+        Clips the minimum distances to a reasonable value, and optionally standardizes
+        them to zero mean and standard deviation of one.
         """
+        distance_clip_min = torch.quantile(distances, 0.005)
+        distances = distances.clip(min=distance_clip_min)
+
         if not self.standardize_distances:
             return distances, 0.0, 1.0
 
@@ -126,32 +129,26 @@ class RecursiveGMMEstimator:
         return self.model.weights_[0].item(), self.model.weights_[1].item()
 
     def _responsibility_weights(
-        self,
-        model: TorchGaussianMixture,
-        distances: torch.Tensor,
-        dtype: torch.dtype,
-        device: torch.device,
+        self, model: TorchGaussianMixture, distances: torch.Tensor
     ) -> torch.Tensor:
         """
-        Calculates the weights assigned to each of the images according the their
-        distance to the reference and the fitted GMM.
-        The weight of an image is defined as the (posterior) probability of the image
-        belonging to the good component of the GMM, given its distance to the reference.
+        Calculate posterior probabilities of belonging to the good GMM component.
+
+        Enforce non-increasing weights with increasing distance using a
+        cumulative minimum.
         """
         good_component = self._get_good_component_idx()
         responsibilities = model.predict_proba(distances)[:, good_component]
 
-        # Sort by distance to enforce non-increasing weights as distance grows
-        _, sorted_indices = torch.sort(distances, descending=False)
-        sorted_indices = sorted_indices[..., 0]
-        sorted_resps = responsibilities[sorted_indices]
+        # Sort particles by increasing distance.
+        sorted_indices = torch.argsort(distances.reshape(-1))
 
-        # Maximum distance is last, so gets the minimum weight, and so on
-        monotonic_resps = torch.cummin(sorted_resps, dim=0).values
+        # Enforce non-increasing weights.
+        sorted_weights = responsibilities[sorted_indices].cummin(dim=0).values
 
-        # Restore original batch order
+        # Restore original particle order.
         weights = torch.empty_like(responsibilities)
-        weights[sorted_indices] = monotonic_resps
+        weights[sorted_indices] = sorted_weights
 
         return weights
 
@@ -209,7 +206,7 @@ class RecursiveGMMEstimator:
         4. Update reference as the new weighted average.
         """
         distances = self.distance_function(images, reference)
-        std_distances, _, _ = self._standardize(distances)
+        std_distances, _, _ = self._preprocess_distances(distances)
 
         # Prepare distances for the TorchGaussianMixture model
         if std_distances.ndim == 1:
@@ -219,9 +216,7 @@ class RecursiveGMMEstimator:
             self._initialize_model_params(std_distances)
 
         self.model.fit(std_distances)
-        weights = self._responsibility_weights(
-            self.model, std_distances, dtype=images.dtype, device=images.device
-        )
+        weights = self._responsibility_weights(self.model, std_distances)
 
         # Reshape weights to allow broadcasting over images
         weight_shape = (images.shape[0],) + (1,) * (images.ndim - 1)
@@ -292,7 +287,9 @@ class RecursiveGMMEstimator:
 
         # Convention: if no iterations are performed, weights are all one and distances are all zero
         weights = torch.ones(
-            size=(images.shape[0], 1, 1), dtype=images.dtype, device=images.device
+            size=(images.shape[0],) + (1,) * (images.ndim - 1),
+            dtype=images.dtype,
+            device=images.device,
         )
         distances = torch.zeros_like(weights)
 
