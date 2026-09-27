@@ -329,8 +329,6 @@ class JointIRLSFourier:
         # The shape of weights might not match images due to masking
         weight_spatial_dims = tuple(range(1, weights.ndim))
         agg_weights = weights.mean(dim=weight_spatial_dims, keepdim=True)
-
-        # Reshape to (n_images, 1, ..., 1) convention
         target_weight_shape = (images.shape[0],) + (1,) * (images.ndim - 1)
         agg_weights = agg_weights.view(target_weight_shape)
 
