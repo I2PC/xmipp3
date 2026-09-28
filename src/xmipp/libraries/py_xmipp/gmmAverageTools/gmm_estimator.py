@@ -238,7 +238,13 @@ class RecursiveGMMEstimator:
         reference: torch.Tensor,
         initialize_params: bool = False,
     ) -> Tuple[
-        torch.Tensor, torch.Tensor, torch.Tensor, bool, torch.Tensor, torch.Tensor
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        bool,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
     ]:
         """
         Performs one iteration of the GMM estimation procedure:
@@ -266,13 +272,14 @@ class RecursiveGMMEstimator:
         if not (finite_parameters and valid_covariances and valid_weights):
             raise _UnusableGMM("invalid_gmm", distances)
 
-        raw_responsibilities, weights, peak_weights = self._responsibility_weights(
-            self.model, std_distances
+        raw_responsibilities, cummin_weights, peak_weights = (
+            self._responsibility_weights(self.model, std_distances)
         )
+        weights = peak_weights
 
         if not all(
             torch.isfinite(w).all() and bool(((w >= 0) & (w <= 1)).all())
-            for w in (raw_responsibilities, weights, peak_weights)
+            for w in (raw_responsibilities, cummin_weights, peak_weights)
         ):
             raise RuntimeError("Got invalid responsibilities from GMM")
 
@@ -284,7 +291,7 @@ class RecursiveGMMEstimator:
                     "degenerate_components",
                     distances,
                     raw_responsibilities,
-                    weights,
+                    cummin_weights,
                     peak_weights,
                     model_valid=True,
                     degeneracy=degeneracy,
@@ -298,7 +305,7 @@ class RecursiveGMMEstimator:
                 "collapsed_weights",
                 distances,
                 raw_responsibilities,
-                weights,
+                cummin_weights,
                 peak_weights,
                 model_valid=True,
                 degeneracy=degeneracy,
@@ -315,7 +322,7 @@ class RecursiveGMMEstimator:
                 "invalid_reference",
                 distances,
                 raw_responsibilities,
-                weights,
+                cummin_weights,
                 peak_weights,
                 model_valid=True,
                 degeneracy=degeneracy,
@@ -330,6 +337,7 @@ class RecursiveGMMEstimator:
             next_reference,
             bool(rel_change < self.tol),
             raw_responsibilities,
+            cummin_weights,
             peak_weights,
         )
 
@@ -398,6 +406,7 @@ class RecursiveGMMEstimator:
         distances = torch.zeros_like(weights)
         diagnostic_weights = None
         raw_responsibilities = None
+        cummin_weights = None
         peak_weights = None
         model_valid = False
         fallback_reason = "no_iterations" if self.max_iter == 0 else None
@@ -418,6 +427,7 @@ class RecursiveGMMEstimator:
                     next_reference,
                     converged,
                     raw_responsibilities,
+                    cummin_weights,
                     peak_weights,
                 ) = self._fit_one_iteration(
                     images,
@@ -426,8 +436,9 @@ class RecursiveGMMEstimator:
                 )
             except _UnusableGMM as exc:
                 distances = exc.distances
-                diagnostic_weights = exc.cummin
+                diagnostic_weights = exc.peak
                 raw_responsibilities = exc.raw
+                cummin_weights = exc.cummin
                 peak_weights = exc.peak
                 model_valid = exc.model_valid
                 degenerate_separation, degenerate_weight = exc.degeneracy
@@ -455,8 +466,11 @@ class RecursiveGMMEstimator:
             standardized_distances=self.standardize_distances,
             means=self._get_model_means() if model_valid else missing,
             variances=self._get_model_variances() if model_valid else missing,
-            component_weights=self._get_model_component_weights() if model_valid else missing,
+            component_weights=(
+                self._get_model_component_weights() if model_valid else missing
+            ),
             weights=diagnostic_weights,
+            cummin_weights=cummin_weights,
             raw_responsibilities=raw_responsibilities,
             peak_weights=peak_weights,
             decided_degenerate=decided_degenerate,
