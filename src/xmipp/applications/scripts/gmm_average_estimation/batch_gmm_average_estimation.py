@@ -822,6 +822,7 @@ def main() -> None:
     gmm_weights_dict = {}
     gmm_raw_responsibilities_dict = {}
     gmm_peak_weights_dict = {}
+    gmm_cummin_weights_dict = {}
 
     gmm_out_path = pipeline_config.io.out_gmm_diagnostics
     if gmm_out_path is not None:
@@ -865,6 +866,10 @@ def main() -> None:
                 gmm_weights_dict[dict_key] = (
                     diagnostics.weights.detach().cpu().numpy().reshape(-1)
                 )
+            if diagnostics.cummin_weights is not None:
+                gmm_cummin_weights_dict[dict_key] = (
+                    diagnostics.cummin_weights.detach().cpu().numpy().reshape(-1)
+                )
             if diagnostics.raw_responsibilities is not None:
                 gmm_raw_responsibilities_dict[dict_key] = (
                     diagnostics.raw_responsibilities.detach().cpu().numpy().reshape(-1)
@@ -898,6 +903,9 @@ def main() -> None:
         )
         np.savez_compressed(
             gmm_out_path / "gmmRawResponsibilities.npz", **gmm_raw_responsibilities_dict
+        )
+        np.savez_compressed(
+            gmm_out_path / "gmmCumminWeights.npz", **gmm_cummin_weights_dict
         )
         gmm_df = pd.DataFrame(gmm_fits_info)
         gmm_df.to_csv(gmm_out_path / "gmmFits.csv", index=False)

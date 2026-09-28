@@ -49,6 +49,7 @@ class GMMDiagnostics:
     component_weights: tuple[float, float]
     weights: torch.Tensor | None = None
     raw_responsibilities: torch.Tensor | None = None
+    cummin_weights: torch.Tensor | None = None
     peak_weights: torch.Tensor | None = None
     decided_degenerate: bool | None = None
     decided_too_close: bool | None = None
