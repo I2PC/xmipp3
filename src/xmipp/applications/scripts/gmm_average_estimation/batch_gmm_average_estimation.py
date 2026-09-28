@@ -55,7 +55,7 @@ ESTIMATOR_TYPES: Tuple[str, ...] = get_args(EstimatorType)
 UNASSIGNED_GROUP_VALUE = -1
 
 DEFAULT_SMOOTH_DELTA: Dict[WeightApproach, float] = {
-    "per-image": 0.05,
+    "per-image": 1.5,
     "per-coefficient": 1.5,
 }
 
@@ -820,6 +820,8 @@ def main() -> None:
     gmm_fits_info = []
     distances_dict = {}
     gmm_weights_dict = {}
+    gmm_raw_responsibilities_dict = {}
+    gmm_peak_weights_dict = {}
 
     gmm_out_path = pipeline_config.io.out_gmm_diagnostics
     if gmm_out_path is not None:
@@ -854,11 +856,23 @@ def main() -> None:
         if gmm_out_path is not None and diagnostics is not None:
             fit_info = diagnostics.get_fit_info_dict()
             distances = diagnostics.distances.detach().cpu().numpy().reshape(-1)
-            weights = diagnostics.weights.detach().cpu().numpy().reshape(-1)
 
             dict_key = str(class_value)
             distances_dict[dict_key] = distances
-            gmm_weights_dict[dict_key] = weights
+
+            # A fallback before a valid GMM fit has no posterior to compare.
+            if diagnostics.weights is not None:
+                gmm_weights_dict[dict_key] = (
+                    diagnostics.weights.detach().cpu().numpy().reshape(-1)
+                )
+            if diagnostics.raw_responsibilities is not None:
+                gmm_raw_responsibilities_dict[dict_key] = (
+                    diagnostics.raw_responsibilities.detach().cpu().numpy().reshape(-1)
+                )
+            if diagnostics.peak_weights is not None:
+                gmm_peak_weights_dict[dict_key] = (
+                    diagnostics.peak_weights.detach().cpu().numpy().reshape(-1)
+                )
 
             fit_info["class_id"] = class_value
             gmm_fits_info.append(fit_info)
@@ -879,6 +893,12 @@ def main() -> None:
     if gmm_out_path is not None and gmm_fits_info:
         np.savez_compressed(gmm_out_path / "distances.npz", **distances_dict)
         np.savez_compressed(gmm_out_path / "gmmWeights.npz", **gmm_weights_dict)
+        np.savez_compressed(
+            gmm_out_path / "gmmPeakWeights.npz", **gmm_peak_weights_dict
+        )
+        np.savez_compressed(
+            gmm_out_path / "gmmRawResponsibilities.npz", **gmm_raw_responsibilities_dict
+        )
         gmm_df = pd.DataFrame(gmm_fits_info)
         gmm_df.to_csv(gmm_out_path / "gmmFits.csv", index=False)
 
