@@ -28,11 +28,14 @@ class GMMDiagnostics:
         The mixture weights (prior probabilities) associated with each component,
         summing to 1.
     weights : torch.Tensor, optional
-        Tensor of shape ``(n, 2)`` containing the weights assigned to each sample
-        by the GMM estimator to each sample. These are the posterior probabilities
-        of each sample belonging to each GMM component, with some post-processing
-        to ensure weights are non-increasing with distance.
+        Tensor of shape ``(n, 1, ..., 1)`` containing the cumulative-minimum
+        weights (before any degeneracy fallback). This is the strategy currently
+        used for estimation.
         Default is None.
+    raw_responsibilities : torch.Tensor, optional
+        Unmodified probability of the lower-mean component for each particle.
+    peak_weights : torch.Tensor, optional
+        Peak-anchored monotone alternative. Diagnostic only; not used for fitting.
     decided_degenerate : bool, optional
         Whether the GMM model was determined to be degenerate after the final estimator
         iteration. Set to None for estimators that don't check for degeneracy.
@@ -45,15 +48,20 @@ class GMMDiagnostics:
     variances: tuple[float, float]
     component_weights: tuple[float, float]
     weights: torch.Tensor | None = None
+    raw_responsibilities: torch.Tensor | None = None
+    peak_weights: torch.Tensor | None = None
     decided_degenerate: bool | None = None
     decided_too_close: bool | None = None
     decided_too_small: bool | None = None
+    fallback_reason: str | None = None
+    gmm_converged: bool | None = None
+    gmm_n_iter: int | None = None
 
     @property
     def checked_degeneracy(self) -> bool:
         return self.decided_degenerate is not None
 
-    def get_fit_info_dict(self) -> dict[str, float]:
+    def get_fit_info_dict(self) -> dict:
         return {
             "mean1": self.means[0],
             "mean2": self.means[1],
@@ -65,6 +73,9 @@ class GMMDiagnostics:
             "decided_degenerate": bool(self.decided_degenerate), # convert None to False
             "decided_too_close": bool(self.decided_too_close), # convert None to False
             "decided_too_small": bool(self.decided_too_small), # convert None to False
+            "fallback_reason": self.fallback_reason,
+            "gmm_converged": self.gmm_converged,
+            "gmm_n_iter": self.gmm_n_iter,
         }
 
 
