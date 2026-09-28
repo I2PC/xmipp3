@@ -179,12 +179,12 @@ class BnBgpu:
     
         nExp = batchExp[0].size(0)
         nShift = int(nShift)
-        ################################
-        ref = batchRef[n] / (torch.linalg.norm(batchRef[n], dim=1, keepdim=True) + 1e-8)
-        exp = batchExp[n] / (torch.linalg.norm(batchExp[n], dim=1, keepdim=True) + 1e-8)
-        ################################
     
         for n in range(self.nBand):
+            ################################
+            ref = batchRef[n] / (torch.linalg.norm(batchRef[n], dim=1, keepdim=True) + 1e-8)
+            exp = batchExp[n] / (torch.linalg.norm(batchExp[n], dim=1, keepdim=True) + 1e-8)
+            ################################
             # score = torch.cdist(batchRef[n], batchExp[n])
             score = torch.cdist(ref, exp)
     
