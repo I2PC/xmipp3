@@ -309,10 +309,10 @@ class BnBgpu:
         nShift = torch.tensor(nShift, device=self.cuda)       
                              
         for n in range(self.nBand):
-            ################################
-            batchRef[n] = batchRef[n] / (torch.linalg.norm(batchRef[n], dim=1, keepdim=True) + 1e-8)
-            batchExp[n] = batchExp[n] / (torch.linalg.norm(batchExp[n], dim=1, keepdim=True) + 1e-8)
-            ################################
+            # ################################
+            # batchRef[n] = batchRef[n] / (torch.linalg.norm(batchRef[n], dim=1, keepdim=True) + 1e-8)
+            # batchExp[n] = batchExp[n] / (torch.linalg.norm(batchExp[n], dim=1, keepdim=True) + 1e-8)
+            # ################################
             score = torch.cdist(batchRef[n], batchExp[n])
             
         num_rows, num_cols = score.shape    
