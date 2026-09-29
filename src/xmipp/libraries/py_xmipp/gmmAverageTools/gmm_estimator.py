@@ -8,6 +8,8 @@ from xmippPyModules.gmmAverageTools.torch_gaussian_mixture import TorchGaussianM
 from xmippPyModules.gmmAverageTools.results import EstimatorResult, GMMDiagnostics
 
 MIN_ELEMENTS_FOR_GMM = 50
+DEFAULT_BAD_WEIGHT = 0.05
+DEFAULT_BAD_QUANTILE = 0.95
 
 
 class _UnusableGMM(Exception):
@@ -43,6 +45,8 @@ class RecursiveGMMEstimator:
         tol: float = 1.0e-4,
         standardize_distances: bool = True,
         initialize_params: bool = True,
+        initial_bad_mean_quantile: Optional[float] = None,
+        initial_bad_weight: Optional[float] = None,
         random_state: Optional[int] = None,
         gmm_max_iter: int = 20,
         gmm_tol: float = 1.0e-4,
@@ -62,7 +66,14 @@ class RecursiveGMMEstimator:
         self.max_iter = max_iter
         self.tol = tol
         self.standardize_distances = standardize_distances
+
         self.initialize_params = initialize_params
+        if initial_bad_mean_quantile is not None and not(0.5 < initial_bad_mean_quantile < 1.0):
+            raise ValueError("initial_bad_mean_quantile must be strictly between 0.5 and 1.0")
+        if initial_bad_weight is not None and not(0.0 < initial_bad_weight < 1.0):
+            raise ValueError("initial_bad_weight must be strictly between 0.0 and 1.0")
+        self.initial_bad_mean_quantile = initial_bad_mean_quantile
+        self.initial_bad_weight = initial_bad_weight
 
         self.check_degenerate_model = check_degenerate_model
         self.min_component_separation = min_component_separation
@@ -94,14 +105,17 @@ class RecursiveGMMEstimator:
         - Good (lower distance) class: weight 0.8, mean equal to the 0.2 quantile of distances.
         - Bad (higher distance) class: weight 0.2, mean equal to the 0.8 quantile of distances.
         """
+        bad_weight = DEFAULT_BAD_WEIGHT if self.initial_bad_weight is None else self.initial_bad_weight
+
         component_weights = torch.tensor(
-            [0.95, 0.05],
+            [1.0 - bad_weight, bad_weight],
             dtype=distances.dtype,
             device=distances.device,
         )
 
+        bad_quantile = DEFAULT_BAD_QUANTILE if self.initial_bad_mean_quantile is None else self.initial_bad_mean_quantile
         quantiles_for_means = torch.tensor(
-            [0.5, 0.95], dtype=distances.dtype, device=distances.device
+            [0.5, bad_quantile], dtype=distances.dtype, device=distances.device
         )
         component_means = torch.quantile(distances.reshape(-1), quantiles_for_means)
 
@@ -142,19 +156,19 @@ class RecursiveGMMEstimator:
         """
         return torch.argmin(self.model.means_.mean(dim=1))
 
-    def _get_model_means(self) -> tuple[float, float]:
+    def _get_model_means(self) -> Tuple[float, float]:
         """
         Returns the GMM model's two scalar means
         """
         return self.model.means_[0, 0].item(), self.model.means_[1, 0].item()
 
-    def _get_model_variances(self) -> tuple[float, float]:
+    def _get_model_variances(self) -> Tuple[float, float]:
         """
         Returns the GMM model's two scalar variances
         """
         return self.model.covariances_[0].item(), self.model.covariances_[1].item()
 
-    def _get_model_component_weights(self) -> tuple[float, float]:
+    def _get_model_component_weights(self) -> Tuple[float, float]:
         """
         Returns the GMM model's weight for each of its components. The order
         they are returned in matches the internal model's order, which does
