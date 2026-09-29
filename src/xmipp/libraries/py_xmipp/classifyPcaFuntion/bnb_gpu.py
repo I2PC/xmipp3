@@ -618,7 +618,7 @@ class BnBgpu:
             #         )
             #     clk_list.append( avg_img )
                 
-            clk = torch.stack( clk_list, dim=0 )
+            # clk = torch.stack( clk_list, dim=0 )
             
             clk = self.averages(data, newCL, classes)  
             # clk_ctf = self.averages(data, newCL, classes)  
