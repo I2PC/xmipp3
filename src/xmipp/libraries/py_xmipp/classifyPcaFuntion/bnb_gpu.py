@@ -550,20 +550,21 @@ class BnBgpu:
         centerIm = data.shape[1]/2 
         centerxy = torch.tensor([centerIm,centerIm], device = self.cuda)
         
-        if iter < 2:                    
-            transforIm, tMatrix = self.center_particles_inverse_save_matrix(data, tMatrix, 
-                                                                             rotBatch, translations, centerxy)
-                    
-            # del tMatrix_ctf
-            #del rotBatch,translations, centerxy 
-            
-            if mask:
-                transforIm = transforIm * self.create_gaussian_mask(transforIm, self.sigma)
-            else: 
-                transforIm = transforIm * self.create_circular_mask(transforIm)
-                                   
-            
-            batch_projExp_cpu = self.create_batchExp(transforIm, freqBn, coef, cvecs)        
+        transforIm, tMatrix_ctf = self.center_particles_inverse_save_matrix(data, tMatrix, 
+                                                                         rotBatch, translations, centerxy)
+        
+        if iter < 2:
+             tMatrix = tMatrix_ctf        
+        del tMatrix_ctf
+        #del rotBatch,translations, centerxy 
+        
+        if mask:
+            transforIm = transforIm * self.create_gaussian_mask(transforIm, self.sigma)
+        else: 
+            transforIm = transforIm * self.create_circular_mask(transforIm)
+                               
+        
+        batch_projExp_cpu = self.create_batchExp(transforIm, freqBn, coef, cvecs)        
         
         if iter == 2:
             
