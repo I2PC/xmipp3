@@ -635,7 +635,7 @@ class BnBgpu:
             clk = ((clk - mean_clk) / (std_clk + 1e-8)) * std_ctf + mean_ctf  
             del clk_ctf, mean_clk, std_clk, mean_ctf, std_ctf 
             
-            file_avg = "classInt_%s_%s_%s.mrcs"%(initBatch,iter+1, n+1)
+            file_avg = "classInt.mrcs"
             self.save_images(clk.cpu().detach().numpy(), self.sampling, file_avg)     
 
             
