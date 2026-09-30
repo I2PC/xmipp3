@@ -291,7 +291,7 @@ class BnBgpu:
     @torch.no_grad()
     def create_classes(self, mmap, mmap_star, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes, final_classes, freqBn, coef, cvecs, mask, expStar):
         
-        # ctf = ctfClass(expStar, device=self.cuda)
+        ctf = ctfClass(expStar, device=self.cuda)
         
         # print("----------create-classes-------------") 
         iterSplit = 7       
@@ -331,9 +331,9 @@ class BnBgpu:
             
             endBatch = min(initBatch+expBatchSize, nExp)
                         
-            transforIm, tMatrix[initBatch:endBatch] = self.center_particles_inverse_save_matrix(mmap.data[initBatch:endBatch], tMatrix[initBatch:endBatch], 
+            transforIm, tMatrix_ctf = self.center_particles_inverse_save_matrix(mmap.data[initBatch:endBatch], tMatrix[initBatch:endBatch], 
                                                                              rotBatch[initBatch:endBatch], translations[initBatch:endBatch], centerxy)
-            # del tMatrix_ctf
+            del tMatrix_ctf
             
    
             if mask:
@@ -348,19 +348,19 @@ class BnBgpu:
             proj_batch = self.batchExpToCpu(transforIm, freqBn, coef, cvecs)
             batch_projExp_cpu[count] = proj_batch
             count+=1
-            # del transforIm
-            #
-            #
-            # transforIm, tMatrix[initBatch:endBatch] = self.center_particles_inverse_save_matrix(mmap_star.data[initBatch:endBatch], tMatrix[initBatch:endBatch], 
-            #                                                                  rotBatch[initBatch:endBatch], translations[initBatch:endBatch], centerxy)
-            #
-            #
-            # if mask:
-            #     sigma_gauss = (0.75*self.sigma) if (iter < 10 and iter % 2 == 1) else (self.sigma)# if iter < 10 else sigma
-            #
-            #     transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma_gauss)
-            # else:
-            #     transforIm = transforIm * self.create_circular_mask(transforIm)
+            del transforIm
+            
+            
+            transforIm, tMatrix[initBatch:endBatch] = self.center_particles_inverse_save_matrix(mmap_star.data[initBatch:endBatch], tMatrix[initBatch:endBatch], 
+                                                                             rotBatch[initBatch:endBatch], translations[initBatch:endBatch], centerxy)
+            
+            
+            if mask:
+                sigma_gauss = (0.75*self.sigma) if (iter < 10 and iter % 2 == 1) else (self.sigma)# if iter < 10 else sigma
+            
+                transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma_gauss)
+            else:
+                transforIm = transforIm * self.create_circular_mask(transforIm)
             
 
             #Create classes for batches
@@ -447,52 +447,52 @@ class BnBgpu:
         # # =============================================================
         # CTF-CORRECTED CLASS AVERAGES
         # =============================================================
-        # clk_list = []
-        #
-        # for n in range(total_slots):
-        #
-        #     particles = newCL[n]
-        #     indices = newIdx[n]
-        #
-        #     if particles.shape[0] == 0:
-        #         clk_list.append(
-        #             torch.zeros(
-        #                 (H, W),
-        #                 dtype=torch.float32,
-        #                 device=self.cuda
-        #             )
-        #         )
-        #         continue
-        #
-        #     avg_img = ctf.apply_ctf_to_average(
-        #         particles=particles,
-        #         dim=H,
-        #         pixel_size=self.sampling,
-        #         angle=0.0,
-        #         particle_indices=indices,
-        #         batch_size=500
-        #     )
-        #
-        #     clk_list.append(avg_img)
-        #
-        # clk = torch.stack(clk_list, dim=0)
+        clk_list = []
+        
+        for n in range(total_slots):
+        
+            particles = newCL[n]
+            indices = newIdx[n]
+        
+            if particles.shape[0] == 0:
+                clk_list.append(
+                    torch.zeros(
+                        (H, W),
+                        dtype=torch.float32,
+                        device=self.cuda
+                    )
+                )
+                continue
+        
+            avg_img = ctf.apply_ctf_to_average(
+                particles=particles,
+                dim=H,
+                pixel_size=self.sampling,
+                angle=0.0,
+                particle_indices=indices,
+                batch_size=500
+            )
+        
+            clk_list.append(avg_img)
+        
+        clk = torch.stack(clk_list, dim=0)
         # clk = self.normalize_images(clk)
         
-        clk = self.averages_createClasses(mmap, iter, newCL)
+        # clk = self.averages_createClasses(mmap, iter, newCL)
         # clk = self.normalize_images(clk)
         
-        # clk_ctf = self.averages_createClasses(mmap, iter, newCL)  
-        #
-        # dim = (-2, -1)  # Dimensiones espaciales (H, W)
-        #
-        # mean_clk = clk.mean(dim=dim, keepdim=True)
-        # std_clk = clk.std(dim=dim, keepdim=True)
-        #
-        # mean_ctf = clk_ctf.mean(dim=dim, keepdim=True)
-        # std_ctf = clk_ctf.std(dim=dim, keepdim=True)
-        #
-        # clk = ((clk - mean_clk) / (std_clk + 1e-8)) * std_ctf + mean_ctf  
-        # del clk_ctf, mean_clk, std_clk, mean_ctf, std_ctf
+        clk_ctf = self.averages_createClasses(mmap, iter, newCL)  
+        
+        dim = (-2, -1)  # Dimensiones espaciales (H, W)
+        
+        mean_clk = clk.mean(dim=dim, keepdim=True)
+        std_clk = clk.std(dim=dim, keepdim=True)
+        
+        mean_ctf = clk_ctf.mean(dim=dim, keepdim=True)
+        std_ctf = clk_ctf.std(dim=dim, keepdim=True)
+        
+        clk = ((clk - mean_clk) / (std_clk + 1e-8)) * std_ctf + mean_ctf  
+        del clk_ctf, mean_clk, std_clk, mean_ctf, std_ctf
 
         if iter > 1:
             # cut = (25 if iter < 5 else 20) if sampling < 3 else (35 if iter < 5 else 30)
@@ -538,7 +538,7 @@ class BnBgpu:
     @torch.no_grad()
     def align_particles_to_classes(self, data, data_star, cl, tMatrix, iter, expBatchSize, matches, vectorshift, classes, freqBn, coef, cvecs, mask, expStar):
         
-        # ctf = ctfClass(expStar, device=self.cuda)
+        ctf = ctfClass(expStar, device=self.cuda)
         
         # print("----------align-to-classes-------------")
                 
@@ -550,12 +550,12 @@ class BnBgpu:
         centerIm = data.shape[1]/2 
         centerxy = torch.tensor([centerIm,centerIm], device = self.cuda)
         
-        transforIm, tMatrix = self.center_particles_inverse_save_matrix(data, tMatrix, 
+        transforIm, tMatrix_ctf = self.center_particles_inverse_save_matrix(data, tMatrix, 
                                                                          rotBatch, translations, centerxy)
         
-        # if iter < 2:
-        #      tMatrix = tMatrix_ctf        
-        # del tMatrix_ctf
+        if iter < 2:
+            tMatrix = tMatrix_ctf        
+        del tMatrix_ctf
         #del rotBatch,translations, centerxy 
         
         if mask:
@@ -568,15 +568,15 @@ class BnBgpu:
         
         if iter == 2:
             
-            # transforIm, tMatrix = self.center_particles_inverse_save_matrix(data_star, tMatrix, 
-            #                                                              rotBatch, translations, centerxy)
-            #
-            # del rotBatch,translations, centerxy 
-            #
-            # if mask:
-            #     transforIm = transforIm * self.create_gaussian_mask(transforIm, self.sigma)
-            # else: 
-            #     transforIm = transforIm * self.create_circular_mask(transforIm)
+            transforIm, tMatrix = self.center_particles_inverse_save_matrix(data_star, tMatrix, 
+                                                                         rotBatch, translations, centerxy)
+                
+            del rotBatch,translations, centerxy 
+            
+            if mask:
+                transforIm = transforIm * self.create_gaussian_mask(transforIm, self.sigma)
+            else: 
+                transforIm = transforIm * self.create_circular_mask(transforIm)
             
             newCL = [[] for i in range(classes)]  
             newCL_indices = [ [] for _ in range(classes) ]  
@@ -604,39 +604,37 @@ class BnBgpu:
             
             
             # CTF-CORRECTED CLASS AVERAGES
-            # clk_list = []
-            # for n in range(classes): 
-            #     particles = newCL[n] 
-            #     indices = newCL_indices[n] 
-            #     num_particles = particles.shape[0]
-            #
-            #     if num_particles == 0: 
-            #         clk_list.append( torch.zeros( ( data_star.shape[1], data_star.shape[2] ), dtype=torch.float32, device=self.cuda ) ) 
-            #         continue
-            #
-            #     # Average corregido por CTF
-            #     avg_img = ctf.apply_ctf_to_average( 
-            #         particles=particles, dim=particles.shape[-1], pixel_size=self.sampling, angle=0.0, particle_indices=indices, batch_size=500 
-            #         )
-            #     clk_list.append( avg_img )
-            #
-            # clk = torch.stack( clk_list, dim=0 )
+            clk_list = []
+            for n in range(classes): 
+                particles = newCL[n] 
+                indices = newCL_indices[n] 
+                num_particles = particles.shape[0]
+                
+                if num_particles == 0: 
+                    clk_list.append( torch.zeros( ( data_star.shape[1], data_star.shape[2] ), dtype=torch.float32, device=self.cuda ) ) 
+                    continue
+                
+                # Average corregido por CTF
+                avg_img = ctf.apply_ctf_to_average( 
+                    particles=particles, dim=particles.shape[-1], pixel_size=self.sampling, angle=0.0, particle_indices=indices, batch_size=500 
+                    )
+                clk_list.append( avg_img )
+                
+            clk = torch.stack( clk_list, dim=0 )
             
-            clk = self.averages(data, newCL, classes)
+            clk_ctf = self.averages(data, newCL, classes)  
+
+            #Scale
+            dim = (-2, -1)  # Dimensiones espaciales (H, W)
             
-            # clk_ctf = self.averages(data, newCL, classes)  
-            #
-            # #Scale
-            # dim = (-2, -1)  # Dimensiones espaciales (H, W)
-            #
-            # mean_clk = clk.mean(dim=dim, keepdim=True)
-            # std_clk = clk.std(dim=dim, keepdim=True)
-            #
-            # mean_ctf = clk_ctf.mean(dim=dim, keepdim=True)
-            # std_ctf = clk_ctf.std(dim=dim, keepdim=True)
-            #
-            # clk = ((clk - mean_clk) / (std_clk + 1e-8)) * std_ctf + mean_ctf  
-            # del clk_ctf, mean_clk, std_clk, mean_ctf, std_ctf 
+            mean_clk = clk.mean(dim=dim, keepdim=True)
+            std_clk = clk.std(dim=dim, keepdim=True)
+            
+            mean_ctf = clk_ctf.mean(dim=dim, keepdim=True)
+            std_ctf = clk_ctf.std(dim=dim, keepdim=True)
+            
+            clk = ((clk - mean_clk) / (std_clk + 1e-8)) * std_ctf + mean_ctf  
+            del clk_ctf, mean_clk, std_clk, mean_ctf, std_ctf 
             
             file_avg = "classInt.mrcs"
             self.save_images(clk.cpu().detach().numpy(), self.sampling, file_avg)     
