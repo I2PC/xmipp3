@@ -494,16 +494,16 @@ class BnBgpu:
         clk = ((clk - mean_clk) / (std_clk + 1e-8)) * std_ctf + mean_ctf  
         del clk_ctf, mean_clk, std_clk, mean_ctf, std_ctf
 
-        if iter > 1:
-            # cut = (25 if iter < 5 else 20) if sampling < 3 else (35 if iter < 5 else 30)
-            # cut_res = 100 if iter < (iterSplit-1) else 50
-            cut=50
-            cut_res = 50           
-            res_classes = self.frc_resolution_tensor(newCL, fallback_res=cut_res, rcut=cut)
-            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes)
-        
-            boost = None
-            clk = self.highpass_cosine_sharpen(clk, res_classes, factorR = boost)
+        # if iter > 1:
+        #     # cut = (25 if iter < 5 else 20) if sampling < 3 else (35 if iter < 5 else 30)
+        #     # cut_res = 100 if iter < (iterSplit-1) else 50
+        #     cut=50
+        #     cut_res = 50           
+        #     res_classes = self.frc_resolution_tensor(newCL, fallback_res=cut_res, rcut=cut)
+        #     clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes)
+        #
+        #     boost = None
+        #     clk = self.highpass_cosine_sharpen(clk, res_classes, factorR = boost)
         
         
         if iter < (iterSplit + 1): #order by size
@@ -640,11 +640,11 @@ class BnBgpu:
             self.save_images(clk.cpu().detach().numpy(), self.sampling, file_avg)     
 
             
-            res_classes = self.frc_resolution_tensor(newCL)
-            
-            clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes)
-            
-            clk = self.highpass_cosine_sharpen(clk, res_classes)                       
+            # res_classes = self.frc_resolution_tensor(newCL)
+            #
+            # clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes)
+            #
+            # clk = self.highpass_cosine_sharpen(clk, res_classes)                       
         
             if not hasattr(self, 'grad_squared'):
                 self.grad_squared = torch.zeros_like(cl)
