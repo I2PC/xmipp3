@@ -368,16 +368,16 @@ if __name__=="__main__":
                     classes = len(cl)
                     
                     if mode == "create_classes":
-                        cl, tMatrix, batch_projExp_cpu = bnb.create_classes(
+                        cl, tMatrix, batch_projExp_cpu, numerador_list, denominador_list = bnb.create_classes(
                             mmap, mmap_star, tMatrix, iter, subset, expBatchSize, matches, vectorshift, 
                             classes, final_classes, freqBn, coef, cvecs, mask, expStar)
 
                     else:
                         torch.cuda.empty_cache()
                         expImages_star = mmap_star.data[initBatch:endBatch].astype(np.float32)
-                        cl, tMatrix, batch_projExp_cpu = bnb.align_particles_to_classes(expImages, expImages_star, 
+                        cl, tMatrix, batch_projExp_cpu, numerador_list, denominador_list = bnb.align_particles_to_classes(expImages, expImages_star, 
                                         cl, tMatrix, iter, subset, matches, vectorshift, classes,
-                                         freqBn, coef, cvecs, mask, expStar)
+                                         freqBn, coef, cvecs, mask, expStar, numerador_list, denominador_list)
     
                     
                     # save classes
@@ -433,11 +433,18 @@ if __name__=="__main__":
     counts = torch.bincount(refClas.to(torch.int64), minlength=classes)
     
     
-    cl = bnb.darken_particle_background(cl, dilation_size=13, halo_sigma=8.0, dark_strength=0.60)
+    # cl = bnb.darken_particle_background(cl, dilation_size=13, halo_sigma=8.0, dark_strength=0.60)
+    numerador = torch.stack(numerador_list, dim=0)
+    del numerador_list
+    denominador = torch.stack(denominador_list, dim=0)
+    del denominador_list
+    regularizer = (1e-2 * denominator.max())
+    avg_fft = numerator / (denominator + regularizer)
+    cl = torch.real(torch.fft.ifft2(avg_fft, norm="forward"))
     
         #save classes        
     file_final = output+".mrcs"
-    save_images(cl.cpu().detach().numpy(), sampling, file_final)    
+    save_images(cl.cpu().detach().numpy(), sampling, file_final) 
 
     # print(counts.int())
     

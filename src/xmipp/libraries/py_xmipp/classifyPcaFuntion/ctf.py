@@ -313,7 +313,7 @@ class ctfClass:
             )
         )
     
-        return avg
+        return avg, numerator, denominator
     
     
     
