@@ -432,8 +432,8 @@ if __name__=="__main__":
         
     counts = torch.bincount(refClas.to(torch.int64), minlength=classes)
     
-        #save classes        
-    file_final = output+".mrcs"
+    
+    cl = bnb.darken_particle_background(cl, dilation_size=13, halo_sigma=8.0, dark_strength=0.60)
     save_images(cl.cpu().detach().numpy(), sampling, file_final)    
 
     # print(counts.int())
