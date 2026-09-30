@@ -337,7 +337,7 @@ class ADMMEstimator:
 
         if reference is not None:
             initial_reference_real = reference
-            initial_reference_fourier = torch.fft.rfft2(reference)
+            initial_reference_fourier = torch.fft.rfft2(reference, norm="ortho")
 
         if initial_reference_real is None:
             initial_reference_real = data.real.images.mean(dim=0)
