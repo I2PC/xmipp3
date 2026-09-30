@@ -438,8 +438,8 @@ if __name__=="__main__":
     del numerador_list
     denominador = torch.stack(denominador_list, dim=0)
     del denominador_list
-    regularizer = (1e-2 * denominator.max())
-    avg_fft = numerator / (denominator + regularizer)
+    regularizer = (1e-2 * denominador.max())
+    avg_fft = numerador / (denominador + regularizer)
     cl = torch.real(torch.fft.ifft2(avg_fft, norm="forward"))
     
         #save classes        
