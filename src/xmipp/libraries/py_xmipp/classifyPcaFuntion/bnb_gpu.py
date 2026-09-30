@@ -554,7 +554,7 @@ class BnBgpu:
         centerIm = data.shape[1]/2 
         centerxy = torch.tensor([centerIm,centerIm], device = self.cuda)
         
-        transforIm, tMatrix = self.center_particles_inverse_save_matrix(data, tMatrix, 
+        transforIm, tMatrix_ctf = self.center_particles_inverse_save_matrix(data, tMatrix, 
                                                                          rotBatch, translations, centerxy)
         
         if iter < 2:
