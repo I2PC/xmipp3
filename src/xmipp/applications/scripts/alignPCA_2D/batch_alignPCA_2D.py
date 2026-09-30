@@ -434,6 +434,9 @@ if __name__=="__main__":
     
     
     cl = bnb.darken_particle_background(cl, dilation_size=13, halo_sigma=8.0, dark_strength=0.60)
+    
+        #save classes        
+    file_final = output+".mrcs"
     save_images(cl.cpu().detach().numpy(), sampling, file_final)    
 
     # print(counts.int())
