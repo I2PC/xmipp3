@@ -130,7 +130,7 @@ def average_aligned_particles_ctf(star_path, pix_size, output_mrc=None, device="
         shifted = fourier_shift_batch(rotated, batch_shx, batch_shy)
         # shifted_cpu = shifted.cpu().numpy().astype(np.float32)
         
-        Fpart = torch.fft.fft2(shifted, norm="forward")
+        Fpart = torch.fft.fft2(shifted)
         
         defA_rotated = defA[i:j] - psi[i:j]
         # defA_rotated = defA[i:j]
@@ -155,7 +155,7 @@ def average_aligned_particles_ctf(star_path, pix_size, output_mrc=None, device="
     regularizer = 1e-2 * denominator.max()
     
     avg_fft = numerator / (denominator + regularizer)
-    avg = torch.real(torch.fft.ifft2(avg_fft, norm="forward"))
+    avg = torch.real(torch.fft.ifft2(avg_fft))
     
     avg_cpu = avg.cpu().numpy().astype(np.float32)
 
