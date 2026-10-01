@@ -893,7 +893,7 @@ class BnBgpu:
     @torch.no_grad()
     def gaussian_lowpass_filter_2D_adaptive(self, imgs, res_angstrom,
                                             floor_res=100.0, clamp_exp=80.0,
-                                            hard_cut=False, nyquist_margin=0.95, normalize = True):
+                                            hard_cut=False, nyquist_margin=0.95, normalize = False):
         B, H, W = imgs.shape
         device, eps = imgs.device, 1e-8
     
@@ -932,7 +932,8 @@ class BnBgpu:
         del sigma2, exponent, freq2, D0
     
         # === Aplicar filtro y transformar inversa
-        img_filt = torch.fft.ifft2(torch.fft.fft2(imgs, norm="forward") * filt, norm="forward").real
+        # img_filt = torch.fft.ifft2(torch.fft.fft2(imgs, norm="forward") * filt, norm="forward").real
+        img_filt = torch.fft.ifft2(torch.fft.fft2(imgs) * filt).real
         img_filt = torch.nan_to_num(img_filt)
         del filt
     
@@ -963,14 +964,15 @@ class BnBgpu:
         sharpen_power: float = None,    # si None, se ajusta automáticamente según resolución
         factorR: float = None,
         eps: float = 1e-8,
-        normalize: bool = True,
+        normalize: bool = False,
         max_iter: int = 20
     ) -> torch.Tensor:
         B, H, W = averages.shape
         device = averages.device
     
         # === FFT + original energy ===
-        fft = torch.fft.fft2(averages, norm='forward')
+        # fft = torch.fft.fft2(averages, norm='forward')
+        fft = torch.fft.fft2(averages)
         fft_mag2 = torch.abs(fft) ** 2  # [B, H, W]
         energy_orig = torch.sum(fft_mag2, dim=(-2, -1))  # [B]
     
@@ -1053,7 +1055,8 @@ class BnBgpu:
         # === Aplicar filtro ===
         fft *= boost  
         del boost
-        filtered = torch.fft.ifft2(fft, norm='forward').real
+        # filtered = torch.fft.ifft2(fft, norm='forward').real
+        filtered = torch.fft.ifft2(fft).real
         del fft
     
         # === (Opcional) Normalizar contraste en espacio real ===
