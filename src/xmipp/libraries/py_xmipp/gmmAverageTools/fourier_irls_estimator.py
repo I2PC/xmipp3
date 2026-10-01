@@ -65,7 +65,7 @@ class JointIRLSFourier:
         prior_mean: Optional[torch.Tensor],
         prior_variance: Optional[torch.Tensor],
         mask: Optional[torch.Tensor],
-    ) -> tuple[
+    ) -> Tuple[
         torch.Tensor,
         Optional[torch.Tensor],
         Optional[torch.Tensor],
