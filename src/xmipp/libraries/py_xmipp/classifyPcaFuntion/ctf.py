@@ -78,8 +78,7 @@ class ctfClass:
 
         return (
             12.2639 /
-            math.sqrt(
-                V + 0.97845e-6 * V**2
+            math.sqrt(V + 0.97845e-6 * V**2
             )
         )
 
@@ -273,7 +272,8 @@ class ctfClass:
     
 
             # FFT
-            Fpart = torch.fft.fft2(part_sub, norm="forward")
+            # Fpart = torch.fft.fft2(part_sub, norm="forward")
+            Fpart = torch.fft.fft2(part_sub)
     
             # CTF de este batch    
             ctf_batch = self.compute_ctfs_batch(
@@ -306,12 +306,8 @@ class ctfClass:
         )
     
         # IFFT    
-        avg = torch.real(
-            torch.fft.ifft2(
-                avg_fft,
-                norm="forward"
-            )
-        )
+        # avg = torch.real(torch.fft.ifft2(avg_fft, norm="forward"))
+        avg = torch.real(torch.fft.ifft2(avg_fft, norm="forward"))
     
         return avg, numerator, denominator
     

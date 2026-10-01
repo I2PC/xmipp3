@@ -440,7 +440,8 @@ if __name__=="__main__":
     del denominador_list
     regularizer = (1e-2 * denominador.max())
     avg_fft = numerador / (denominador + regularizer)
-    cl = torch.real(torch.fft.ifft2(avg_fft, norm="forward"))
+    # cl = torch.real(torch.fft.ifft2(avg_fft, norm="forward"))
+    cl = torch.real(torch.fft.ifft2(avg_fft))
     
         #save classes        
     file_final = output+".mrcs"
