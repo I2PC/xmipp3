@@ -307,7 +307,7 @@ class ctfClass:
     
         # IFFT    
         # avg = torch.real(torch.fft.ifft2(avg_fft, norm="forward"))
-        avg = torch.real(torch.fft.ifft2(avg_fft, norm="forward"))
+        avg = torch.real(torch.fft.ifft2(avg_fft))
     
         return avg, numerator, denominator
     
