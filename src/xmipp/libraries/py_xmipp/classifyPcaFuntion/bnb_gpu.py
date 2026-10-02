@@ -11,6 +11,7 @@ import torch.nn.functional as F
 import kornia
 import random
 import math
+import mrcfile
 
 
 
@@ -269,6 +270,18 @@ class BnBgpu:
         return thr_low, thr_high
     
     
+    def save_images(self, data, voxel, outfilename):
+        data = data.astype('float32')
+        
+        if data.ndim == 2:
+            data = np.expand_dims(data, axis=0)
+            
+        with mrcfile.new(outfilename, overwrite=True) as mrc:
+            mrc.set_data(data)
+            mrc.voxel_size = (voxel, voxel, 1)
+            mrc.update_header_stats()
+    
+    
     @torch.no_grad()
     def create_classes(self, mmap, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes, final_classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles):
         
@@ -465,7 +478,10 @@ class BnBgpu:
             # torch.cuda.empty_cache()
             
             newCL = [torch.cat(class_images_list, dim=0) for class_images_list in newCL] 
-            clk = self.averages(data, newCL, classes)          
+            clk = self.averages(data, newCL, classes) 
+            
+            file_avg = "classInt.mrcs"
+            self.save_images(clk.cpu().detach().numpy(), self.sampling, file_avg)         
 
             
             res_classes = self.frc_resolution_tensor(newCL, sampling)
