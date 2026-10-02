@@ -327,7 +327,7 @@ class BnBgpu:
                                                                              rotBatch[initBatch:endBatch], translations[initBatch:endBatch], centerxy)
             
    
-            if mask:
+            if iter < 16 and mask:
                 sigma_gauss = (0.75*sigma) if (iter < 10 and iter % 2 == 1) else (sigma)# if iter < 10 else sigma
 
                 transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma_gauss)
@@ -462,10 +462,11 @@ class BnBgpu:
                 
         del rotBatch,translations, centerxy 
         
-        if mask:
-            transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
-        else: 
-            transforIm = transforIm * self.create_circular_mask(transforIm)
+        # if mask:
+        #     transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
+        # else: 
+        #     transforIm = transforIm * self.create_circular_mask(transforIm)
+        transforIm = transforIm * self.create_circular_mask(transforIm)
                                
     
         
