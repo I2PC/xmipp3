@@ -308,7 +308,7 @@ class PCAgpu:
             Texp = Texp * bnb.create_circular_mask(Texp)
     
             del(expImages)
-            ft = torch.fft.rfft2(Texp, norm="forward")
+            ft = torch.fft.rfft2(Texp)
             del(Texp)
             bandBatch = bnb.selectBandsRefs(ft, freq_band, coef)
             del(ft)

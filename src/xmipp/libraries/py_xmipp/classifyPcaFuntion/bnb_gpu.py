@@ -148,7 +148,7 @@ class BnBgpu:
         del prj_exp, A_exp, grid
     
         # FFT y shift
-        rotFFT = torch.fft.rfft2(prj_rot, norm="forward")
+        rotFFT = torch.fft.rfft2(prj_rot)
         shift_tensor = torch.as_tensor(shift, device=device, dtype=torch.float32)
         band_shifted = self.precShiftBand(rotFFT, freqBn, grid_flat, coef, shift_tensor)
         projBatch = self.phiProjRefs(band_shifted, cvecs)
@@ -161,7 +161,7 @@ class BnBgpu:
     def create_batchExp(self, Texp, freqBn, coef, vecs):
              
         self.batch_projExp = [torch.zeros((Texp.size(dim=0), vecs[n].size(dim=1)), device = self.cuda) for n in range(self.nBand)]
-        expFFT = torch.fft.rfft2(Texp, norm="forward")
+        expFFT = torch.fft.rfft2(Texp)
         del(Texp)
         bandExp = self.selectBandsRefs(expFFT, freqBn, coef)
         self.batch_projExp = self.phiProjRefs(bandExp, vecs)
@@ -327,7 +327,7 @@ class BnBgpu:
                                                                              rotBatch[initBatch:endBatch], translations[initBatch:endBatch], centerxy)
             
    
-            if iter < 16 and mask:
+            if mask:
                 sigma_gauss = (0.75*sigma) if (iter < 10 and iter % 2 == 1) else (sigma)# if iter < 10 else sigma
 
                 transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma_gauss)
@@ -462,11 +462,10 @@ class BnBgpu:
                 
         del rotBatch,translations, centerxy 
         
-        # if mask:
-        #     transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
-        # else: 
-        #     transforIm = transforIm * self.create_circular_mask(transforIm)
-        transforIm = transforIm * self.create_circular_mask(transforIm)
+        if mask:
+            transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
+        else: 
+            transforIm = transforIm * self.create_circular_mask(transforIm)
                                
     
         
@@ -677,7 +676,7 @@ class BnBgpu:
         del sigma2, exponent, freq2, D0
     
         # === Aplicar filtro y transformar inversa
-        img_filt = torch.fft.ifft2(torch.fft.fft2(imgs, norm="forward") * filt, norm="forward").real
+        img_filt = torch.fft.ifft2(torch.fft.fft2(imgs) * filt).real
         img_filt = torch.nan_to_num(img_filt)
         del filt
     
@@ -805,8 +804,8 @@ class BnBgpu:
                 
     
             # ---- FFT ----
-            fft1 = torch.fft.rfft2(avg1, norm="forward")
-            fft2 = torch.fft.rfft2(avg2, norm="forward")
+            fft1 = torch.fft.rfft2(avg1)
+            fft2 = torch.fft.rfft2(avg2)
             
     
             p1   = (fft1.real**2 + fft1.imag**2)
@@ -862,7 +861,7 @@ class BnBgpu:
         device = averages.device
     
         # === FFT + original energy ===
-        fft = torch.fft.fft2(averages, norm='forward')
+        fft = torch.fft.fft2(averages)
         fft_mag2 = torch.abs(fft) ** 2  # [B, H, W]
         energy_orig = torch.sum(fft_mag2, dim=(-2, -1))  # [B]
     
@@ -945,7 +944,7 @@ class BnBgpu:
         # === Aplicar filtro ===
         fft *= boost  
         del boost
-        filtered = torch.fft.ifft2(fft, norm='forward').real
+        filtered = torch.fft.ifft2(fft).real
         del fft
     
         # === (Opcional) Normalizar contraste en espacio real ===
