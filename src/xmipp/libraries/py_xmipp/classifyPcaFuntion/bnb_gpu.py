@@ -481,7 +481,7 @@ class BnBgpu:
             clk = self.averages(data, newCL, classes) 
             
             file_avg = "classInt.mrcs"
-            self.save_images(clk.cpu().detach().numpy(), self.sampling, file_avg)         
+            self.save_images(clk.cpu().detach().numpy(), sampling, file_avg)         
 
             
             res_classes = self.frc_resolution_tensor(newCL, sampling)
