@@ -509,7 +509,7 @@ class BnBgpu:
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes)
         
             boost = None
-            # clk = self.highpass_cosine_sharpen(clk, res_classes, factorR = boost)
+            clk = self.highpass_cosine_sharpen(clk, res_classes, factorR = boost)
         
         
         if iter < (iterSplit + 1): #order by size
@@ -656,7 +656,7 @@ class BnBgpu:
             
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes)
             
-            # clk = self.highpass_cosine_sharpen(clk, res_classes)                       
+            clk = self.highpass_cosine_sharpen(clk, res_classes)                       
         
             if not hasattr(self, 'grad_squared'):
                 self.grad_squared = torch.zeros_like(cl)
@@ -841,6 +841,7 @@ class BnBgpu:
     
         for c, imgs in enumerate(newCL):
             n = imgs.shape[0]
+            imgs = imgs * self.create_gaussian_mask(imgs, self.sigma)
             if n < 8:
                 res_out[c] = 40.0
                 continue  
