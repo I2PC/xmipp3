@@ -24,6 +24,7 @@ from xmippPyModules.gmmAverageTools.results import GMMDiagnostics
 
 # Import estimator types
 from xmippPyModules.gmmAverageTools.gmm_estimator import RecursiveGMMEstimator
+from xmippPyModules.gmmAverageTools.noise_corrected_cosine_estimator import NoiseCorrectedCosineEstimator
 from xmippPyModules.gmmAverageTools.irls_estimator import IRLSMEstimator
 from xmippPyModules.gmmAverageTools.fourier_irls_estimator import (
     JointIRLSFourier,
@@ -47,9 +48,10 @@ from xmippPyModules.gmmAverageTools.masks import (
 from xmippPyModules.gmmAverageTools.utils import weighted_average
 
 Estimator = Union[
-    RecursiveGMMEstimator, ADMMEstimator, JointIRLSFourier, IRLSMEstimator
+    RecursiveGMMEstimator, ADMMEstimator, JointIRLSFourier, IRLSMEstimator,
+    NoiseCorrectedCosineEstimator,
 ]
-EstimatorType = Literal["irls", "fourier_irls", "admm"]
+EstimatorType = Literal["irls", "fourier_irls", "admm", "noise_corrected_cosine"]
 ESTIMATOR_TYPES: Tuple[str, ...] = get_args(EstimatorType)
 
 UNASSIGNED_GROUP_VALUE = -1
@@ -63,6 +65,7 @@ DEFAULT_MAX_ITERATIONS: Dict[EstimatorType, int] = {
     "irls": 50,
     "fourier_irls": 50,
     "admm": 30,
+    "noise_corrected_cosine": 10,
 }
 
 DEFAULT_LOWPASS_MASK_CUTOFF = 0.25
@@ -89,8 +92,8 @@ class GMMConfig:
     internal_max_iter: int
     standardize_distances: bool
     initialize_params: bool
-    initial_bad_weight: float
-    initial_bad_quantile: float 
+    initial_bad_weight: Optional[float]
+    initial_bad_quantile: Optional[float]
     check_degenerate: bool
     min_component_separation: float
     min_good_component_weight: float
@@ -380,6 +383,19 @@ def build_argument_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    corrected_parser = subparsers.add_parser(
+        "noise_corrected_cosine", help="Noise-corrected cosine with Torch GMM or cosine weighting")
+    corrected_parser.add_argument("--weighting", choices=["gmm", "cosine"], default="gmm")
+    corrected_parser.add_argument("--noise-variance", type=float,
+                                  help="Input pixel noise variance; omit for checkerboard MAD")
+    corrected_parser.add_argument("--pool-noise", action=argparse.BooleanOptionalAction, default=False)
+    corrected_parser.add_argument("--clip-cosine", action=argparse.BooleanOptionalAction, default=False,
+                                  help="Clip corrected cosines; default keeps GMM distances unclipped")
+    corrected_parser.add_argument("--min-signal-fraction", type=float, default=0.05)
+    corrected_parser.add_argument("--cache-batch-size", type=int, default=64)
+    corrected_parser.add_argument("--weight-power", type=float, default=1.0,
+                                  help="Positive exponent for direct cosine weights")
+
     return parser
 
 
@@ -394,7 +410,24 @@ def parse_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
         out_gmm_diagnostics=args.out_gmm_diagnostics,
     )
 
-    if args.estimator_type == "fourier_irls":
+    if args.estimator_type == "noise_corrected_cosine":
+        if args.gmm:
+            raise ValueError("Use noise_corrected_cosine --weighting gmm, without --gmm; "
+                             "the new estimator already owns its GMM loop")
+        if args.damping_coef != 0:
+            raise ValueError("Noise-corrected cosine currently requires damping-coef=0")
+        method_params = {
+            "weighting": args.weighting,
+            "weight_power": args.weight_power,
+            "metric_params": {
+                "noise_variance": "auto" if args.noise_variance is None else args.noise_variance,
+                "pool_noise": args.pool_noise,
+                "clip": args.clip_cosine,
+                "min_signal_fraction": args.min_signal_fraction,
+                "batch_size": args.cache_batch_size,
+            },
+        }
+    elif args.estimator_type == "fourier_irls":
         if args.lowpass_mask and args.lowpass_mask_cutoff is None:
             args.lowpass_mask_cutoff = DEFAULT_LOWPASS_MASK_CUTOFF
         method_params = {
@@ -442,7 +475,7 @@ def parse_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
     )
 
     gmm_cfg = None
-    if args.gmm:
+    if args.gmm or (args.estimator_type == "noise_corrected_cosine" and args.weighting == "gmm"):
         gmm_cfg = GMMConfig(
             external_max_iter=args.gmm_external_max_iter,
             internal_max_iter=args.gmm_internal_max_iter,
@@ -450,7 +483,8 @@ def parse_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
             initialize_params=args.gmm_initialize_params,
             initial_bad_weight=args.gmm_initial_bad_weight,
             # GMM works with distances internally, so the quantile has to be flipped
-            initial_bad_quantile=1.0 - args.gmm_initial_bad_quantile,
+            initial_bad_quantile=(None if args.gmm_initial_bad_quantile is None
+                                  else 1.0 - args.gmm_initial_bad_quantile),
             check_degenerate=args.gmm_check_degenerate,
             min_component_separation=args.gmm_min_component_sep,
             min_good_component_weight=args.gmm_min_good_weight,
@@ -590,10 +624,30 @@ def initialize_estimator(
     pipeline_config: PipelineConfig,
     unmasked_images: torch.Tensor,
     masked_images: torch.Tensor,
+    mask: Optional[torch.Tensor] = None,
 ):
     gmm_config = pipeline_config.gmm
     estimator_config = pipeline_config.estimator
     estimator_type = estimator_config.estimator_type
+
+    if estimator_type == "noise_corrected_cosine":
+        if estimator_config.damping_coef != 0:
+            raise ValueError("Noise-corrected cosine currently requires damping-coef=0")
+        gmm_params = {"random_state": estimator_config.random_state}
+        if gmm_config is not None:
+            gmm_params.update(
+                standardize_distances=gmm_config.standardize_distances,
+                initialize_params=gmm_config.initialize_params,
+                initial_bad_mean_quantile=gmm_config.initial_bad_quantile,
+                initial_bad_weight=gmm_config.initial_bad_weight,
+                gmm_max_iter=gmm_config.internal_max_iter,
+                check_degenerate_model=gmm_config.check_degenerate,
+                min_component_separation=gmm_config.min_component_separation,
+                min_good_component_weight=gmm_config.min_good_component_weight,
+            )
+        return NoiseCorrectedCosineEstimator(
+            max_iter=estimator_config.max_iter, tol=estimator_config.tolerance,
+            mask=mask, gmm_params=gmm_params, **estimator_config.params)
 
     estimator = ESTIMATOR_INITIALIZERS[estimator_type](
         estimator_config, unmasked_images, masked_images
@@ -628,6 +682,7 @@ def fit_estimator(
     masked_images: torch.Tensor,
     unmasked_images: torch.Tensor,
     reference: torch.Tensor,
+    reference_weights: Optional[torch.Tensor] = None,
 ) -> Tuple[np.ndarray, Optional[np.ndarray], np.ndarray, Optional[GMMDiagnostics]]:
     """
     Fit the estimator and return a set of per-image weights and an optional set of
@@ -635,10 +690,16 @@ def fit_estimator(
     Also returns an estimate using the unmasked images and the estimator's weights.
     """
     # Estimators return an EstimatorResult object with estimate, weights, gmm_diagnostics
-    result = estimator.fit(images=masked_images, reference=reference)
+    if isinstance(estimator, NoiseCorrectedCosineEstimator):
+        result = estimator.fit(images=masked_images, reference=reference,
+                               reference_weights=reference_weights)
+    else:
+        result = estimator.fit(images=masked_images, reference=reference)
 
     if result.gmm_diagnostics is not None:
-        robust_weights = -result.gmm_diagnostics.distances
+        robust_weights = ((1 - result.gmm_diagnostics.distances)
+                          if isinstance(estimator, NoiseCorrectedCosineEstimator)
+                          else -result.gmm_diagnostics.distances)
         gmm_weights = result.weights
         weights = gmm_weights
     else:
@@ -646,7 +707,9 @@ def fit_estimator(
         gmm_weights = None
         weights = robust_weights
 
-    unmasked_new_average = weighted_average(unmasked_images, weights)
+    unmasked_new_average = weighted_average(
+        unmasked_images, weights,
+        eps=0.0 if isinstance(estimator, NoiseCorrectedCosineEstimator) else 1.0e-6)
 
     return (
         robust_weights.detach().cpu().numpy().reshape(-1),
@@ -688,7 +751,7 @@ def process_class(
     masked_images = images * mask_tensor
 
     estimator = initialize_estimator(
-        pipeline_config, unmasked_images=images, masked_images=masked_images
+        pipeline_config, unmasked_images=images, masked_images=masked_images, mask=mask_tensor
     )
     reference = masked_images.mean(dim=0)
 
@@ -698,6 +761,7 @@ def process_class(
             masked_images=masked_images,
             unmasked_images=images,
             reference=reference,
+            reference_weights=images.new_full((len(images),), 1.0 / len(images)),
         )
     )
     unmasked_original_average = images.mean(dim=0).detach().cpu().numpy()

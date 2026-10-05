@@ -1,4 +1,4 @@
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Callable
 
 import torch
 
@@ -53,6 +53,7 @@ class RecursiveGMMEstimator:
         check_degenerate_model: bool = True,
         min_component_separation: float = 0.05,
         min_good_component_weight: float = 0.30,
+        reference_weights_callback: Optional[Callable[[Optional[torch.Tensor]], None]] = None,
     ):
         self.model = TorchGaussianMixture(
             n_components=2,
@@ -63,6 +64,9 @@ class RecursiveGMMEstimator:
         )
 
         self.distance_function = distance_function
+        # Optional covariance-aware distances can track the exact coefficients
+        # of each reference. Existing distance functions need no change.
+        self.reference_weights_callback = reference_weights_callback
         self.max_iter = max_iter
         self.tol = tol
         self.standardize_distances = standardize_distances
@@ -360,6 +364,7 @@ class RecursiveGMMEstimator:
         self,
         images: torch.Tensor,
         reference: Optional[torch.Tensor] = None,
+        *, reference_weights: Optional[torch.Tensor] = None,
     ) -> EstimatorResult:
         """
         Coordinates the whole GMM robust estimation process:
@@ -407,6 +412,10 @@ class RecursiveGMMEstimator:
         self.model = self._new_model()
 
         # Get initial reference
+        if self.reference_weights_callback is not None:
+            if reference is None:
+                reference_weights = images.new_full((len(images),), 1.0 / len(images))
+            self.reference_weights_callback(reference_weights)
         reference = (
             images.mean(dim=0) if reference is None else reference.to(images.device)
         )
@@ -460,6 +469,8 @@ class RecursiveGMMEstimator:
                 decided_degenerate = True
                 weights = torch.ones_like(weights)
                 reference = images.mean(dim=0)
+                if self.reference_weights_callback is not None:
+                    self.reference_weights_callback(weights.reshape(-1) / weights.sum())
                 break
 
             model_valid = True
@@ -468,6 +479,8 @@ class RecursiveGMMEstimator:
                 degenerate_separation, degenerate_weight = self._degeneracy_checks()
                 decided_degenerate = False
             reference = next_reference
+            if self.reference_weights_callback is not None:
+                self.reference_weights_callback(weights.reshape(-1) / weights.sum())
             if converged:
                 self.converged = True
                 break
