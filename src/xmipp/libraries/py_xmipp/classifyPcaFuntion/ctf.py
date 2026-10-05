@@ -272,8 +272,8 @@ class ctfClass:
     
 
             # FFT
-            # Fpart = torch.fft.fft2(part_sub, norm="forward")
-            Fpart = torch.fft.fft2(part_sub)
+            Fpart = torch.fft.fft2(part_sub, norm="forward")
+            # Fpart = torch.fft.fft2(part_sub)
     
             # CTF de este batch    
             ctf_batch = self.compute_ctfs_batch(
@@ -306,8 +306,8 @@ class ctfClass:
         )
     
         # IFFT    
-        # avg = torch.real(torch.fft.ifft2(avg_fft, norm="forward"))
-        avg = torch.real(torch.fft.ifft2(avg_fft))
+        avg = torch.real(torch.fft.ifft2(avg_fft, norm="forward"))
+        # avg = torch.real(torch.fft.ifft2(avg_fft))
     
         return avg, numerator, denominator
     
