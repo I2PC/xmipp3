@@ -536,7 +536,7 @@ class BnBgpu:
             for _ in range(2):
                 clk = self.center_by_com(clk)  
         
-        clk = clk * self.create_circular_mask(clk)                
+        # clk = clk * self.create_circular_mask(clk)                
         
         return(clk, tMatrix, batch_projExp_cpu, numerador_list, denominador_list)
     
@@ -662,7 +662,7 @@ class BnBgpu:
                 self.grad_squared = torch.zeros_like(cl)
             clk, self.grad_squared = self.update_classes_rmsprop(cl, clk, 0.001, 0.9, 1e-8, self.grad_squared)        
                       
-            clk = clk * self.create_circular_mask(clk)
+            # clk = clk * self.create_circular_mask(clk)
       
         else: 
             del(transforIm)
