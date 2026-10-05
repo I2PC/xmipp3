@@ -69,6 +69,12 @@ class NoiseCorrectedCosine:
         references with supplied coefficients; zero means a clean reference.
     batch_size : int
         Batch size for initial feature construction and noise estimation.
+    filter_sigma : float
+        Gaussian smoothing width in pixels for score calculation only. Zero
+        disables smoothing. This is not the noise standard deviation.
+    min_frequency, max_frequency : float, optional
+        Radial band limits in cycles/pixel, independent of Xmipp's existing
+        Nyquist-normalized mask cutoffs. Default: no band restriction.
     """
 
     @torch.inference_mode()
@@ -78,6 +84,8 @@ class NoiseCorrectedCosine:
         pool_noise: bool = False, min_signal_fraction: float = 0.05,
         clip: bool = False, reference_noise_variance: float = 0.0,
         batch_size: int = 64,
+        filter_sigma: float = 0.0, min_frequency: float = 0.0,
+        max_frequency: Optional[float] = None,
     ):
         if (images.ndim != 3 or len(images) == 0
                 or images.dtype not in (torch.float32, torch.float64)
@@ -97,6 +105,16 @@ class NoiseCorrectedCosine:
         if count < 2:
             raise ValueError("At least two pixels must be inside the mask")
         self.trace = images.new_tensor(count - 1)
+        self._feature_scale = None
+        self.noise_profile = None
+        self.spectral_weights = None
+        if (not math.isfinite(filter_sigma) or filter_sigma < 0
+                or not math.isfinite(min_frequency) or min_frequency < 0
+                or (max_frequency is not None and
+                    (not math.isfinite(max_frequency) or max_frequency <= min_frequency))):
+            raise ValueError("Invalid Gaussian width or radial frequency limits")
+        if filter_sigma > 0 or min_frequency > 0 or max_frequency is not None:
+            self._configure_filter(count, filter_sigma, min_frequency, max_frequency)
         self.min_signal_fraction = min_signal_fraction
         self.clip = clip
         self._warned_unresolved = False
@@ -118,7 +136,9 @@ class NoiseCorrectedCosine:
         self.features[:len(first)] = first
         for start in range(len(first), len(images), batch_size):
             self.features[start:start + batch_size] = self._features(images[start:start + batch_size])
-        self.image_energy = self.features.square().sum(dim=1)
+        self.image_energy = self.features.real.square().sum(dim=1)
+        if self.features.is_complex():
+            self.image_energy += self.features.imag.square().sum(dim=1)
         self.noise_energy = self.trace * variances
         self.signal_energy = self.image_energy - self.noise_energy
         self.independent_reference_variance = images.new_tensor(reference_noise_variance)
@@ -127,9 +147,44 @@ class NoiseCorrectedCosine:
             raise ValueError("reference_noise_variance must be finite and nonnegative")
         self.set_reference_weights(None)
 
+    def _configure_filter(self, count: int, sigma: float, minimum: float,
+                          maximum: Optional[float]) -> None:
+        h, w = self.images.shape[1:]
+        options = {"device": self.images.device, "dtype": self.images.dtype}
+        radius = torch.hypot(torch.fft.fftfreq(h, **options)[:, None],
+                             torch.fft.rfftfreq(w, **options)[None, :])
+        keep = (radius > 0) & (radius >= minimum)
+        if maximum is not None:
+            keep &= radius <= maximum
+        # Squared Gaussian transfer; rfft interior columns represent two full
+        # Fourier coefficients. DC/Nyquist columns already contain their pairs.
+        omega = keep * torch.exp(-4 * math.pi**2 * sigma**2 * radius.square())
+        multiplicity = self.images.new_full((w // 2 + 1,), 2.0)
+        multiplicity[0] = 1.0
+        if w % 2 == 0:
+            multiplicity[-1] = 1.0
+        self.spectral_weights = omega * multiplicity[None, :]
+        mask_fft = torch.fft.rfft2(self.support.to(self.images.dtype), norm="ortho")
+        # C = diag(m) - m m^T/K is an orthogonal projector. Thus the diagonal
+        # of F C C^T F* is K/(h*w) - |F m|^2/K for unit white input noise.
+        # Filtering is diagonal in Fourier space: only this diagonal is needed
+        # for the exact trace, even though masking correlates frequencies.
+        self.noise_profile = (count / (h*w) - mask_fft.abs().square() / count).clamp_min(0)
+        self.trace = (self.spectral_weights * self.noise_profile).sum()
+        self._frequency_keep = self.spectral_weights > 0
+        if not bool(self._frequency_keep.any()):
+            raise ValueError("The filter retains no Fourier coefficients")
+        self._feature_scale = self.spectral_weights[self._frequency_keep].sqrt()
+
     def _features(self, images: torch.Tensor) -> torch.Tensor:
         values = images[:, self.support]
-        return values - values.mean(dim=1, keepdim=True)
+        values = values - values.mean(dim=1, keepdim=True)
+        if self._feature_scale is None:
+            return values
+        centered = images.new_zeros(images.shape)
+        centered[:, self.support] = values
+        spectrum = torch.fft.rfft2(centered, dim=(-2, -1), norm="ortho")
+        return spectrum[:, self._frequency_keep] * self._feature_scale
 
     @torch.inference_mode()
     def set_reference_weights(self, coefficients: Optional[torch.Tensor]) -> None:
@@ -160,9 +215,9 @@ class NoiseCorrectedCosine:
                 or not bool(torch.isfinite(reference).all())):
             raise ValueError("reference must match image shape, device, and real dtype")
         ref = self._features(reference.unsqueeze(0))[0]
-        cross = self.features @ ref - self.cross_noise
+        cross = (self.features @ ref.conj()).real - self.cross_noise
         ref_noise_energy = self.trace * self.reference_variance
-        ref_signal = ref.square().sum() - ref_noise_energy
+        ref_signal = torch.vdot(ref, ref).real - ref_noise_energy
         usable = ((self.signal_energy > 0) & (ref_signal > 0)
                   & (self.signal_energy > self.min_signal_fraction * self.noise_energy)
                   & (ref_signal > self.min_signal_fraction * ref_noise_energy))

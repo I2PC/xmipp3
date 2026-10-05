@@ -395,6 +395,12 @@ def build_argument_parser() -> argparse.ArgumentParser:
     corrected_parser.add_argument("--cache-batch-size", type=int, default=64)
     corrected_parser.add_argument("--weight-power", type=float, default=1.0,
                                   help="Positive exponent for direct cosine weights")
+    corrected_parser.add_argument("--filter-sigma", type=float, default=0.0,
+                                  help="Gaussian smoothing width in pixels, for scores only")
+    corrected_parser.add_argument("--min-frequency", type=float, default=0.0,
+                                  help="Minimum radial frequency in cycles/pixel")
+    corrected_parser.add_argument("--max-frequency", type=float,
+                                  help="Maximum radial frequency in cycles/pixel; omit for no cutoff")
 
     return parser
 
@@ -425,6 +431,9 @@ def parse_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
                 "clip": args.clip_cosine,
                 "min_signal_fraction": args.min_signal_fraction,
                 "batch_size": args.cache_batch_size,
+                "filter_sigma": args.filter_sigma,
+                "min_frequency": args.min_frequency,
+                "max_frequency": args.max_frequency,
             },
         }
     elif args.estimator_type == "fourier_irls":
