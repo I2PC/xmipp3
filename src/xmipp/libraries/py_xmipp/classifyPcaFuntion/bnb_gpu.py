@@ -509,7 +509,7 @@ class BnBgpu:
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes)
         
             boost = None
-            clk = self.highpass_cosine_sharpen(clk, res_classes, factorR = boost)
+            # clk = self.highpass_cosine_sharpen(clk, res_classes, factorR = boost)
         
         
         if iter < (iterSplit + 1): #order by size
@@ -656,7 +656,7 @@ class BnBgpu:
             
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes)
             
-            clk = self.highpass_cosine_sharpen(clk, res_classes)                       
+            # clk = self.highpass_cosine_sharpen(clk, res_classes)                       
         
             if not hasattr(self, 'grad_squared'):
                 self.grad_squared = torch.zeros_like(cl)
@@ -963,7 +963,7 @@ class BnBgpu:
         self,
         averages: torch.Tensor,         # [B, H, W]
         resolutions: torch.Tensor,      # [B] Å
-        f_energy: float = 1.5,  #2.0,
+        f_energy: float = 2.0,
         # R_high: float = 25.0,
         boost_max: float = None,        # si None, se ajusta para energía
         sharpen_power: float = None,    # si None, se ajusta automáticamente según resolución
