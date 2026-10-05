@@ -963,7 +963,7 @@ class BnBgpu:
         self,
         averages: torch.Tensor,         # [B, H, W]
         resolutions: torch.Tensor,      # [B] Å
-        f_energy: float = 2.0,
+        f_energy: float = 1.0,  #2.0,
         # R_high: float = 25.0,
         boost_max: float = None,        # si None, se ajusta para energía
         sharpen_power: float = None,    # si None, se ajusta automáticamente según resolución
