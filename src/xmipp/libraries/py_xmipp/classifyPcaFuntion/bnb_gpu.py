@@ -339,7 +339,8 @@ class BnBgpu:
             if mask:
                 sigma_gauss = (0.75*self.sigma) if (iter < 10 and iter % 2 == 1) else (self.sigma)# if iter < 10 else sigma
 
-                transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma_gauss)
+                # transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma_gauss)
+                transforIm = torch.where(transforIm < 0, transforIm, transforIm * self.create_gaussian_mask(transforIm, sigma_gauss))
             else:
                 transforIm = transforIm * self.create_circular_mask(transforIm)
                 
@@ -355,12 +356,13 @@ class BnBgpu:
                                                                              rotBatch[initBatch:endBatch], translations[initBatch:endBatch], centerxy)
             
             
-            # if mask:
-            #     sigma_gauss = (0.75*self.sigma) if (iter < 10 and iter % 2 == 1) else (self.sigma)# if iter < 10 else sigma
-            #
-            #     transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma_gauss)
-            # else:
-            #     transforIm = transforIm * self.create_circular_mask(transforIm)
+            if mask:
+                sigma_gauss = (0.75*self.sigma) if (iter < 10 and iter % 2 == 1) else (self.sigma)# if iter < 10 else sigma
+            
+                # transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma_gauss)
+                transforIm = torch.where(transforIm < 0, transforIm, transforIm * self.create_gaussian_mask(transforIm, sigma_gauss))
+            else:
+                transforIm = transforIm * self.create_circular_mask(transforIm)
             
 
             #Create classes for batches
@@ -563,7 +565,8 @@ class BnBgpu:
         #del rotBatch,translations, centerxy 
         
         if mask:
-            transforIm = transforIm * self.create_gaussian_mask(transforIm, self.sigma)
+            # transforIm = transforIm * self.create_gaussian_mask(transforIm, self.sigma)
+            transforIm = torch.where(transforIm < 0, transforIm, transforIm * self.create_gaussian_mask(transforIm, self.sigma))
         else: 
             transforIm = transforIm * self.create_circular_mask(transforIm)
                                
@@ -577,10 +580,12 @@ class BnBgpu:
             
             del rotBatch,translations, centerxy 
             
-            # if mask:
-            #     transforIm = transforIm * self.create_gaussian_mask(transforIm, self.sigma)
-            # else: 
-            #     transforIm = transforIm * self.create_circular_mask(transforIm)
+            if mask:
+                # transforIm = transforIm * self.create_gaussian_mask(transforIm, self.sigma)
+                transforIm = torch.where(transforIm < 0, transforIm, transforIm * self.create_gaussian_mask(transforIm, self.sigma))
+                
+            else: 
+                transforIm = transforIm * self.create_circular_mask(transforIm)
             
             newCL = [[] for i in range(classes)]  
             newCL_indices = [ [] for _ in range(classes) ]  
