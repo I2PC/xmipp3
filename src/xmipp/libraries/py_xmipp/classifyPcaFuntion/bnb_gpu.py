@@ -841,7 +841,7 @@ class BnBgpu:
     
         for c, imgs in enumerate(newCL):
             n = imgs.shape[0]
-            imgs = imgs * self.create_gaussian_mask(imgs, self.sigma)
+            # imgs = imgs * self.create_gaussian_mask(imgs, self.sigma)
             if n < 8:
                 res_out[c] = 40.0
                 continue  
