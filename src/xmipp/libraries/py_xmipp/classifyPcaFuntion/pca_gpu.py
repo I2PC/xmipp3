@@ -14,9 +14,10 @@ from xmippPyModules.classifyPcaFuntion.bnb_gpu import BnBgpu
 
 class PCAgpu:
     
-    def __init__(self, nBand):
+    def __init__(self, nBand, sigma=None):
         
         self.nBand = nBand 
+        self.sigma = sigma
          
         torch.cuda.is_available()
         torch.cuda.current_device()
@@ -292,7 +293,7 @@ class PCAgpu:
         for n in range(nBand):
             coef[n] = 2*torch.sum(freq_band==n)  
            
-        bnb = BnBgpu(nBand, sampling)    
+        bnb = BnBgpu(nBand, sampling, self.sigma)    
         expBatchSize = 5000  
         band = [torch.zeros(Ntrain, coef[n], device = self.cuda) for n in range(nBand)]      
          
@@ -305,7 +306,8 @@ class PCAgpu:
             
             expImages = mexp.data[initBatch:endBatch].astype(np.float32)#.copy()
             Texp = torch.from_numpy(expImages).float().to(self.cuda)
-            Texp = Texp * bnb.create_circular_mask(Texp)
+            Texp = Texp * self.create_gaussian_mask(Texp, self.sigma)
+            # Texp = Texp * bnb.create_circular_mask(Texp)
             # Texp = bnb.normalize_images(Texp)
     
             del(expImages)

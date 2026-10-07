@@ -183,7 +183,7 @@ if __name__=="__main__":
     
     #PCA function
     nBand = 1
-    pca = PCAgpu(nBand)
+    pca = PCAgpu(nBand, sigma)
     
     if refImages:
         maxRes = highRes
