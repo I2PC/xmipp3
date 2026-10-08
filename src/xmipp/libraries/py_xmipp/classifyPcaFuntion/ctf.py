@@ -65,6 +65,9 @@ class ctfClass:
         self.defocus_u = df["ctfDefocusU"].to_numpy(dtype=np.float32)
         self.defocus_v = df["ctfDefocusV"].to_numpy(dtype=np.float32)
         self.defocus_angle = df["ctfDefocusAngle"].to_numpy(dtype=np.float32)
+        
+        print(self.voltage, self.cs, self.ampC, self.defocus_u, self.defocus_v, self.defocus_angle)
+        exit()
 
         return (self.voltage, self.cs, self.ampC, self.defocus_u, self.defocus_v, self.defocus_angle)
 
