@@ -361,7 +361,7 @@ if __name__=="__main__":
                 vol = torch.relu(vol)
                 
             # if current_iter < 7:
-            if current_iter > 1 and current_iter < 17:
+            if current_iter > 1 and current_iter < 8:
                 vol = R.mask_otsu(vol, sigma=4.0, noise_level=0.0)
                 
             vol = R.apply_spherical_mask(vol, radius)
