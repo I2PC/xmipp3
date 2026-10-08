@@ -24,7 +24,9 @@ from xmippPyModules.gmmAverageTools.results import GMMDiagnostics
 
 # Import estimator types
 from xmippPyModules.gmmAverageTools.gmm_estimator import RecursiveGMMEstimator
-from xmippPyModules.gmmAverageTools.noise_corrected_cosine_estimator import NoiseCorrectedCosineEstimator
+from xmippPyModules.gmmAverageTools.noise_corrected_cosine_estimator import (
+    NoiseCorrectedCosineEstimator,
+)
 from xmippPyModules.gmmAverageTools.irls_estimator import IRLSMEstimator
 from xmippPyModules.gmmAverageTools.fourier_irls_estimator import (
     JointIRLSFourier,
@@ -48,7 +50,10 @@ from xmippPyModules.gmmAverageTools.masks import (
 from xmippPyModules.gmmAverageTools.utils import weighted_average
 
 Estimator = Union[
-    RecursiveGMMEstimator, ADMMEstimator, JointIRLSFourier, IRLSMEstimator,
+    RecursiveGMMEstimator,
+    ADMMEstimator,
+    JointIRLSFourier,
+    IRLSMEstimator,
     NoiseCorrectedCosineEstimator,
 ]
 EstimatorType = Literal["irls", "fourier_irls", "admm", "noise_corrected_cosine"]
@@ -74,6 +79,8 @@ ROBUST_WEIGHT_COL = "wRobust"
 STD_ROBUST_WEIGHT_COL = "wRobustStd"
 GMM_WEIGHT_COL = "wRobustGmm"
 
+DEFAULT_OUTLIER_PROPORTION_FOR_AVERAGES = 0.1
+
 
 @dataclass
 class IOConfig:
@@ -82,6 +89,10 @@ class IOConfig:
     out_star: Optional[Path] = None
     out_corrected_avgs: Optional[Path] = None
     out_original_avgs: Optional[Path] = None
+    out_difference_avgs: Optional[Path] = None
+    out_low_weight_avgs: Optional[Path] = None
+    out_high_weight_avgs: Optional[Path] = None
+    outlier_proportion_for_avgs: float = DEFAULT_OUTLIER_PROPORTION_FOR_AVERAGES
     group_by_column: str = MDL_REF_COLUMN
     out_gmm_diagnostics: Optional[Path] = None
 
@@ -136,9 +147,14 @@ class ClassProcessingResults:
     gmm_weights : np.ndarray, optional
         Array of shape ``(n,)`` containing the weight each image received after
         GMM reweighting. Set to None for non-GMM estimators. Default is None.
-    gmm_diagnostics : np.ndarray, optional
+    gmm_diagnostics : GMMDiagnostics, optional
         Diagnostics object for assessing the GMM fit.
         Set to None for non-GMM estimators. Default is None.
+    unmasked_low_weight_average, unmkased_high_weight_average : np.ndarray, optional
+        The (unweighted) averages of the 10 percent of images with lowest
+        and highest weights, respectively.
+        These can be None if said subsets are not well-defined (e.g., because the
+        estimator produced constant weights).
     """
 
     unmasked_corrected_average: np.ndarray
@@ -146,6 +162,8 @@ class ClassProcessingResults:
     robust_weights: np.ndarray
     gmm_weights: Optional[np.ndarray] = None
     gmm_diagnostics: Optional[GMMDiagnostics] = None
+    unmasked_low_weight_average: np.ndarray | None = None
+    unmasked_high_weight_average: np.ndarray | None = None
 
 
 def build_argument_parser() -> argparse.ArgumentParser:
@@ -197,6 +215,27 @@ def build_argument_parser() -> argparse.ArgumentParser:
         "--out-original-avgs",
         type=Path,
         help="Path to output .mrcs file for original class averages",
+    )
+    io_group.add_argument(
+        "--out-difference-avgs",
+        type=Path,
+        help="Path to output .mrcs file for the differences between original class averages and corrected class averages",
+    )
+    io_group.add_argument(
+        "--out-low-weight-avgs",
+        type=Path,
+        help="Path to output .mrcs file for the average of the images with lowest weights in each class",
+    )
+    io_group.add_argument(
+        "--out-high-weight-avgs",
+        type=Path,
+        help="Path to output .mrcs file for the average of the images with highest weights in each class",
+    )
+    io_group.add_argument(
+        "--outlier-proportion-for-avgs",
+        type=float,
+        default=DEFAULT_OUTLIER_PROPORTION_FOR_AVERAGES,
+        help="Proportion of images to use to calculate averages of images with lowest or highest weights",
     )
     io_group.add_argument(
         "--group-by-column",
@@ -272,7 +311,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
     gmm_group.add_argument(
         "--gmm-initial-bad-weight",
         type=float,
-        help="Initial weight for the GMM component with a lower mean."
+        help="Initial weight for the GMM component with a lower mean.",
     )
     gmm_group.add_argument(
         "--gmm-initial-bad-quantile",
@@ -281,7 +320,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
             "Quantile (between 0 and 0.5) used to initialize the mean of the GMM "
             "component with a lower mean weight. This is a quantile for the weights, "
             "so the estimator will internally flip it to a value between 0.5 and 1."
-        )
+        ),
     )
     gmm_group.add_argument(
         "--gmm-check-degenerate",
@@ -384,23 +423,51 @@ def build_argument_parser() -> argparse.ArgumentParser:
     )
 
     corrected_parser = subparsers.add_parser(
-        "noise_corrected_cosine", help="Noise-corrected cosine with Torch GMM or cosine weighting")
-    corrected_parser.add_argument("--weighting", choices=["gmm", "cosine"], default="gmm")
-    corrected_parser.add_argument("--noise-variance", type=float,
-                                  help="Input pixel noise variance; omit for checkerboard MAD")
-    corrected_parser.add_argument("--pool-noise", action=argparse.BooleanOptionalAction, default=False)
-    corrected_parser.add_argument("--clip-cosine", action=argparse.BooleanOptionalAction, default=False,
-                                  help="Clip corrected cosines; default keeps GMM distances unclipped")
+        "noise_corrected_cosine",
+        help="Noise-corrected cosine with Torch GMM or cosine weighting",
+    )
+    corrected_parser.add_argument(
+        "--weighting", choices=["gmm", "cosine"], default="gmm"
+    )
+    corrected_parser.add_argument(
+        "--noise-variance",
+        type=float,
+        help="Input pixel noise variance; omit for checkerboard MAD",
+    )
+    corrected_parser.add_argument(
+        "--pool-noise", action=argparse.BooleanOptionalAction, default=False
+    )
+    corrected_parser.add_argument(
+        "--clip-cosine",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Clip corrected cosines; default keeps GMM distances unclipped",
+    )
     corrected_parser.add_argument("--min-signal-fraction", type=float, default=0.05)
     corrected_parser.add_argument("--cache-batch-size", type=int, default=64)
-    corrected_parser.add_argument("--weight-power", type=float, default=1.0,
-                                  help="Positive exponent for direct cosine weights")
-    corrected_parser.add_argument("--filter-sigma", type=float, default=0.0,
-                                  help="Gaussian smoothing width in pixels, for scores only")
-    corrected_parser.add_argument("--min-frequency", type=float, default=0.0,
-                                  help="Minimum radial frequency in cycles/pixel")
-    corrected_parser.add_argument("--max-frequency", type=float,
-                                  help="Maximum radial frequency in cycles/pixel; omit for no cutoff")
+    corrected_parser.add_argument(
+        "--weight-power",
+        type=float,
+        default=1.0,
+        help="Positive exponent for direct cosine weights",
+    )
+    corrected_parser.add_argument(
+        "--filter-sigma",
+        type=float,
+        default=0.0,
+        help="Gaussian smoothing width in pixels, for scores only",
+    )
+    corrected_parser.add_argument(
+        "--min-frequency",
+        type=float,
+        default=0.0,
+        help="Minimum radial frequency in cycles/pixel",
+    )
+    corrected_parser.add_argument(
+        "--max-frequency",
+        type=float,
+        help="Maximum radial frequency in cycles/pixel; omit for no cutoff",
+    )
 
     return parser
 
@@ -412,21 +479,29 @@ def parse_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
         out_star=args.out_star,
         out_corrected_avgs=args.out_corrected_avgs,
         out_original_avgs=args.out_original_avgs,
+        out_difference_avgs=args.out_difference_avgs,
+        out_low_weight_avgs=args.out_low_weight_avgs,
+        out_high_weight_avgs=args.out_high_weight_avgs,
+        outlier_proportion_for_avgs=args.outlier_proportion_for_avgs,
         group_by_column=args.group_by_column,
         out_gmm_diagnostics=args.out_gmm_diagnostics,
     )
 
     if args.estimator_type == "noise_corrected_cosine":
         if args.gmm:
-            raise ValueError("Use noise_corrected_cosine --weighting gmm, without --gmm; "
-                             "the new estimator already owns its GMM loop")
+            raise ValueError(
+                "Use noise_corrected_cosine --weighting gmm, without --gmm; "
+                "the new estimator already owns its GMM loop"
+            )
         if args.damping_coef != 0:
             raise ValueError("Noise-corrected cosine currently requires damping-coef=0")
         method_params = {
             "weighting": args.weighting,
             "weight_power": args.weight_power,
             "metric_params": {
-                "noise_variance": "auto" if args.noise_variance is None else args.noise_variance,
+                "noise_variance": (
+                    "auto" if args.noise_variance is None else args.noise_variance
+                ),
                 "pool_noise": args.pool_noise,
                 "clip": args.clip_cosine,
                 "min_signal_fraction": args.min_signal_fraction,
@@ -484,7 +559,9 @@ def parse_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
     )
 
     gmm_cfg = None
-    if args.gmm or (args.estimator_type == "noise_corrected_cosine" and args.weighting == "gmm"):
+    if args.gmm or (
+        args.estimator_type == "noise_corrected_cosine" and args.weighting == "gmm"
+    ):
         gmm_cfg = GMMConfig(
             external_max_iter=args.gmm_external_max_iter,
             internal_max_iter=args.gmm_internal_max_iter,
@@ -492,8 +569,11 @@ def parse_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
             initialize_params=args.gmm_initialize_params,
             initial_bad_weight=args.gmm_initial_bad_weight,
             # GMM works with distances internally, so the quantile has to be flipped
-            initial_bad_quantile=(None if args.gmm_initial_bad_quantile is None
-                                  else 1.0 - args.gmm_initial_bad_quantile),
+            initial_bad_quantile=(
+                None
+                if args.gmm_initial_bad_quantile is None
+                else 1.0 - args.gmm_initial_bad_quantile
+            ),
             check_degenerate=args.gmm_check_degenerate,
             min_component_separation=args.gmm_min_component_sep,
             min_good_component_weight=args.gmm_min_good_weight,
@@ -655,8 +735,12 @@ def initialize_estimator(
                 min_good_component_weight=gmm_config.min_good_component_weight,
             )
         return NoiseCorrectedCosineEstimator(
-            max_iter=estimator_config.max_iter, tol=estimator_config.tolerance,
-            mask=mask, gmm_params=gmm_params, **estimator_config.params)
+            max_iter=estimator_config.max_iter,
+            tol=estimator_config.tolerance,
+            mask=mask,
+            gmm_params=gmm_params,
+            **estimator_config.params,
+        )
 
     estimator = ESTIMATOR_INITIALIZERS[estimator_type](
         estimator_config, unmasked_images, masked_images
@@ -700,15 +784,20 @@ def fit_estimator(
     """
     # Estimators return an EstimatorResult object with estimate, weights, gmm_diagnostics
     if isinstance(estimator, NoiseCorrectedCosineEstimator):
-        result = estimator.fit(images=masked_images, reference=reference,
-                               reference_weights=reference_weights)
+        result = estimator.fit(
+            images=masked_images,
+            reference=reference,
+            reference_weights=reference_weights,
+        )
     else:
         result = estimator.fit(images=masked_images, reference=reference)
 
     if result.gmm_diagnostics is not None:
-        robust_weights = ((1 - result.gmm_diagnostics.distances)
-                          if isinstance(estimator, NoiseCorrectedCosineEstimator)
-                          else -result.gmm_diagnostics.distances)
+        robust_weights = (
+            (1 - result.gmm_diagnostics.distances)
+            if isinstance(estimator, NoiseCorrectedCosineEstimator)
+            else -result.gmm_diagnostics.distances
+        )
         gmm_weights = result.weights
         weights = gmm_weights
     else:
@@ -717,8 +806,10 @@ def fit_estimator(
         weights = robust_weights
 
     unmasked_new_average = weighted_average(
-        unmasked_images, weights,
-        eps=0.0 if isinstance(estimator, NoiseCorrectedCosineEstimator) else 1.0e-6)
+        unmasked_images,
+        weights,
+        eps=0.0 if isinstance(estimator, NoiseCorrectedCosineEstimator) else 1.0e-6,
+    )
 
     return (
         robust_weights.detach().cpu().numpy().reshape(-1),
@@ -760,7 +851,10 @@ def process_class(
     masked_images = images * mask_tensor
 
     estimator = initialize_estimator(
-        pipeline_config, unmasked_images=images, masked_images=masked_images, mask=mask_tensor
+        pipeline_config,
+        unmasked_images=images,
+        masked_images=masked_images,
+        mask=mask_tensor,
     )
     reference = masked_images.mean(dim=0)
 
@@ -775,9 +869,23 @@ def process_class(
     )
     unmasked_original_average = images.mean(dim=0).detach().cpu().numpy()
 
+    weights = gmm_weights_np if gmm_weights_np is not None else robust_weights_np
+
+    outlier_proportion = pipeline_config.io.outlier_proportion_for_avgs
+    bottom_weight = np.quantile(weights, outlier_proportion)
+    top_weight = np.quantile(weights, 1.0 - outlier_proportion)
+
+    low_mask = weights <= bottom_weight
+    high_mask = weights >= top_weight
+
+    low_weight_average = images[low_mask].mean(axis=0) if low_mask.any() else None
+    high_weight_average = images[high_mask].mean(axis=0) if high_mask.any() else None
+
     return ClassProcessingResults(
         unmasked_corrected_average=unmasked_corrected_average,
         unmasked_original_average=unmasked_original_average,
+        unmasked_low_weight_average=low_weight_average,
+        unmasked_high_weight_average=high_weight_average,
         robust_weights=robust_weights_np,
         gmm_weights=gmm_weights_np,
         gmm_diagnostics=gmm_diagnostics,
@@ -837,7 +945,14 @@ def get_output_buffers(
     input_metadata_df: pd.DataFrame,
     weight_columns: Iterable[str],
     n_classes: int,
-) -> Tuple[Optional[pd.DataFrame], Optional[np.ndarray], Optional[np.ndarray]]:
+) -> Tuple[
+    Optional[pd.DataFrame],
+    Optional[np.ndarray],
+    Optional[np.ndarray],
+    Optional[np.ndarray],
+    Optional[np.ndarray],
+    Optional[np.ndarray],
+]:
     group_by_column = io_config.group_by_column
 
     write_metadata = None
@@ -868,15 +983,35 @@ def get_output_buffers(
         nx = mrc.header.nx
         ny = mrc.header.ny
 
+    average_stacks_shape = (n_classes, ny, nx)
     corrected_averages = None
     if io_config.out_corrected_avgs:
-        corrected_averages = np.empty(shape=(n_classes, ny, nx), dtype=np.float32)
+        corrected_averages = np.empty(shape=average_stacks_shape, dtype=np.float32)
 
     original_averages = None
     if io_config.out_original_avgs:
-        original_averages = np.empty(shape=(n_classes, ny, nx), dtype=np.float32)
+        original_averages = np.empty(shape=average_stacks_shape, dtype=np.float32)
 
-    return write_metadata, corrected_averages, original_averages
+    low_weight_averages = None
+    if io_config.out_low_weight_avgs:
+        low_weight_averages = np.empty(shape=average_stacks_shape, dtype=np.float32)
+
+    high_weight_averages = None
+    if io_config.out_low_weight_avgs:
+        high_weight_averages = np.empty(shape=average_stacks_shape, dtype=np.float32)
+
+    difference_avgs = None
+    if io_config.out_difference_avgs:
+        difference_avgs = np.empty(shape=average_stacks_shape, dtype=np.float32)
+
+    return (
+        write_metadata,
+        corrected_averages,
+        original_averages,
+        low_weight_averages,
+        high_weight_averages,
+        difference_avgs,
+    )
 
 
 def get_weight_columns(pipeline_config: PipelineConfig):
@@ -904,11 +1039,13 @@ def main() -> None:
     group_by_values: Iterable[int] = sorted(input_metadata_df[group_by_column].unique())
 
     weight_columns = get_weight_columns(pipeline_config)
-    out_md, robust_avgs, original_avgs = get_output_buffers(
-        io_config=pipeline_config.io,
-        input_metadata_df=input_metadata_df,
-        weight_columns=weight_columns,
-        n_classes=len(group_by_values),
+    out_md, robust_avgs, original_avgs, low_w_avgs, high_w_avgs, diff_avgs = (
+        get_output_buffers(
+            io_config=pipeline_config.io,
+            input_metadata_df=input_metadata_df,
+            weight_columns=weight_columns,
+            n_classes=len(group_by_values),
+        )
     )
 
     gmm_fits_info = []
@@ -936,6 +1073,26 @@ def main() -> None:
 
         if original_avgs is not None:
             original_avgs[index] = class_results.unmasked_original_average
+
+        if diff_avgs is not None:
+            diff_avgs[index] = (
+                class_results.unmasked_corrected_average
+                - class_results.unmasked_original_average
+            )
+
+        if low_w_avgs is not None:
+            low_w_avgs[index] = (
+                class_results.unmasked_low_weight_average
+                if class_results.unmasked_low_weight_average is not None
+                else 0.0
+            )
+
+        if high_w_avgs is not None:
+            high_w_avgs[index] = (
+                class_results.unmasked_high_weight_average
+                if class_results.unmasked_high_weight_average is not None
+                else 0.0
+            )
 
         if out_md is not None:
             write_weights_to_dataframe(
@@ -980,6 +1137,13 @@ def main() -> None:
         mrcfile.write(name=pipeline_config.io.out_corrected_avgs, data=robust_avgs)
     if original_avgs is not None:
         mrcfile.write(name=pipeline_config.io.out_original_avgs, data=original_avgs)
+    if diff_avgs is not None:
+        mrcfile.write(name=pipeline_config.io.out_difference_avgs, data=diff_avgs)
+    if low_w_avgs is not None:
+        mrcfile.write(name=pipeline_config.io.out_low_weight_avgs, data=low_w_avgs)
+    if high_w_avgs is not None:
+        mrcfile.write(name=pipeline_config.io.out_high_weight_avgs, data=high_w_avgs)
+
     if out_md is not None:
         if out_md[weight_columns].isna().any().any():
             raise RuntimeError("Some particles were not assigned weights.")
@@ -989,6 +1153,7 @@ def main() -> None:
             out_md[group_by_column].fillna(UNASSIGNED_GROUP_VALUE).astype(int)
         )
         starfile.write(data=out_md, filename=args.out_star)
+
     if gmm_out_path is not None and gmm_fits_info:
         np.savez_compressed(gmm_out_path / "distances.npz", **distances_dict)
         np.savez_compressed(gmm_out_path / "gmmWeights.npz", **gmm_weights_dict)
