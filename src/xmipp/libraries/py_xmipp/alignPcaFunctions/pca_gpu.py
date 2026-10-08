@@ -340,7 +340,7 @@ class PCAgpu:
             Texp = Img[initBatch:endBatch]
             
             radius = 64
-            Texp = bnb.zscore_normalization(Texp)
+            # Texp = bnb.zscore_normalization(Texp)
             # mask = bnb.create_gaussian_mask(Texp)
             # Texp = bnb.zscore_normalization_mask(Texp, mask)
             Texp = Texp * bnb.create_mask(Texp, radius)

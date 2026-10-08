@@ -194,7 +194,7 @@ if __name__=="__main__":
     texp = torch.from_numpy(expImages).to(cuda)#.pin_memory().to(cuda)
     del expImages
 
-    texp = bnb.zscore_normalization(texp)
+    # texp = bnb.zscore_normalization(texp)
     # mask = bnb.create_gaussian_mask(texp)
     # texp = bnb.zscore_normalization_mask(texp, mask)
     # texp *= bnb.create_gaussian_mask(texp)
@@ -269,7 +269,7 @@ if __name__=="__main__":
                    
             tref = all_refs_cpu[i].to(cuda)#, non_blocking=True)
             
-            tref = bnb.zscore_normalization(tref)
+            # tref = bnb.zscore_normalization(tref)
             # mask = bnb.create_gaussian_mask(tref)
             # tref = bnb.zscore_normalization_mask(tref, mask)
             # tref *= bnb.create_gaussian_mask(tref)
