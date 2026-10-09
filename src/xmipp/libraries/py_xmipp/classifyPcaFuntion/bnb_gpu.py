@@ -368,6 +368,7 @@ class BnBgpu:
             #Create classes for batches
             
             batch_class_indices = matches[initBatch:endBatch, 1].to(self.cuda, non_blocking=True).long()
+            print(batch_class_indices)
             batch_scores = matches[initBatch:endBatch, 2].to(self.cuda, non_blocking=True)
             projs_gpu = proj_batch.to(self.cuda, non_blocking=True)[0]
             
