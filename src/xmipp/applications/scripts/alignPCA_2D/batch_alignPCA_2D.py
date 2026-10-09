@@ -378,7 +378,7 @@ if __name__=="__main__":
                         expImages_star = mmap_star.data[initBatch:endBatch].astype(np.float32)
                         cl, tMatrix, batch_projExp_cpu, numerador_list, denominador_list = bnb.align_particles_to_classes(expImages, expImages_star, 
                                         cl, tMatrix, iter, subset, matches, vectorshift, classes,
-                                         freqBn, coef, cvecs, mask, expStar, numerador_list, denominador_list)
+                                         freqBn, coef, cvecs, mask, expStar, numerador_list, denominador_list, initBatch, endBatch)
     
                     
                     # save classes
