@@ -588,7 +588,8 @@ class BnBgpu:
             newCL = [[] for i in range(classes)]  
             newCL_indices = [ [] for _ in range(classes) ]  
             # particle_indices = torch.arange( data_star.shape[0], device=self.cuda, dtype=torch.long )
-            particle_indices = matches[:, 0].long()          
+            particle_indices = matches[:, 0].long()  
+            print(particle_indices)        
             
             for n in range(classes):
                 class_images = transforIm[matches[:, 1] == n]
