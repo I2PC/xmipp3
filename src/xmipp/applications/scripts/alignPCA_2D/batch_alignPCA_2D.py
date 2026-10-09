@@ -311,6 +311,7 @@ if __name__=="__main__":
                     subset = endBatch
                 else:
                     subset = endBatch - initBatch
+                print(f"Subset - {subset}\n", flush=True)
     
                      
                 tMatrix = torch.eye(2, 3, device = cuda).repeat(subset, 1, 1)

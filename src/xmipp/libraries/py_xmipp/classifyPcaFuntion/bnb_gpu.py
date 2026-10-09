@@ -368,7 +368,6 @@ class BnBgpu:
             #Create classes for batches
             
             batch_class_indices = matches[initBatch:endBatch, 1].to(self.cuda, non_blocking=True).long()
-            print(batch_class_indices)
             batch_scores = matches[initBatch:endBatch, 2].to(self.cuda, non_blocking=True)
             projs_gpu = proj_batch.to(self.cuda, non_blocking=True)[0]
             
@@ -543,7 +542,7 @@ class BnBgpu:
     
     
     @torch.no_grad()
-    def align_particles_to_classes(self, data, data_star, cl, tMatrix, iter, expBatchSize, matches, vectorshift, classes, freqBn, coef, cvecs, mask, expStar, numerador_list, denominador_list):
+    def align_particles_to_classes(self, data, data_star, cl, tMatrix, iter, expBatchSize, matches, vectorshift, classes, freqBn, coef, cvecs, mask, expStar, numerador_list, denominador_list, initBatch, endBatch):
         
         ctf = ctfClass(expStar, device=self.cuda)
         
@@ -589,7 +588,8 @@ class BnBgpu:
             newCL = [[] for i in range(classes)]  
             newCL_indices = [ [] for _ in range(classes) ]  
             # particle_indices = torch.arange( data_star.shape[0], device=self.cuda, dtype=torch.long )
-            particle_indices = matches[:, 0].long()  
+            # particle_indices = matches[:, 0].long()  
+            particle_indices = torch.arange(initBatch, endBatch, device=self.cuda, dtype=torch.long)
             print(particle_indices)        
             
             for n in range(classes):
