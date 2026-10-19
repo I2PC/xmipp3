@@ -511,15 +511,51 @@ def parse_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
 
 
 def validate_item_ids(data: pd.DataFrame, name: str) -> None:
-    """Validate that a metadata table contains unique particle item identifiers."""
+    """Validate that metadata contains unique, nonmissing particle IDs."""
     if MDL_ITEM_ID_COLUMN not in data.columns:
-        raise ValueError(
-            f"{name} metadata does not contain " f"'{MDL_ITEM_ID_COLUMN}'."
-        )
+        raise ValueError(f"{name} metadata does not contain '{MDL_ITEM_ID_COLUMN}'.")
+
+    if data[MDL_ITEM_ID_COLUMN].isna().any():
+        raise ValueError(f"{name} metadata contains missing particle identifiers.")
 
     if data[MDL_ITEM_ID_COLUMN].duplicated().any():
         raise ValueError(
             f"{name} metadata contains duplicated " f"'{MDL_ITEM_ID_COLUMN}' values."
+        )
+
+
+def validate_assignments(data: pd.DataFrame, group_by_column: str) -> None:
+    """Validate particle IDs, nonnegative integer groups, and unique assignments."""
+    keys = [MDL_ITEM_ID_COLUMN, group_by_column]
+
+    missing_columns = [key for key in keys if key not in data.columns]
+    if missing_columns:
+        raise ValueError(
+            f"Input metadata is missing required columns: {missing_columns}."
+        )
+
+    if data[keys].isna().any().any():
+        raise ValueError("Input metadata contains missing particle or group IDs.")
+
+    # Normalize group values for validation, without modifying the input.
+    pairs = data[keys].copy()
+    pairs[group_by_column] = pd.to_numeric(
+        pairs[group_by_column],
+        errors="raise",
+    )
+    groups = pairs[group_by_column].to_numpy()
+
+    if (
+        not np.isfinite(groups).all()
+        or (groups < 0).any()
+        or (groups != np.floor(groups)).any()
+    ):
+        raise ValueError("Group identifiers must be finite, nonnegative integers.")
+
+    if pairs.duplicated().any():
+        raise ValueError(
+            "Input metadata contains repeated particle assignments "
+            "within the same group."
         )
 
 
@@ -753,8 +789,14 @@ def process_class(
     low_mask = weights <= bottom_weight
     high_mask = weights >= top_weight
 
-    low_weight_average = images[low_mask].mean(axis=0) if low_mask.any() else None
-    high_weight_average = images[high_mask].mean(axis=0) if high_mask.any() else None
+    low_weight_average = (
+        images[low_mask].mean(dim=0).detach().cpu().numpy() if low_mask.any() else None
+    )
+    high_weight_average = (
+        images[high_mask].mean(dim=0).detach().cpu().numpy()
+        if high_mask.any()
+        else None
+    )
 
     return ClassProcessingResults(
         unmasked_corrected_average=unmasked_corrected_average,
@@ -775,44 +817,52 @@ def write_weights_to_dataframe(
     group_by_column: str,
     group_by_value: int,
     eps_std: float = 1.0e-6,
-):
-    """
-    Write weights to metadata file, ensuring the association is correct by using
-    the item ids from the input metadata file
-    """
-    class_mask = write_metadata[MDL_ITEM_ID_COLUMN].isin(item_ids)
-    target_item_ids = write_metadata.loc[class_mask, MDL_ITEM_ID_COLUMN]
-
-    robust_weights_by_id = pd.Series(robust_weights_np, index=item_ids)
-
-    write_metadata.loc[class_mask, ROBUST_WEIGHT_COL] = target_item_ids.map(
-        robust_weights_by_id
-    ).to_numpy()
-
-    # Per-class standardized weights are useful because different classes might have
-    # different weight distributions
+) -> None:
+    """Accumulate maximum weights and retain the best-weight group per particle."""
     std = robust_weights_np.std()
-    if std > eps_std:
-        robust_weights_std = (
-            robust_weights_np - robust_weights_np.mean()
-        ) / robust_weights_np.std()
-    else:
-        robust_weights_std = np.zeros_like(robust_weights_np)
+    standardized_weights = (
+        (robust_weights_np - robust_weights_np.mean()) / std
+        if std > eps_std
+        else np.zeros_like(robust_weights_np)
+    )
 
-    weights_std_by_id = pd.Series(robust_weights_std, index=item_ids)
-
-    write_metadata.loc[class_mask, STD_ROBUST_WEIGHT_COL] = target_item_ids.map(
-        weights_std_by_id
-    ).to_numpy()
-
+    weights_by_column = {
+        ROBUST_WEIGHT_COL: robust_weights_np,
+        STD_ROBUST_WEIGHT_COL: standardized_weights,
+    }
     if gmm_weights_np is not None:
-        gmm_weights_by_id = pd.Series(gmm_weights_np, index=item_ids)
+        weights_by_column[GMM_WEIGHT_COL] = gmm_weights_np
 
-        write_metadata.loc[class_mask, GMM_WEIGHT_COL] = target_item_ids.map(
-            gmm_weights_by_id
-        ).to_numpy()
+    for column, values in weights_by_column.items():
+        if not np.isfinite(values).all():
+            raise ValueError(
+                f"Group {group_by_value} produced nonfinite {column} values."
+            )
 
-    write_metadata.loc[class_mask, group_by_column] = group_by_value
+    primary_column = GMM_WEIGHT_COL if gmm_weights_np is not None else ROBUST_WEIGHT_COL
+    output_ids = write_metadata[MDL_ITEM_ID_COLUMN]
+    class_mask = output_ids.isin(item_ids)
+
+    incoming_primary = output_ids.map(
+        pd.Series(weights_by_column[primary_column], index=item_ids)
+    )
+    current_primary = write_metadata[primary_column]
+
+    # Calculate this before updating the stored maxima.
+    better_group = class_mask & (
+        current_primary.isna() | (incoming_primary > current_primary)
+    )
+
+    for column, values in weights_by_column.items():
+        incoming = output_ids.loc[class_mask].map(pd.Series(values, index=item_ids))
+        previous = write_metadata.loc[class_mask, column]
+
+        write_metadata.loc[class_mask, column] = np.fmax(
+            previous.to_numpy(),
+            incoming.to_numpy(),
+        )
+
+    write_metadata.loc[better_group, group_by_column] = group_by_value
 
 
 def get_output_buffers(
@@ -835,15 +885,24 @@ def get_output_buffers(
         # Metadata files can be large, avoid reading the same file twice if possible
         if io_config.base_xmd != io_config.input_xmd:
             write_metadata = pd.DataFrame(starfile.read(io_config.base_xmd))
-
-            # Filter out particles not present in input xmd to avoid errors
-            write_metadata = write_metadata[
-                write_metadata[MDL_ITEM_ID_COLUMN].isin(
-                    input_metadata_df[MDL_ITEM_ID_COLUMN]
-                )
-            ]
         else:
             write_metadata = input_metadata_df.copy()
+
+        validate_item_ids(write_metadata, name="Base")
+
+        input_ids = pd.Index(input_metadata_df[MDL_ITEM_ID_COLUMN].unique())
+        base_ids = pd.Index(write_metadata[MDL_ITEM_ID_COLUMN])
+
+        missing_ids = input_ids.difference(base_ids)
+        if len(missing_ids):
+            raise ValueError(
+                f"{len(missing_ids)} input particles are absent from the base metadata."
+            )
+
+        # Filter out particles not present in input xmd
+        write_metadata = write_metadata.loc[
+            write_metadata[MDL_ITEM_ID_COLUMN].isin(input_ids)
+        ].copy()
 
         # Initialize the weight to nan to later catch particles without weights
         for column in weight_columns:
@@ -872,7 +931,7 @@ def get_output_buffers(
         low_weight_averages = np.empty(shape=average_stacks_shape, dtype=np.float32)
 
     high_weight_averages = None
-    if io_config.out_low_weight_avgs:
+    if io_config.out_high_weight_avgs:
         high_weight_averages = np.empty(shape=average_stacks_shape, dtype=np.float32)
 
     difference_avgs = None
@@ -904,12 +963,11 @@ def main() -> None:
     group_by_column = pipeline_config.io.group_by_column
     input_metadata_df = pd.DataFrame(starfile.read(pipeline_config.io.input_xmd))
 
-    # Ensure the grouping column is of integer type
-    input_metadata_df[group_by_column] = (
-        input_metadata_df[group_by_column].fillna(UNASSIGNED_GROUP_VALUE).astype(int)
-    )
+    validate_assignments(input_metadata_df, group_by_column)
 
-    validate_item_ids(input_metadata_df, name="Input")
+    input_metadata_df[group_by_column] = pd.to_numeric(
+        input_metadata_df[group_by_column], errors="raise"
+    ).astype(np.int64)
 
     group_by_values: Iterable[int] = sorted(input_metadata_df[group_by_column].unique())
 
@@ -1023,10 +1081,12 @@ def main() -> None:
         if out_md[weight_columns].isna().any().any():
             raise RuntimeError("Some particles were not assigned weights.")
 
-        # Ensure output grouping column is of integer type without NaNs
-        out_md[group_by_column] = (
-            out_md[group_by_column].fillna(UNASSIGNED_GROUP_VALUE).astype(int)
-        )
+        output_groups = out_md[group_by_column]
+        if output_groups.isna().any() or (output_groups < 0).any():
+            raise RuntimeError("Some particles were not assigned a valid group.")
+
+        out_md[group_by_column] = output_groups.astype(np.int64)
+        
         starfile.write(data=out_md, filename=args.out_star)
 
     if gmm_out_path is not None and gmm_fits_info:
