@@ -541,7 +541,7 @@ class evaluation:
     
     
     
-    def estimatePose(self, angle_triplet, expStar, matchPair_raw, shiftVec, nExp, apply_shifts, filter_matches=True):
+    def estimatePose(self, angle_triplet, expStar, matchPair_raw, shiftVec, nExp, apply_shifts, filter_matches=True, filter_score=True):
         """
         Estima la pose final de las partículas filtrando por el flag de mejor match.
         
@@ -555,6 +555,9 @@ class evaluation:
         # 1. Filtramos solo los mejores matches (Flag en columna 5)
         if filter_matches:
             mask = matchPair_raw[:, 5] > 0.5
+            valid_indices = torch.where(mask)[0]
+        elif filter_score:
+            mask = matchPair_raw[:, 6] > 0.5
             valid_indices = torch.where(mask)[0]
         else:
             mask = torch.ones(matchPair_raw.shape[0], dtype=torch.bool, device=matchPair_raw.device)

@@ -280,8 +280,8 @@ class BnBgpu:
                              
         for n in range(self.nBand):
             ################################
-            batchRef[n] = batchRef[n] / (torch.linalg.norm(batchRef[n], dim=1, keepdim=True) + 1e-8)
-            batchExp[n] = batchExp[n] / (torch.linalg.norm(batchExp[n], dim=1, keepdim=True) + 1e-8)
+            # batchRef[n] = batchRef[n] / (torch.linalg.norm(batchRef[n], dim=1, keepdim=True) + 1e-8)
+            # batchExp[n] = batchExp[n] / (torch.linalg.norm(batchExp[n], dim=1, keepdim=True) + 1e-8)
             ################################
             score = torch.cdist(batchRef[n], batchExp[n])
               
@@ -376,6 +376,39 @@ class BnBgpu:
         tensor_with_indicator = torch.cat((tensor, indicator_column.unsqueeze(1)), dim=1)
         
         return tensor_with_indicator
+    
+    
+    @torch.no_grad()
+    def filter_scores_mad(self, matches, score_col=2, flag_col=6, threshold=1.5):
+        matches = matches.clone()
+        
+        new_col = torch.ones((matches.shape[0], 1), dtype=matches.dtype, device=matches.device)
+        matches = torch.cat((matches, new_col), dim=1)
+    
+        scores = matches[:, score_col]
+    
+        if scores.numel() < 5:
+            return matches
+    
+        median = scores.median()
+        mad = (scores - median).abs().median()
+    
+        if mad > 1e-8:
+            robust_sigma = 1.4826 * mad
+            outliers = scores > median + threshold * robust_sigma
+        else:
+            # Si MAD es cero, descartar valores estrictamente
+            # superiores al percentil 95.
+            cutoff = torch.quantile(scores, 0.95)
+            outliers = scores > cutoff
+    
+        # Obtener los índices de los scores atípicos
+        outlier_indices = torch.where(outliers)[0]
+    
+        # Marcar como inválidos los matches con scores demasiado altos
+        matches[outlier_indices, flag_col] = 0
+    
+        return matches
         
        
     
@@ -818,9 +851,9 @@ class BnBgpu:
     def reconstruct_parameters(self, iter, pcaRes, filter):
         
         if iter < 3:
-            pcaRes, volRes, angleGallery = 40, 40, 12
+            pcaRes, volRes, angleGallery = 40, 40, 20
         elif iter < 5:
-            pcaRes, volRes, angleGallery = 30, 30, 6
+            pcaRes, volRes, angleGallery = 30, 30, 15
         elif iter < 8:
             pcaRes, volRes, angleGallery = 20, 20, 12
             # pcaRes, volRes, angleGallery = 8, 20, 12
@@ -833,6 +866,11 @@ class BnBgpu:
         else:
             pcaRes, volRes, angleGallery = pcaRes, filter, 5
             # pcaRes, volRes, angleGallery = 16, 16, 5
+            
+           # Jitter multiplicativo: ±10 %
+        # jitter = 0.10
+        # factor = 1.0 + (2.0 * torch.rand(1).item() - 1.0) * jitter
+        # angleGallery = angleGallery * factor
             
         return(pcaRes, volRes, angleGallery)
 

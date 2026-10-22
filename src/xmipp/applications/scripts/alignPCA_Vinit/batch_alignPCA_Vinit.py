@@ -145,7 +145,7 @@ if __name__=="__main__":
     
     #Create initial references
     R = reconstruct()
-    angular_step = 12
+    angular_step = 20 #12
     transf, angle_triplet = R.generate_library_sym(angular_step, sym=sym)
     
     all_refs_cpu = [None] * numCl
@@ -305,15 +305,20 @@ if __name__=="__main__":
                 # del(batch_projRef)
             
             matches[i] = bnb.match_batch_label_minScore(matches[i])
-            # print(matches[i])
+            print(matches[i])
+            print("---------------------")
+            matches[i] = bnb.filter_scores_mad(matches[i])
+            print(matches[i])
             # exit()
             
             if not save_class: 
                 valid_indices, rotM, shiftM = assess.estimatePose(
                     angle_triplet, expStar, matches[i], vectorshift, 
-                    nExp, apply_shifts, filter_matches=(current_iter > 16) #4
+                    nExp, apply_shifts, filter_matches=(current_iter > 16), filter_score= (current_iter <= 16)
                 )
-                
+            
+            print("--------------------------------")
+            print(valid_indices)   
             score = matches[i][valid_indices, 2].mean()
             print(f"num averages = {len(valid_indices)}, mean score = {score.item()}")
             # print("mean score = %s" %score.item())
@@ -323,32 +328,43 @@ if __name__=="__main__":
             if current_iter < 7:                
                 # 1. Definimos los grupos A y B SOLO una vez en la iteración 0
                 if current_iter == 0:
-                    num_valid = len(valid_indices)
+                    num_valid = nExp #len(valid_indices)
                     indices_locales = np.arange(num_valid)
                     np.random.shuffle(indices_locales) # Barajamos una única vez
             
                     mitad = num_valid // 2
                     globals()['indices_fijos_A'] = indices_locales[:mitad]
                     globals()['indices_fijos_B'] = indices_locales[mitad:]
-                    # print(f"-> [Iter 0] Grupos fijos creados: Grupo A ({mitad}) y Grupo B ({num_valid - mitad})")
+                    print(f"-> [Iter 0] Grupos fijos creados: Grupo A ({mitad}) y Grupo B ({num_valid - mitad})")
             
                 # 2. Alternamos estrictamente recuperando los arrays del espacio global
                 if current_iter % 2 == 0:
-                    idx_para_ahora = globals().get('indices_fijos_A')
-                    # print(f"-> [Iter {current_iter}] Usando el 50% del GRUPO A (Fijo)")
+                    grupo = globals()['indices_fijos_A']
+                    print(f"-> [Iter {current_iter}] Usando el 50% del GRUPO A (Fijo) ({grupo})")
                 else:
-                    idx_para_ahora = globals().get('indices_fijos_B')
-                    # print(f"-> [Iter {current_iter}] Usando el 50% del GRUPO B (El resto Fijo)")
+                    grupo = globals()['indices_fijos_B']
+                    print(f"-> [Iter {current_iter}] Usando el 50% del GRUPO B (El resto Fijo)({grupo})")
+                    
+                valid_np = valid_indices.detach().cpu().numpy()
+                idx_para_ahora = np.flatnonzero(np.isin(valid_np, grupo))
+                
+                idx_torch = torch.as_tensor(idx_para_ahora, dtype=torch.long, device=rotM.device)
+                
+                valid_indices = valid_indices[idx_torch]
+                print(valid_indices)
+                rotM = rotM[idx_torch]
+                
+                if shiftM is not None:
+                    shiftM = shiftM[idx_torch.to(shiftM.device)]
             
-                # Control de seguridad: si por alguna razón el script saltó la iteración 0
-                if idx_para_ahora is None:
-                    idx_para_ahora = np.arange(len(valid_indices))[:len(valid_indices) // 2]
+
             
                 # Aplicamos la selección idéntica a los tensores
-                valid_indices = valid_indices[idx_para_ahora]
-                rotM = rotM[idx_para_ahora]
-                if shiftM is not None:
-                    shiftM = shiftM[idx_para_ahora]
+                # valid_indices = valid_indices[idx_para_ahora]
+                # print(valid_indices)
+                # rotM = rotM[idx_para_ahora]
+                # if shiftM is not None:
+                #     shiftM = shiftM[idx_para_ahora]
             
             mmap_filtrado = mmap.data[valid_indices.cpu().numpy()].astype('float32')
             
@@ -374,7 +390,7 @@ if __name__=="__main__":
             save_vol(vol.cpu(), file, sampling)
             
             if i == 0 and current_iter in (3, 5, 8, 13, 16):
-                # print(f"ANGULAR STEP = {angular_step}")
+                print(f"ANGULAR STEP = {angular_step}")
                 transf, next_angle_triplet = R.generate_library_sym(angular_step, sym=sym)
                 
             ref = R.generate_projections(vol, transf)
