@@ -14,6 +14,7 @@ from xmippPyModules.alignPcaFunctions.pca_gpu import *
 from xmippPyModules.alignPcaFunctions.bnb_gpu import *
 from xmippPyModules.alignPcaFunctions.reconstruct_gpu import *
 from xmippPyModules.alignPcaFunctions.assessment import *
+from xmippPyModules.alignPcaFunctions.init_angle_generation import *
 # from builtins import iter
 # from _weakref import ref
 
@@ -145,14 +146,21 @@ if __name__=="__main__":
     
     #Create initial references
     R = reconstruct()
-    angular_step = 20 #12
+    angular_step = 12
     transf, angle_triplet = R.generate_library_sym(angular_step, sym=sym)
     
     all_refs_cpu = [None] * numCl
     
+        #Reading experimental images (solo una vez)
+    expImages = read_images(expFile)
+    texp = torch.from_numpy(expImages).to(cuda)
+    del expImages
+    
     if initVol:
         for i in range(numCl):
             zeroVol = load_vol(initVol)
+            # zeroVol = R.filter_3d(zeroVol, sampling, 10.0)
+            zeroVol = R.mask_otsu(zeroVol, sigma=4.0, noise_level=0.0)
             if posit:
                 zeroVol = torch.relu(zeroVol)
             ref = R.generate_projections(zeroVol, transf)
@@ -161,9 +169,12 @@ if __name__=="__main__":
             del zeroVol, ref
     else:    
         for i in range(numCl):
+            # initializer = CommonLinesInitializer(image_size=128, n_angles=180, n_radial=64, min_radius=3, max_radius=60, device=cuda, iterations=100, lr=0.015, starts=2, seed=1234+i)
+            # random_angles = initializer.fit(texp)
             random_angles = R.generate_random_angles(nExp)
             zeroVol = R.reconstruct_volume_sym(mmap, sym, 60, sampling, dim, random_angles, posit=positivity)
-            # zeroVol = (zeroVol - zeroVol.mean()) / (zeroVol.std() + 1e-8)
+            file = output+"-iter%s_zerovol.mrc"%(i)
+            save_vol(zeroVol.cpu(), file, sampling) 
             zeroVol = R.filter_3d(zeroVol, sampling, 60.0)
             # zeroVol = R.mask_otsu(zeroVol, sigma=4.0, noise_level=0.0)
             zeroVol = zeroVol * R.contrast_dominant_mask_3d(zeroVol, window=3, contrast_percentile=90,
@@ -171,10 +182,14 @@ if __name__=="__main__":
             zeroVol = R.apply_spherical_mask(zeroVol, radius)
             # zeroVol = R.generate_random_ellipsoid(dim, radius=dim//2, device=cuda)
             # zeroVol = R.generate_scaffolding_seed(mmap, R, sym, sampling, dim, cuda)
+            
+            
+            
             if posit:
                 zeroVol = torch.relu(zeroVol)
             ref = R.generate_projections(zeroVol, transf)
             all_refs_cpu[i] = ref.detach().cpu()#.pin_memory()
+            
             del zeroVol, ref
         
     
@@ -189,17 +204,16 @@ if __name__=="__main__":
     assess = evaluation()
     
     
-    #Reading experimental images (solo una vez)
-    expImages = read_images(expFile)
-    # texp = torch.from_numpy(expImages).pin_memory().to(cuda, non_blocking=True)
-    texp = torch.from_numpy(expImages).to(cuda)#.pin_memory().to(cuda)
-    del expImages
+    # #Reading experimental images (solo una vez)
+    # expImages = read_images(expFile)
+    # texp = torch.from_numpy(expImages).to(cuda)
+    # del expImages
 
     texp = bnb.zscore_normalization(texp)
+    texp *= bnb.create_gaussian_mask(texp, 42)
     # mask = bnb.create_gaussian_mask(texp)
     # texp = bnb.zscore_normalization_mask(texp, mask)
     # texp = bnb.correct_background_and_normalize(texp, 52)
-    # texp *= bnb.create_gaussian_mask(texp, 42)
 
 
     if radius:
@@ -221,7 +235,7 @@ if __name__=="__main__":
     #pca
     # nBand = 1
     pca = PCAgpu(nBand)
-    maxRes = 20
+    maxRes = 60
     freqBn, cvecs, coef = pca.calculatePCAbasis(texp, Ntrain, nBand, dim, sampling, maxRes, 
                                                 minRes=530, per_eig=per_eig_value, batchPCA=True)
 
@@ -252,12 +266,12 @@ if __name__=="__main__":
         vectorRot.sort()         
         nShift = len(vectorshift)
         
-        # if current_iter < 7:
-        #     texp_align = texp * bnb.contrast_dominant_mask(texp, window=3, contrast_percentile=80,
-        #                             intensity_percentile=50, smooth_sigma=1.0)
-        # else:
-        #     texp_align = texp
-        texp_align = texp
+        if current_iter < 7:
+            texp_align = texp * bnb.contrast_dominant_mask(texp, window=3, contrast_percentile=80,
+                                    intensity_percentile=50, smooth_sigma=1.0)
+        else:
+            texp_align = texp
+        # texp_align = texp
         
         # file = output+"_exp.mrcs" 
         # save_proj(texp_align, file, sampling) 
@@ -272,14 +286,14 @@ if __name__=="__main__":
             tref = all_refs_cpu[i].to(cuda)#, non_blocking=True)
             
             tref = bnb.zscore_normalization(tref)
+            tref *= bnb.create_gaussian_mask(tref, 42)
             # mask = bnb.create_gaussian_mask(tref)
             # tref = bnb.zscore_normalization_mask(tref, mask)
             # tref = bnb.correct_background_and_normalize(tref, 52)
-            tref *= bnb.create_gaussian_mask(tref, 42)
             
-            if current_iter < 7:
-                tref = tref * bnb.contrast_dominant_mask(tref, window=3, contrast_percentile=80,
-                                    intensity_percentile=50, smooth_sigma=1.0)
+            # if current_iter < 7:
+            #     tref = tref * bnb.contrast_dominant_mask(tref, window=3, contrast_percentile=80,
+            #                         intensity_percentile=50, smooth_sigma=1.0)
             
             if radius:
                 tref = tref * bnb.create_mask(tref, radius)
@@ -305,20 +319,21 @@ if __name__=="__main__":
                 # del(batch_projRef)
             
             matches[i] = bnb.match_batch_label_minScore(matches[i])
-            print(matches[i])
-            print("---------------------")
+            # print(matches[i])
+            # print("---------------------")
             matches[i] = bnb.filter_scores_mad(matches[i])
-            print(matches[i])
+            # print(matches[i])
             # exit()
             
             if not save_class: 
                 valid_indices, rotM, shiftM = assess.estimatePose(
                     angle_triplet, expStar, matches[i], vectorshift, 
-                    nExp, apply_shifts, filter_matches=(current_iter > 16), filter_score= (current_iter <= 16)
+                    # nExp, apply_shifts, filter_matches=(current_iter < 16), filter_score = (current_iter < 16)
+                    nExp, apply_shifts, filter_matches=(7 < current_iter < 16), filter_score = (7 < current_iter < 16)
                 )
             
-            print("--------------------------------")
-            print(valid_indices)   
+            # print("--------------------------------")
+            # print(valid_indices)   
             score = matches[i][valid_indices, 2].mean()
             print(f"num averages = {len(valid_indices)}, mean score = {score.item()}")
             # print("mean score = %s" %score.item())
@@ -335,7 +350,7 @@ if __name__=="__main__":
                     mitad = num_valid // 2
                     globals()['indices_fijos_A'] = indices_locales[:mitad]
                     globals()['indices_fijos_B'] = indices_locales[mitad:]
-                    print(f"-> [Iter 0] Grupos fijos creados: Grupo A ({mitad}) y Grupo B ({num_valid - mitad})")
+                    # print(f"-> [Iter 0] Grupos fijos creados: Grupo A ({mitad}) y Grupo B ({num_valid - mitad})")
             
                 # 2. Alternamos estrictamente recuperando los arrays del espacio global
                 if current_iter % 2 == 0:
@@ -344,16 +359,16 @@ if __name__=="__main__":
                 else:
                     grupo = globals()['indices_fijos_B']
                     print(f"-> [Iter {current_iter}] Usando el 50% del GRUPO B (El resto Fijo)({grupo})")
-                    
+            
                 valid_np = valid_indices.detach().cpu().numpy()
                 idx_para_ahora = np.flatnonzero(np.isin(valid_np, grupo))
-                
+            
                 idx_torch = torch.as_tensor(idx_para_ahora, dtype=torch.long, device=rotM.device)
-                
+            
                 valid_indices = valid_indices[idx_torch]
                 print(valid_indices)
                 rotM = rotM[idx_torch]
-                
+            
                 if shiftM is not None:
                     shiftM = shiftM[idx_torch.to(shiftM.device)]
             
@@ -367,6 +382,7 @@ if __name__=="__main__":
                 #     shiftM = shiftM[idx_para_ahora]
             
             mmap_filtrado = mmap.data[valid_indices.cpu().numpy()].astype('float32')
+            # print(mmap_filtrado.shape)
             
             vol = R.reconstruct_volume_sym(mmap_filtrado, sym, filtRes, sampling, dim, rotM, shifts=shiftM, posit=positivity)
             # vol = (vol - vol.mean()) / (vol.std() + 1e-8)    
@@ -390,6 +406,7 @@ if __name__=="__main__":
             save_vol(vol.cpu(), file, sampling)
             
             if i == 0 and current_iter in (3, 5, 8, 13, 16):
+            # if i == 0 and current_iter in (3, 5, 8, 10, 12, 14, 16, 18):
                 print(f"ANGULAR STEP = {angular_step}")
                 transf, next_angle_triplet = R.generate_library_sym(angular_step, sym=sym)
                 
@@ -407,6 +424,7 @@ if __name__=="__main__":
             next_angle_triplet = None 
             #Actualizo PCA
             if current_iter not in (3, 5):
+            # if current_iter not in (3, 5, 8, 16, 18):
                 del freqBn, coef, grid_flat, cvecs 
                 Ntrain = texp.shape[0]  
                 freqBn, cvecs, coef = pca.calculatePCAbasis(

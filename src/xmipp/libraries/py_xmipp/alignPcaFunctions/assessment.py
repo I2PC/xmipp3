@@ -552,16 +552,28 @@ class evaluation:
             apply_shifts: Booleano para decidir qué corrección de shift aplicar.
         """
         
-        # 1. Filtramos solo los mejores matches (Flag en columna 5)
+        mask = torch.ones(matchPair_raw.shape[0], dtype=torch.bool, device=matchPair_raw.device)
+        
         if filter_matches:
-            mask = matchPair_raw[:, 5] > 0.5
-            valid_indices = torch.where(mask)[0]
-        elif filter_score:
-            mask = matchPair_raw[:, 6] > 0.5
-            valid_indices = torch.where(mask)[0]
-        else:
-            mask = torch.ones(matchPair_raw.shape[0], dtype=torch.bool, device=matchPair_raw.device)
-            valid_indices = torch.arange(matchPair_raw.shape[0], device=matchPair_raw.device)
+            mask &= matchPair_raw[:, 5] > 0.5
+        
+        if filter_score:
+            mask &= matchPair_raw[:, 6] > 0.5
+        
+        valid_indices = torch.where(mask)[0]
+        
+        
+        
+        # 1. Filtramos solo los mejores matches (Flag en columna 5)
+        # if filter_matches:
+        #     mask = matchPair_raw[:, 5] > 0.5
+        #     valid_indices = torch.where(mask)[0]
+        # elif filter_score:
+        #     mask = matchPair_raw[:, 6] > 0.5
+        #     valid_indices = torch.where(mask)[0]
+        # else:
+        #     mask = torch.ones(matchPair_raw.shape[0], dtype=torch.bool, device=matchPair_raw.device)
+        #     valid_indices = torch.arange(matchPair_raw.shape[0], device=matchPair_raw.device)
             
         
         num_valid = valid_indices.size(0)
