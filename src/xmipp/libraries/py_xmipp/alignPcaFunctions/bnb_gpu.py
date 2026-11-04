@@ -273,37 +273,165 @@ class BnBgpu:
         return whitening_filter
         
       
-    def match_batch(self, batchExp, batchRef, initBatch, matches, rot, nShift):
-        
-        nExp = batchExp[0].size(dim=0) 
-        nShift = torch.tensor(nShift, device=self.cuda)       
-                             
+# ==================================================================
+    # Pegar dentro de la clase BnBgpu (misma indentacion que el resto de metodos)
+    # ==================================================================
+
+
+    @torch.no_grad()
+    def normalize_batch(self, batch):
+        """Normaliza (norma L2) cada vector de la lista de bandas. Modifica la lista in-place.
+        Devuelve (batch, norms): norms[n] son las normas ORIGINALES (nRows,), por si se quiere
+        usar la penalizacion de amplitud. Llamar UNA vez sobre batchRef antes del bucle de rotaciones."""
+        norms = []
         for n in range(self.nBand):
-            ################################
-            # batchRef[n] = batchRef[n] / (torch.linalg.norm(batchRef[n], dim=1, keepdim=True) + 1e-8)
-            # batchExp[n] = batchExp[n] / (torch.linalg.norm(batchExp[n], dim=1, keepdim=True) + 1e-8)
-            ################################
+            nrm = torch.linalg.norm(batch[n], dim=1)
+            batch[n] = batch[n] / (nrm[:, None] + 1e-8)
+            norms.append(nrm)
+        return batch, norms
+
+
+    @torch.no_grad()
+    def match_batch_initVol(self, batchExp, batchRef, initBatch, matches, rot, nShift):
+        """Version original (un unico mejor match por average). Unico cambio: squeeze(1)
+        en vez de squeeze() para que no falle con nExp == 1."""
+
+        nExp = int(batchExp[0].size(dim=0) / nShift)
+        nShift = torch.tensor(nShift, device=self.cuda)
+
+        for n in range(self.nBand):
+            batchRef[n] = batchRef[n] / (torch.linalg.norm(batchRef[n], dim=1, keepdim=True) + 1e-8)
+            batchExp[n] = batchExp[n] / (torch.linalg.norm(batchExp[n], dim=1, keepdim=True) + 1e-8)
             score = torch.cdist(batchRef[n], batchExp[n])
-              
-        min_score, ref = torch.min(score,0)
+
+        num_rows, num_cols = score.shape
+
+        num_blocks = score.shape[1] // nShift
+        blocks = score.view(num_rows, num_blocks, nShift)
+
+        block_min_values, block_min_indices_rows = blocks.min(dim=0)
+        block_min_value, block_min_indices_cols = block_min_values.min(dim=1)
+        block_min_indices_rows = block_min_indices_rows.gather(1, block_min_indices_cols.unsqueeze(1)).squeeze(1)
         del(score)
-           
-        sel = (torch.floor(ref/nShift)).type(torch.int64)
-        shift_location = (ref - (sel*nShift)).type(torch.int64)
-        rotation = torch.full((nExp,1), rot, device = self.cuda)
-        exp = torch.arange(initBatch, initBatch+nExp, 1, device = self.cuda).view(nExp,1)
-        
-        iter_matches = torch.cat((exp, sel.view(nExp,1), min_score.view(nExp,1), 
-                                  rotation, shift_location.view(nExp,1)), dim=1)  
-        
+
+        exp = torch.arange(initBatch, initBatch + nExp, 1, device=self.cuda).view(nExp, 1)
+        sel = block_min_indices_rows.type(torch.int64)
+        rotation = torch.full((nExp, 1), rot, device=self.cuda)
+        shift_location = (block_min_indices_cols).type(torch.int64)
+
+        iter_matches = torch.cat((exp, sel.view(nExp, 1), block_min_value.view(nExp, 1),
+                                  rotation, shift_location.view(nExp, 1)), dim=1)
+
         cond = iter_matches[:, 2] < matches[initBatch:initBatch + nExp, 2]
-        matches[initBatch:initBatch + nExp] = torch.where(cond.view(nExp, 1), iter_matches, matches[initBatch:initBatch + nExp])       
-        # torch.cuda.empty_cache()              
+        matches[initBatch:initBatch + nExp] = torch.where(cond.view(nExp, 1), iter_matches,
+                                                          matches[initBatch:initBatch + nExp])
         return(matches)
+
+
+    @torch.no_grad()
+    def match_batch_best_per_ref(self, batchExp, batchRef, best, best_rot, best_shift, rot, nShift,
+                                 ref_norms=None, amp_lambda=0.0, amp_scale=1.0):
+        """
+        Mantiene, para cada par (average, referencia), el mejor score sobre shifts y rotaciones.
+
+        batchRef debe estar ya normalizado (normalize_batch). batchExp se normaliza aqui.
+        best, best_rot, best_shift: (nExp, nRef). `rot` se guarda tal como se recibe
+        (mismo convenio que match_batch_initVol: se le pasa -rot).
+
+        Penalizacion de amplitud (opcional, amp_lambda > 0):
+            score = d_coseno + amp_lambda * [log(||x|| / (amp_scale * ||r||))]^2
+        con ref_norms = normas originales de las referencias (salida de normalize_batch).
+        amp_lambda = 0 -> solo coseno (comportamiento anterior).
+        """
+        nShift = int(nShift)
+        nExp = batchExp[0].size(0) // nShift
+
+        for n in range(self.nBand):
+            nrm_e = torch.linalg.norm(batchExp[n], dim=1)
+            expN = batchExp[n] / (nrm_e[:, None] + 1e-8)
+            score = torch.cdist(batchRef[n], expN)               # (nRef, nExp*nShift)
+
+            if amp_lambda > 0 and ref_norms is not None:
+                d_amp = torch.log((nrm_e[None, :] + 1e-8) / (amp_scale * ref_norms[n][:, None] + 1e-8))
+                d_amp.pow_(2).mul_(amp_lambda)
+                score.add_(d_amp)
+                del d_amp
+
+        nRef = score.shape[0]
+        min_sh, arg_sh = score.view(nRef, nExp, nShift).min(dim=2)   # (nRef, nExp)
+        del score
+        min_sh, arg_sh = min_sh.t(), arg_sh.t()                      # (nExp, nRef)
+
+        upd = min_sh < best
+        best = torch.where(upd, min_sh, best)
+        best_rot = torch.where(upd, torch.full_like(best_rot, float(rot)), best_rot)
+        best_shift = torch.where(upd, arg_sh.to(best_shift.dtype), best_shift)
+        return best, best_rot, best_shift
+
+
+    @torch.no_grad()
+    def topk_matches(self, best, best_rot, best_shift, k=3):
+        """
+        Devuelve una lista de k tensores (nExp, 5) con el formato de `matches`:
+        [exp, ref, score, rot, shift_idx]; el elemento r de la lista es el candidato de rango r
+        (0 = mejor). Cada candidato es una referencia distinta.
+        """
+        k = min(k, best.shape[1])
+        nExp = best.shape[0]
+        vals, refs = torch.topk(best, k, dim=1, largest=False)       # (nExp, k), ascendente
+        rots = torch.gather(best_rot, 1, refs)
+        shifts = torch.gather(best_shift, 1, refs)
+        exp = torch.arange(nExp, device=best.device, dtype=torch.float32)
+
+        out = []
+        for r in range(k):
+            out.append(torch.stack((exp, refs[:, r].float(), vals[:, r].float(),
+                                    rots[:, r].float(), shifts[:, r].float()), dim=1))
+        return out
+
+
+    @torch.no_grad()
+    def soft_weights(self, top, T):
+        """
+        Pesos blandos (nExp, K) con temperatura T dada. Suman 1 por average.
+        La escala es la mediana (entre averages) de la diferencia peor-mejor candidato,
+        asi que T es adimensional. OJO: esa escala depende de K.
+        """
+        s = torch.stack([t[:, 2] for t in top], dim=1)               # (nExp, K)
+        if s.shape[1] == 1:
+            return torch.ones_like(s)
+        gap = (s[:, -1] - s[:, 0]).median() + 1e-8
+        return torch.softmax(-(s - s[:, :1]) / (T * gap), dim=1)
+
+
+    @torch.no_grad()
+    def soft_weights_neff(self, top, n_eff, iters=30):
+        """
+        Pesos blandos (nExp, K) tales que el numero efectivo medio de candidatos
+        (exp de la entropia) sea ~ n_eff. Busca la temperatura por biseccion.
+        Devuelve (w, T). n_eff = 1 -> asignacion dura; n_eff = K -> pesos uniformes.
+        """
+        s = torch.stack([t[:, 2] for t in top], dim=1)               # (nExp, K)
+        if s.shape[1] == 1:
+            return torch.ones_like(s), 0.0
+
+        d = s - s[:, :1]
+        gap = (s[:, -1] - s[:, 0]).median() + 1e-8
+        lo, hi = 1e-3, 1e3
+        w, mid = None, hi
+        for _ in range(iters):
+            mid = (lo * hi) ** 0.5
+            w = torch.softmax(-d / (mid * gap), dim=1)
+            ne = torch.exp(-(w * torch.log(w + 1e-12)).sum(dim=1)).mean()
+            if ne > n_eff:
+                hi = mid
+            else:
+                lo = mid
+        return w, mid
     
     
     @torch.no_grad()
-    def match_batch_initVol(self, batchExp, batchRef, initBatch, matches, rot, nShift):
+    def match_batch_initVol_original(self, batchExp, batchRef, initBatch, matches, rot, nShift):
         
         nExp = int(batchExp[0].size(dim=0) / nShift)
         nShift = torch.tensor(nShift, device=self.cuda)       
@@ -806,14 +934,14 @@ class BnBgpu:
             # base_angle, base_shift, maxShift = 8, 6/sampling, 24/sampling
             base_angle, base_shift, maxShift = 8, 6/sampling, 24/sampling
         elif iter < 8:
-            # base_angle, base_shift, maxShift = 6, 6/sampling, 24/sampling
-            base_angle, base_shift, maxShift = 6, 4/sampling, 20/sampling
+            base_angle, base_shift, maxShift = 6, 6/sampling, 24/sampling
+            # base_angle, base_shift, maxShift = 6, 4/sampling, 20/sampling
         elif iter < 13:
-            # base_angle, base_shift, maxShift = 5.0, 6/sampling, 24/sampling
-            base_angle, base_shift, maxShift = 6.0, 4/sampling, 20/sampling
+            base_angle, base_shift, maxShift = 5.0, 6/sampling, 24/sampling
+            # base_angle, base_shift, maxShift = 5.0, 4/sampling, 20/sampling
         else:
-            # base_angle, base_shift, maxShift = 5.0, 6/sampling, 24/sampling
-            base_angle, base_shift, maxShift = 5.0, 4/sampling, 20/sampling
+            base_angle, base_shift, maxShift = 5.0, 6/sampling, 24/sampling
+            # base_angle, base_shift, maxShift = 5.0, 4/sampling, 20/sampling
             
         # 2. Aplicamos Jitter decreciente (enfriamiento)
         if iter < 8:
@@ -859,7 +987,7 @@ class BnBgpu:
             pcaRes, volRes, angleGallery = 60, 20, 15
         elif iter < 5:
             # pcaRes, volRes, angleGallery = 30, 30, 6
-            pcaRes, volRes, angleGallery = 20, 20, 12
+            pcaRes, volRes, angleGallery = 30, 20, 12
         elif iter < 8:
             # pcaRes, volRes, angleGallery = 20, 20, 12
             pcaRes, volRes, angleGallery = 16, 16, 12
@@ -867,8 +995,8 @@ class BnBgpu:
             # pcaRes, volRes, angleGallery = 16, 16, 8
             pcaRes, volRes, angleGallery = 12, 12, 8
         elif iter == 16:
-            pcaRes, volRes, angleGallery = pcaRes, filter, 6
-            # pcaRes, volRes, angleGallery = 16, 16, 6
+            # pcaRes, volRes, angleGallery = pcaRes, filter, 6
+            pcaRes, volRes, angleGallery = pcaRes, filter, 5
         else:
             pcaRes, volRes, angleGallery = pcaRes, filter, 5
             # pcaRes, volRes, angleGallery = 16, 16, 5

@@ -225,6 +225,297 @@ class reconstruct:
         return blob_ft
     
     
+    # ==================================================================
+    # Sustituye tu reconstruct_volume_sym dentro de la clase `reconstruct`
+    # ==================================================================
+
+    @torch.no_grad()
+    def reconstruct_volume_weight(self, mmap, sym, resol, sampling, volume_size, rotations,
+                               shifts=None, radius=1.9, oversamp=2.0, batch_size=32,
+                               posit=False, img_idx=None, weights=None,
+                               min_weight_frac=0.0):
+        """
+        Cada fila de `rotations` (y de `shifts`) es una ENTRADA = (imagen, orientacion).
+        img_idx[k] indica que imagen de `mmap` corresponde a la entrada k
+        (None -> k-esima imagen, comportamiento original).
+        weights[k] es el peso de la entrada k (None -> todos 1, comportamiento original).
+        Una misma imagen puede aparecer varias veces con orientaciones distintas (top-k).
+
+        mmap: mrcfile.mmap, o np.ndarray (N, H, W).
+        min_weight_frac: si > 0, ignora voxeles de Fourier con peso acumulado menor que
+                         esa fraccion del maximo (util con pesos blandos).
+        """
+        device = torch.device(self.cuda)
+
+        data = mmap if isinstance(mmap, np.ndarray) else mmap.data
+        _, H, W = data.shape
+        D = volume_size
+
+        M = rotations.shape[0]
+
+        if img_idx is None:
+            img_idx = np.arange(M)
+        elif torch.is_tensor(img_idx):
+            img_idx = img_idx.detach().cpu().numpy()
+        else:
+            img_idx = np.asarray(img_idx)
+        img_idx = img_idx.astype(np.int64)
+
+        if weights is None:
+            weights = torch.ones(M, device=device, dtype=torch.float32)
+        else:
+            weights = torch.as_tensor(weights).to(device=device, dtype=torch.float32)
+
+        assert len(img_idx) == M, "img_idx y rotations deben tener la misma longitud"
+        assert weights.numel() == M, "weights y rotations deben tener la misma longitud"
+
+        f_px = (1.0 / resol) * sampling
+        f_px = min(f_px, 0.5)
+
+        G = int(oversamp * D)
+        if G % 2 == 0:
+            G += 1
+
+        # Tamaño de la ultima dimension (X) a la mitad
+        H_x = G // 2 + 1
+
+        rotations = rotations.to(device)
+        blob_table = self.precompute_blob_table().to(device)
+
+        # =========================
+        # SIMETRIA
+        # =========================
+        sym_ops = self.generate_symmetry(sym, device=device)
+        n_sym = sym_ops.shape[0]
+
+        # -------------------------
+        # Fourier grid 2D
+        # -------------------------
+        freq = torch.fft.fftshift(torch.fft.fftfreq(H, device=device))
+        uy, ux = torch.meshgrid(freq, freq, indexing="ij")
+
+        k2 = ux**2 + uy**2
+        valid_mask = (k2 <= f_px**2).reshape(-1)
+
+        coords2d = torch.stack(
+            [ux.reshape(-1), uy.reshape(-1), torch.zeros(H * H, device=device)],
+            dim=0,
+        )[:, valid_mask].contiguous().unsqueeze(0)
+
+        # -------------------------
+        # Volumen MITAD
+        # -------------------------
+        vol_f = torch.zeros((G, G, H_x), dtype=torch.complex64, device=device)
+        weight = torch.zeros((G, G, H_x), dtype=torch.float32, device=device)
+
+        # -------------------------
+        # Blob
+        # -------------------------
+        max_r2 = 3.0 * radius * radius
+        iDelta = (blob_table.numel() - 1) / max_r2
+
+        o = torch.tensor([-1, 0, 1], device=device)
+        ox, oy, oz = torch.meshgrid(o, o, o, indexing="ij")
+        ox = ox.reshape(-1)
+        oy = oy.reshape(-1)
+        oz = oz.reshape(-1)
+
+        ACC = 1e-8
+
+        # =====================================================
+        # MAIN LOOP (sobre entradas)
+        # =====================================================
+        for start in range(0, M, batch_size):
+            end = min(start + batch_size, M)
+            b = end - start
+
+            rot = rotations[start:end]                    # (B,3,3)
+            w_b = weights[start:end]                      # (B,)
+
+            imgs = torch.as_tensor(np.array(data[img_idx[start:end]]),
+                                   device=device, dtype=torch.float32)
+
+            imgs = (imgs - imgs.mean(dim=(-2, -1), keepdim=True)) / (
+                imgs.std(dim=(-2, -1), keepdim=True) + 1e-8
+            )
+
+            if posit:
+                imgs = torch.relu(imgs)
+
+            proj_fft = torch.fft.fftshift(
+                torch.fft.fft2(torch.fft.ifftshift(imgs, dim=(-2, -1)), norm="forward"),
+                dim=(-2, -1),
+            )
+
+            if shifts is not None:
+                batch_shifts = shifts[start:end].to(device)
+                proj_fft = self.apply_fourier_shift(proj_fft, ux, uy, batch_shifts)
+
+            vals = proj_fft.reshape(b, -1)[:, valid_mask]
+
+            # -------------------------
+            # Expansion de simetria
+            # -------------------------
+            rot_all = []
+            vals_all = []
+            for S in sym_ops:
+                rot_all.append(S @ rot)
+                vals_all.append(vals)
+
+            rot_all = torch.cat(rot_all, dim=0)           # (B * n_sym, 3, 3)
+            vals_all = torch.cat(vals_all, dim=0)         # (B * n_sym, n_valid)
+            n_valid = vals_all.shape[1]
+
+            # Peso por valor de Fourier. El orden de rot_all/vals_all es
+            # [sym0: B entradas, sym1: B entradas, ...] -> repeat (no repeat_interleave)
+            w_entry = w_b.repeat(n_sym)                                    # (B*n_sym,)
+            w_vals = w_entry[:, None].expand(-1, n_valid).reshape(-1)      # (B*n_sym*n_valid,)
+
+            coords3d = torch.bmm(rot_all, coords2d.expand(rot_all.shape[0], -1, -1))
+
+            # =====================================================
+            # OPTIMIZACION HERMITIANA: FORZAR X >= 0 (IN-PLACE)
+            # =====================================================
+            flip_mask = (coords3d[:, 0, :] < 0)
+            if flip_mask.any():
+                sign = 1.0 - 2.0 * flip_mask.to(coords3d.dtype)
+                coords3d *= sign.unsqueeze(1)
+                vals_all[flip_mask] = torch.conj(vals_all[flip_mask])
+                del sign
+
+            vals = vals_all.reshape(-1)
+            del flip_mask, vals_all
+
+            # -------------------------
+            # GRIDDING
+            # -------------------------
+            grid = (coords3d + 0.5) * (G - 1)
+            del coords3d
+
+            x = grid[:, 0, :].reshape(-1)
+            y = grid[:, 1, :].reshape(-1)
+            z = grid[:, 2, :].reshape(-1)
+            del grid
+
+            x0 = x.floor().long()
+            y0 = y.floor().long()
+            z0 = z.floor().long()
+
+            # --- FASE 1: aportes del blob ---
+            fx = (x - x0).unsqueeze(1)
+            fy = (y - y0).unsqueeze(1)
+            fz = (z - z0).unsqueeze(1)
+            del x, y, z
+
+            dx = fx - ox
+            dy = fy - oy
+            dz = fz - oz
+            del fx, fy, fz
+
+            r2 = dx * dx + dy * dy + dz * dz
+            del dx, dy, dz
+
+            idx = (r2 * iDelta).round().long().clamp_(0, blob_table.numel() - 1)
+            del r2
+
+            # blob ponderado por el peso de la entrada
+            w = blob_table[idx] * w_vals.unsqueeze(1)
+            del idx, w_vals
+
+            contrib = (vals.unsqueeze(1) * w)
+
+            # --- FASE 2: coordenadas de vecinos ---
+            ix = x0[:, None] + ox
+            iy = y0[:, None] + oy
+            iz = z0[:, None] + oz
+            del x0, y0, z0
+
+            # Vecinos que cruzan el plano (simetria hermitiana)
+            cross_mask = (ix < (G // 2))
+            if cross_mask.any():
+                ix[cross_mask] = (G - 1) - ix[cross_mask]
+                iy[cross_mask] = (G - 1) - iy[cross_mask]
+                iz[cross_mask] = (G - 1) - iz[cross_mask]
+                contrib[cross_mask] = torch.conj(contrib[cross_mask])
+            del cross_mask
+
+            iz.clamp_(0, G - 1)
+            iy.clamp_(0, G - 1)
+            ix.clamp_(G // 2, G - 1)
+
+            # Indice en la grilla mitad
+            ix -= (G // 2)
+
+            flat = (iz * (G * H_x) + iy * H_x + ix).reshape(-1)
+            del ix, iy, iz
+
+            vol_f.view(-1).index_add_(0, flat, contrib.reshape(-1))
+            weight.view(-1).index_add_(0, flat, w.reshape(-1))
+            del flat, contrib, w
+
+        # -------------------------
+        # NORMALIZAR
+        # -------------------------
+        if min_weight_frac > 0:
+            ACC = max(ACC, min_weight_frac * weight.max().item())
+
+        pad2D = 1
+        corr2D_3D = (pad2D**2) / (H * (oversamp**3))
+        mask = weight > ACC
+        vol_f[mask] /= weight[mask]
+        vol_f[mask] *= corr2D_3D
+        vol_f[~mask] = 0.0
+        del mask
+
+        # -------------------------
+        # IFFT REAL (irfftn)
+        # -------------------------
+        vol_f_unshifted = torch.fft.ifftshift(vol_f, dim=(0, 1))
+        del vol_f
+
+        vol_real = torch.fft.irfftn(vol_f_unshifted, s=(G, G, G), norm="forward")
+        del vol_f_unshifted
+
+        vol_real = torch.fft.fftshift(vol_real)
+
+        pad = (G - D) // 2
+        vol_real = vol_real[pad:pad + D, pad:pad + D, pad:pad + D].contiguous()
+
+        # ================= FINAL CORRECTION =================
+        ipad_relation = (oversamp / pad2D) ** 3
+        coords = torch.arange(-D//2, D//2 + (D % 2), device=device, dtype=torch.float32)
+
+        Z, Y, X = torch.meshgrid(coords, coords, coords, indexing='ij')
+        r = torch.sqrt(X**2 + Y**2 + Z**2)
+        del X, Y, Z
+
+        arg = r / (2.0 * D)
+        sinc = torch.where(arg.abs() < 1e-8, torch.ones_like(arg),
+                           torch.sin(torch.pi * arg) / (torch.pi * arg))
+        sinc2 = sinc ** 2
+        del sinc
+
+        blob_fourier_table = self.precompute_blob_table_corregir(Xdim=volume_size, oversamp=oversamp)
+        num_entries = blob_fourier_table.numel()
+        k_max = torch.sqrt(torch.tensor(3.0, device=device)) * (D / 2.0)
+        delta = k_max / (num_entries - 1)
+        iDelta = 1.0 / delta
+
+        idx = (r * iDelta).round().long().clamp(0, num_entries - 1)
+        del r
+        blob_factor = blob_fourier_table[idx]
+        del idx
+
+        correction = ipad_relation * sinc2 * blob_factor
+        del sinc2, blob_factor
+        correction = torch.clamp(correction, min=1e-6)
+
+        vol_real /= correction
+        del correction
+
+        return vol_real
+    
+    
     @torch.no_grad()
 
     def reconstruct_volume_sym(self, mmap, sym, resol, sampling, volume_size, rotations, shifts = None, radius=1.9,
