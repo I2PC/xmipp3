@@ -999,7 +999,7 @@ class BnBgpu:
         else:
             pcaRes, volRes, angleGallery = pcaRes, filter, 5
     
-    #     return(pcaRes, volRes, angleGallery)
+        return(pcaRes, volRes, angleGallery)
     
     
     # def reconstruct_parameters(self, iter, pcaRes, filter):
