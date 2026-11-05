@@ -980,6 +980,28 @@ class BnBgpu:
         return(pcaRes, volRes, angleGallery)
     
     
+    # def reconstruct_parameters(self, iter, pcaRes, filter):
+    #
+    #     if iter < 2:
+    #         pcaRes, volRes, angleGallery = 60, 20, 15
+    #     elif iter < 4:
+    #         pcaRes, volRes, angleGallery = 60, 20, 12
+    #     elif iter < 6:
+    #         pcaRes, volRes, angleGallery = 60, 20, 10
+    #     elif iter < 8:
+    #         pcaRes, volRes, angleGallery = 30, 20, 12
+    #     elif iter < 10:
+    #         pcaRes, volRes, angleGallery = 20, 20, 10
+    #     elif iter < 12:
+    #         pcaRes, volRes, angleGallery = 16, 16, 8
+    #     elif iter < 14:
+    #         pcaRes, volRes, angleGallery = 12, 12, 7
+    #     else:
+    #         pcaRes, volRes, angleGallery = pcaRes, filter, 5
+    #
+    #     return(pcaRes, volRes, angleGallery)
+    
+    
     def reconstruct_parameters(self, iter, pcaRes, filter):
         
         if iter < 3:
@@ -1007,41 +1029,6 @@ class BnBgpu:
         # angleGallery = angleGallery * factor
             
         return(pcaRes, volRes, angleGallery)
-    
-    
-    def reconstruct_parameters_v1(self, iter, pcaRes, filter):
-        
-        if iter < 3:
-            pcaRes, volRes, angleGallery = 60, 20, 15
-        elif iter < 5:
-            pcaRes, volRes, angleGallery = 20, 20, 12
-        elif iter < 8:
-            pcaRes, volRes, angleGallery = 40, 20, 12
-        elif iter < 10:
-            pcaRes, volRes, angleGallery = 12, 12, 12
-        elif iter < 12:
-            pcaRes, volRes, angleGallery = 12, 12, 10
-        elif iter < 14:
-            pcaRes, volRes, angleGallery = 12, 12, 8
-        elif iter == 16:
-            pcaRes, volRes, angleGallery = pcaRes, filter, 6
-        else:
-            pcaRes, volRes, angleGallery = pcaRes, filter, 5
-            
-        return(pcaRes, volRes, angleGallery)
-
-
-            
-    def parameters2(self, iter, maxRes, filter):
-        
-        if iter == 9:
-            volRes, filtRes, angleGallery, angle, shift, maxShift = 16, 16, 8, 6, 3, 12
-        elif iter == 14:
-            volRes, filtRes, angleGallery, angle, shift, maxShift = maxRes, filter, 6, 5, 3, 12
-        elif iter == 17:
-            volRes, filtRes, angleGallery, angle, shift, maxShift = maxRes, filter, 5, 5, 3, 12
-            
-        return(volRes, filtRes, angleGallery, angle, shift, maxShift)
             
 
     

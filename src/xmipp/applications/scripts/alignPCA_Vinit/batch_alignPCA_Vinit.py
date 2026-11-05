@@ -192,7 +192,7 @@ if __name__ == "__main__":
     parser.add_argument("-hr", "--highres", help="highest resolution to consider", required=True)
     parser.add_argument("-p", "--perc", help="PCA percentage (between 0-1)", required=True)
     # Reproducibilidad
-    parser.add_argument("--seed", type=int, default=0, help="semilla (angulos aleatorios, reparto A/B, jitter)")
+    parser.add_argument("--seed", type=int, default=None, help="semilla (angulos aleatorios, reparto A/B, jitter)")
     # Deterministic annealing
     parser.add_argument("--da", action="store_true", help="activa el deterministic annealing en las primeras iteraciones (por defecto: comportamiento original)")
     parser.add_argument("--da_iters", type=int, default=7, help="iteraciones con DA (<= 7); solo con --da")
@@ -240,10 +240,12 @@ if __name__ == "__main__":
     keep_frac = args.keep_frac
 
     # Reproducibilidad
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    torch.cuda.manual_seed_all(args.seed)
+    seed = args.seed if args.seed is not None else int.from_bytes(os.urandom(4), "little")
+    print(f"seed = {seed}", flush=True)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
     cuda = torch.device('cuda')
 
@@ -443,7 +445,7 @@ if __name__ == "__main__":
             # ----------------------------------------------------------
             if use_ab:
                 if ab_split is None:
-                    perm = np.random.default_rng(args.seed).permutation(nExp)
+                    perm = np.random.default_rng(seed).permutation(nExp)
                     ab_split = (perm[:nExp // 2], perm[nExp // 2:])
 
                 grupo = ab_split[0] if current_iter % 2 == 0 else ab_split[1]
@@ -484,6 +486,7 @@ if __name__ == "__main__":
             save_vol(vol.cpu(), file, sampling)
 
             # La galeria es compartida: la regenera la primera clase activa
+            # if i == active[0] and current_iter in (2, 4, 6, 8, 10, 12, 14):
             if i == active[0] and current_iter in (3, 5, 8, 13, 16):
                 print(f"ANGULAR STEP = {angular_step}")
                 transf, next_angle_triplet = R.generate_library_sym(angular_step, sym=sym)
@@ -517,6 +520,7 @@ if __name__ == "__main__":
             angle_triplet = next_angle_triplet
             next_angle_triplet = None
             # Actualizo PCA
+            # if current_iter not in (2, 4):
             if current_iter not in (3, 5):
             # if current_iter != 3:
                 del freqBn, coef, grid_flat, cvecs
