@@ -486,8 +486,8 @@ if __name__ == "__main__":
             save_vol(vol.cpu(), file, sampling)
 
             # La galeria es compartida: la regenera la primera clase activa
-            # if i == active[0] and current_iter in (2, 4, 6, 8, 10, 12, 14):
-            if i == active[0] and current_iter in (3, 5, 8, 13, 16):
+            if i == active[0] and current_iter in (2, 4, 6, 8, 10, 12, 14):
+            # if i == active[0] and current_iter in (3, 5, 8, 13, 16):
                 print(f"ANGULAR STEP = {angular_step}")
                 transf, next_angle_triplet = R.generate_library_sym(angular_step, sym=sym)
 
@@ -520,8 +520,8 @@ if __name__ == "__main__":
             angle_triplet = next_angle_triplet
             next_angle_triplet = None
             # Actualizo PCA
-            # if current_iter not in (2, 4):
-            if current_iter not in (3, 5):
+            if current_iter not in (2, 4):
+            # if current_iter not in (3, 5):
             # if current_iter != 3:
                 del freqBn, coef, grid_flat, cvecs
                 Ntrain = texp.shape[0]

@@ -980,55 +980,51 @@ class BnBgpu:
         return(pcaRes, volRes, angleGallery)
     
     
-    # def reconstruct_parameters(self, iter, pcaRes, filter):
-    #
-    #     if iter < 2:
-    #         pcaRes, volRes, angleGallery = 60, 20, 15
-    #     elif iter < 4:
-    #         pcaRes, volRes, angleGallery = 60, 20, 12
-    #     elif iter < 6:
-    #         pcaRes, volRes, angleGallery = 60, 20, 10
-    #     elif iter < 8:
-    #         pcaRes, volRes, angleGallery = 30, 20, 12
-    #     elif iter < 10:
-    #         pcaRes, volRes, angleGallery = 20, 20, 10
-    #     elif iter < 12:
-    #         pcaRes, volRes, angleGallery = 16, 16, 8
-    #     elif iter < 14:
-    #         pcaRes, volRes, angleGallery = 12, 12, 7
-    #     else:
-    #         pcaRes, volRes, angleGallery = pcaRes, filter, 5
-    #
+    def reconstruct_parameters(self, iter, pcaRes, filter):
+    
+        if iter < 2:
+            pcaRes, volRes, angleGallery = 60, 20, 15
+        elif iter < 4:
+            pcaRes, volRes, angleGallery = 60, 20, 12
+        elif iter < 6:
+            pcaRes, volRes, angleGallery = 60, 20, 10
+        elif iter < 8:
+            pcaRes, volRes, angleGallery = 30, 20, 12
+        elif iter < 10:
+            pcaRes, volRes, angleGallery = 20, 20, 10
+        elif iter < 12:
+            pcaRes, volRes, angleGallery = 16, 16, 8
+        elif iter < 14:
+            pcaRes, volRes, angleGallery = 12, 12, 7
+        else:
+            pcaRes, volRes, angleGallery = pcaRes, filter, 5
+    
     #     return(pcaRes, volRes, angleGallery)
     
     
-    def reconstruct_parameters(self, iter, pcaRes, filter):
-        
-        if iter < 3:
-            # pcaRes, volRes, angleGallery = 40, 40, 12
-            pcaRes, volRes, angleGallery = 60, 20, 15
-        elif iter < 5:
-            # pcaRes, volRes, angleGallery = 30, 30, 6
-            pcaRes, volRes, angleGallery = 30, 20, 12
-        elif iter < 8:
-            # pcaRes, volRes, angleGallery = 20, 20, 12
-            pcaRes, volRes, angleGallery = 16, 16, 12
-        elif iter < 13:
-            # pcaRes, volRes, angleGallery = 16, 16, 8
-            pcaRes, volRes, angleGallery = 12, 12, 8
-        elif iter == 16:
-            # pcaRes, volRes, angleGallery = pcaRes, filter, 6
-            pcaRes, volRes, angleGallery = pcaRes, filter, 5
-        else:
-            pcaRes, volRes, angleGallery = pcaRes, filter, 5
-            # pcaRes, volRes, angleGallery = 16, 16, 5
-            
-           # Jitter multiplicativo: ±10 %
-        # jitter = 0.10
-        # factor = 1.0 + (2.0 * torch.rand(1).item() - 1.0) * jitter
-        # angleGallery = angleGallery * factor
-            
-        return(pcaRes, volRes, angleGallery)
+    # def reconstruct_parameters(self, iter, pcaRes, filter):
+    #
+    #     if iter < 3:
+    #         # pcaRes, volRes, angleGallery = 40, 40, 12
+    #         pcaRes, volRes, angleGallery = 60, 20, 15
+    #     elif iter < 5:
+    #         # pcaRes, volRes, angleGallery = 30, 30, 6
+    #         pcaRes, volRes, angleGallery = 30, 20, 12
+    #     elif iter < 8:
+    #         # pcaRes, volRes, angleGallery = 20, 20, 12
+    #         pcaRes, volRes, angleGallery = 16, 16, 12
+    #     elif iter < 13:
+    #         # pcaRes, volRes, angleGallery = 16, 16, 8
+    #         pcaRes, volRes, angleGallery = 12, 12, 8
+    #     elif iter == 16:
+    #         # pcaRes, volRes, angleGallery = pcaRes, filter, 6
+    #         pcaRes, volRes, angleGallery = pcaRes, filter, 5
+    #     else:
+    #         pcaRes, volRes, angleGallery = pcaRes, filter, 5
+    #         # pcaRes, volRes, angleGallery = 16, 16, 5
+    #
+    #
+    #     return(pcaRes, volRes, angleGallery)
             
 
     
