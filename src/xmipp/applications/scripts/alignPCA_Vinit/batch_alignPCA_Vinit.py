@@ -431,7 +431,8 @@ if __name__ == "__main__":
                 valid_indices, rotM, shiftM = assess.estimatePose(
                     angle_triplet, expStar, matches[i], vectorshift,
                     nExp, apply_shifts,
-                    filter_matches=(7 < current_iter < 16), filter_score=(7 < current_iter < 16)
+                    # filter_matches=(7 < current_iter < 16), filter_score=(7 < current_iter < 16)
+                    filter_matches=False, filter_score=False
                 )
                 img_idx = valid_indices
 
