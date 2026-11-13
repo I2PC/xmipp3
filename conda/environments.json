@@ -1,0 +1,8 @@
+{
+  "environments": [
+    {"id": "CUDA13", "file": "conda/xmipp_CUDA13.yml", "min_driver_version": "590.48.01"},
+    {"id": "CUDA12", "file": "conda/xmipp_CUDA12.yml", "min_driver_version": "570.124.06"},
+    {"id": "CUDA11", "file": "conda/xmipp_CUDA11.yml", "min_driver_version": "520.61.05"},
+    {"id": "CPU",    "file": "conda/xmipp_CPU.yml"}
+  ]
+}

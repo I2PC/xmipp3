@@ -1,0 +1,21 @@
+channels:
+  - nvidia
+  - conda-forge
+  - nodefaults
+dependencies:
+  - cuda=12.8.1
+  - gcc_linux-64
+  - gxx_linux-64
+  - cmake=3.31.8
+  - zlib
+  - fftw
+  - hdf5>=1.8,<=1.12.2
+  - openmpi
+  - sqlite>=3
+  - libtiff
+  - libjpeg-turbo
+  - openjdk=11.0.29
+  - libcxxabi
+  - pip:
+      - numpy==1.26.4
+
