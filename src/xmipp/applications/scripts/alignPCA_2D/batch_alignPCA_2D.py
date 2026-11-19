@@ -293,7 +293,8 @@ if __name__=="__main__":
                     del(batch_projRef)  
                     
                     if mode == "create_classes":
-                        res_map = {4: 14, 7: 12, 10: 10, 13: highRes}
+                        # res_map = {4: 14, 7: 12, 10: 10, 13: highRes}
+                        res_map = {4: 40, 7: 12, 10: 10, 13: highRes}
                         
                         if iter in res_map:
                             del (freqBn, coef, grid_flat, cvecs)
