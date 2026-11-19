@@ -293,8 +293,7 @@ class BnBgpu:
 
     @torch.no_grad()
     def match_batch_initVol(self, batchExp, batchRef, initBatch, matches, rot, nShift):
-        """Version original (un unico mejor match por average). Unico cambio: squeeze(1)
-        en vez de squeeze() para que no falle con nExp == 1."""
+        """Version original (un unico mejor match por average)."""
 
         nExp = int(batchExp[0].size(dim=0) / nShift)
         nShift = torch.tensor(nShift, device=self.cuda)
@@ -987,7 +986,7 @@ class BnBgpu:
         elif iter < 4:
             pcaRes, volRes, angleGallery = 60, 20, 12
         elif iter < 6:
-            pcaRes, volRes, angleGallery = 60, 20, 10
+            pcaRes, volRes, angleGallery = 45, 20, 10
         elif iter < 8:
             pcaRes, volRes, angleGallery = 30, 20, 12
         elif iter < 10:

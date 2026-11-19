@@ -1799,6 +1799,53 @@ class reconstruct:
         
         return zeroVol
     
+
+    def generate_uniform_rotations(self, N, device=None, seed=None):
+        """
+        Genera N rotaciones uniformes en SO(3).
+    
+        Returns:
+            rotations: tensor (N, 3, 3)
+        """
+        if device is None:
+            device = self.cuda
+        
+        generator = torch.Generator(device=device)
+    
+        if seed is not None:
+            generator.manual_seed(int(seed))
+        else:
+            generator.seed()
+    
+        # Cuaterniones aleatorios: (w, x, y, z)
+        q = torch.randn(
+            N, 4,
+            device=device,
+            generator=generator
+        )
+    
+        # Normalización: puntos uniformes sobre S^3
+        q = q / torch.linalg.norm(q, dim=1, keepdim=True)
+    
+        w, x, y, z = q.unbind(dim=1)
+    
+        # Conversión de cuaterniones a matrices de rotación
+        R = torch.empty(N, 3, 3, device=device)
+    
+        R[:, 0, 0] = 1 - 2*(y*y + z*z)
+        R[:, 0, 1] = 2*(x*y - z*w)
+        R[:, 0, 2] = 2*(x*z + y*w)
+    
+        R[:, 1, 0] = 2*(x*y + z*w)
+        R[:, 1, 1] = 1 - 2*(x*x + z*z)
+        R[:, 1, 2] = 2*(y*z - x*w)
+    
+        R[:, 2, 0] = 2*(x*z - y*w)
+        R[:, 2, 1] = 2*(y*z + x*w)
+        R[:, 2, 2] = 1 - 2*(x*x + y*y)
+    
+        return R
+    
     
     def contrast_dominant_mask_3d(
         self,

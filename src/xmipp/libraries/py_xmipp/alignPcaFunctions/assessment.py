@@ -539,9 +539,91 @@ class evaluation:
     
         return R
     
+    def _write_pose_md_xmippLib(self, src_path, out_path, valid_indices, angles, shifts):
+        """Copia src_path con la pose estimada (angleRot/Tilt/Psi, shiftX/Y/Z).
+        Una fila por imagen, en el orden original; las que no tienen pose valida quedan con enabled = -1."""
+        try:
+            import numpy as np
+            import xmippLib
     
+            md = xmippLib.MetaData(src_path)
+            for lab in (xmippLib.MDL_ENABLED, xmippLib.MDL_ANGLE_ROT, xmippLib.MDL_ANGLE_TILT,
+                        xmippLib.MDL_ANGLE_PSI, xmippLib.MDL_SHIFT_X, xmippLib.MDL_SHIFT_Y,
+                        xmippLib.MDL_SHIFT_Z):
+                if not md.containsLabel(lab):
+                    md.addLabel(lab)
     
-    def estimatePose(self, angle_triplet, expStar, matchPair_raw, shiftVec, nExp, apply_shifts, filter_matches=True, filter_score=True):
+            valid = valid_indices.detach().cpu().numpy()
+            ang = angles.detach().cpu().numpy().astype(np.float64)
+            sh = shifts.detach().cpu().numpy().astype(np.float64)
+            pos = {int(v): k for k, v in enumerate(valid)}
+    
+            for row, obj in enumerate([o for o in md]):              # mismo orden que las imagenes
+                k = pos.get(row)
+                if k is None:
+                    md.setValue(xmippLib.MDL_ENABLED, -1, obj)
+                    continue
+                md.setValue(xmippLib.MDL_ENABLED, 1, obj)
+                md.setValue(xmippLib.MDL_ANGLE_ROT, float(ang[k, 0]), obj)
+                md.setValue(xmippLib.MDL_ANGLE_TILT, float(ang[k, 1]), obj)
+                md.setValue(xmippLib.MDL_ANGLE_PSI, float(ang[k, 2]), obj)
+                md.setValue(xmippLib.MDL_SHIFT_X, float(sh[k, 0]), obj)
+                md.setValue(xmippLib.MDL_SHIFT_Y, float(sh[k, 1]), obj)
+                md.setValue(xmippLib.MDL_SHIFT_Z, 0.0, obj)
+    
+            md.write(out_path)
+            print(f"   pose guardada en {out_path}", flush=True)
+        except Exception as e:
+            print(f"AVISO: no se pudo guardar la pose en {out_path}: {e}", flush=True)
+            
+    def _write_pose_md(self, src_path, out_path, valid_indices, angles, shifts):
+        """
+        Copia el STAR original y añade las poses estimadas.
+        Las imágenes sin pose válida quedan con _enabled = -1.
+        """
+        try:
+    
+            # Leer STAR
+            data = starfile.read(src_path)
+    
+            # Si contiene varios bloques, habrá que seleccionar el bloque adecuado.
+            # if not isinstance(data, pd.DataFrame):
+            #     raise ValueError("El STAR contiene varios bloques; hay que seleccionar el bloque de partículas.")
+    
+            # Convertir resultados de PyTorch a NumPy
+            valid = valid_indices.detach().cpu().numpy().astype(int)
+            ang = angles.detach().cpu().numpy().astype(float)
+            sh = shifts.detach().cpu().numpy().astype(float)
+    
+            n = len(data)
+    
+            # Inicializar columnas
+            data["enabled"] = -1
+            data["angleRot"] = np.nan
+            data["angleTilt"] = np.nan
+            data["anglePsi"] = np.nan
+            data["shiftX"] = np.nan
+            data["shiftY"] = np.nan
+            data["shiftZ"] = 0.0
+    
+            # Asignar poses válidas
+            data.loc[valid, "enabled"] = 1
+            data.loc[valid, "angleRot"] = ang[:, 0]
+            data.loc[valid, "angleTilt"] = ang[:, 1]
+            data.loc[valid, "anglePsi"] = ang[:, 2]
+            data.loc[valid, "shiftX"] = sh[:, 0]
+            data.loc[valid, "shiftY"] = sh[:, 1]
+    
+            # Guardar STAR
+            starfile.write(data, out_path, overwrite=True)
+    
+            print(f"   pose guardada en {out_path}", flush=True)
+    
+        except Exception as e:
+            print(f"AVISO: no se pudo guardar la pose en {out_path}: {e}", flush=True)
+            
+    
+    def estimatePose(self, angle_triplet, expStar, matchPair_raw, shiftVec, nExp, apply_shifts, filter_matches=True, filter_score=True,  save_pose_to=None):
         """
         Estima la pose final de las partículas filtrando por el flag de mejor match.
         
@@ -561,19 +643,6 @@ class evaluation:
             mask &= matchPair_raw[:, 6] > 0.5
         
         valid_indices = torch.where(mask)[0]
-        
-        
-        
-        # 1. Filtramos solo los mejores matches (Flag en columna 5)
-        # if filter_matches:
-        #     mask = matchPair_raw[:, 5] > 0.5
-        #     valid_indices = torch.where(mask)[0]
-        # elif filter_score:
-        #     mask = matchPair_raw[:, 6] > 0.5
-        #     valid_indices = torch.where(mask)[0]
-        # else:
-        #     mask = torch.ones(matchPair_raw.shape[0], dtype=torch.bool, device=matchPair_raw.device)
-        #     valid_indices = torch.arange(matchPair_raw.shape[0], device=matchPair_raw.device)
             
         
         num_valid = valid_indices.size(0)
@@ -621,14 +690,14 @@ class evaluation:
         f_rot   = lib_angles[:, 1]
         f_tilt  = lib_angles[:, 2] 
         f_psi   = lib_angles[:, 0] + psi_adjusted
-    
+            
         # 4. Construcción analítica de la Matriz R
-        R = self.euler_zyz_to_matrix(
-            psi=f_psi,
-            rot=f_rot,
-            tilt=f_tilt,
-            degrees=True
-        )
+        R = self.euler_zyz_to_matrix( psi=f_psi, rot=f_rot, tilt=f_tilt, degrees=True)
+        
+        if save_pose_to is not None:
+            psi_wrapped = torch.remainder(f_psi + 180.0, 360.0) - 180.0          # [-180, 180)
+            angles = torch.stack([f_rot, f_tilt, psi_wrapped], dim=1)            # rot, tilt, psi
+            self._write_pose_md(expStar, save_pose_to, valid_indices, angles, shifts_final)
     
         return valid_indices, R, shifts_final   
     

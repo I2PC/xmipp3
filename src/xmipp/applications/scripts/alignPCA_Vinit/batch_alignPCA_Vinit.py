@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""/***************************************************************************
+"""
+/***************************************************************************
  *
  * Authors:    Erney Ramirez-Aportela
  *
@@ -22,7 +23,7 @@ from xmippPyModules.alignPcaFunctions.init_angle_generation import *
 
 
 # Iteraciones en las que se reconstruye con la mitad de los averages (grupos A/B)
-AB_ITERS = 7
+AB_ITERS = 8
 
 
 # ----------------------------------------------------------------------
@@ -195,9 +196,9 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=None, help="semilla (angulos aleatorios, reparto A/B, jitter)")
     # Deterministic annealing
     parser.add_argument("--da", action="store_true", help="activa el deterministic annealing en las primeras iteraciones (por defecto: comportamiento original)")
-    parser.add_argument("--da_iters", type=int, default=7, help="iteraciones con DA (<= 7); solo con --da")
+    parser.add_argument("--da_iters", type=int, default=8, help="iteraciones con DA (<= 8); solo con --da")
     parser.add_argument("--K", type=int, default=5, help="candidatos por average (fijo durante el DA)")
-    parser.add_argument("--neff0", type=float, default=3.0, help="n. efectivo de candidatos al inicio del DA")
+    parser.add_argument("--neff0", type=float, default=5.0, help="n. efectivo de candidatos al inicio del DA")
     parser.add_argument("--neff1", type=float, default=1.2, help="n. efectivo de candidatos al final del DA")
     # Penalizacion de amplitud (0 = solo coseno)
     parser.add_argument("--amp_lambda", type=float, default=0.0, help="peso de la penalizacion de amplitud en el DA")
@@ -262,6 +263,7 @@ if __name__ == "__main__":
 
     # Create initial references
     R = reconstruct()
+    initializer = CommonLinesInitializer(image_size=dim, pixel_size = sampling, device=cuda)
     angular_step = 15
     transf, angle_triplet = R.generate_library_sym(angular_step, sym=sym)
 
@@ -283,11 +285,28 @@ if __name__ == "__main__":
             del zeroVol, ref
     else:
         for i in range(numCl):
-            random_angles = R.generate_random_angles(nExp)
+            
+            if i == 0:
+                random_angles = initializer.fit(texp)
+            else: 
+                random_angles = R.generate_uniform_rotations(nExp)
+            #     random_angles = initializer.fit(texp, image_fraction=0.75, band_jitter=0.5)
+            #
+            # if initializer.last_result["inlier_fraction"] < 0.5:
+            #     print(f"class {i}: soluciones poco coherentes, se usan orientaciones aleatorias", flush=True)
+            #     random_angles = R.generate_uniform_rotations(nExp)
+            #     idx = None
+            # else:
+            #     idx = initializer.last_result["image_idx"]
+            
+            # random_angles = R.generate_uniform_rotations(nExp)    
+            # random_angles = R.generate_random_angles(nExp)
+            # zeroVol = R.reconstruct_volume_weight(mmap, sym, 60, sampling, dim, random_angles, img_idx=idx, posit=positivity)
             zeroVol = R.reconstruct_volume_weight(mmap, sym, 60, sampling, dim, random_angles, posit=positivity)
             file = output + "-iter%s_zerovol.mrc" % (i)
             save_vol(zeroVol.cpu(), file, sampling)
             zeroVol = R.filter_3d(zeroVol, sampling, 60.0)
+            # if contrast_mask:
             zeroVol = zeroVol * R.contrast_dominant_mask_3d(zeroVol, window=3, contrast_percentile=90,
                                                             intensity_percentile=70, smooth_sigma=1.0)
             zeroVol = R.apply_spherical_mask(zeroVol, radius)
@@ -375,6 +394,7 @@ if __name__ == "__main__":
                 # DETERMINISTIC ANNEALING: top-K candidatos con pesos
                 # ------------------------------------------------------
                 _, ref_norms = bnb.normalize_batch(batch_projRef)      # una sola vez
+                # ref_norms = None
 
                 amp_scale = 1.0
                 if amp_lambda > 0:
@@ -402,6 +422,7 @@ if __name__ == "__main__":
                 w, T = bnb.soft_weights_neff(top, n_eff)                # (nExp, K)
                 # print("Pesos de los 5 candidatos:")
                 # print(w[:10].detach().cpu().numpy())
+                # print("------------------")
                 # print("Temperatura:", T)
                 del best, best_rot, best_shift
 
@@ -427,17 +448,24 @@ if __name__ == "__main__":
 
                 matches[i] = bnb.match_batch_label_minScore(matches[i])
                 matches[i] = bnb.filter_scores_mad(matches[i])
+                
+                save_pose_to = ("pose_iter%s_class%s.xmd" % (current_iter + 1, i) if current_iter == 19 else None)
+                # print(save_pose_to)
 
                 valid_indices, rotM, shiftM = assess.estimatePose(
                     angle_triplet, expStar, matches[i], vectorshift,
                     nExp, apply_shifts,
-                    # filter_matches=(7 < current_iter < 16), filter_score=(7 < current_iter < 16)
-                    filter_matches=False, filter_score=False
+                    # filter_matches=(10 < current_iter < 13), filter_score=(8 < current_iter < 13)#, save_pose_to = save_pose_to
+                    filter_matches=False, filter_score=False#, save_pose_to = save_pose_to
+                    # filter_matches=(current_iter > 16), filter_score=(current_iter > 16)
                 )
                 img_idx = valid_indices
 
             score = matches[i][valid_indices, 2].mean()
             print(f"class {i}: num averages = {len(valid_indices)}, mean score = {score.item()}", flush=True)
+            # print("----------------------------")
+            # print(matches[i][valid_indices, 2])
+            # print("----------------------------")
 
             held_val = None
 
@@ -467,6 +495,12 @@ if __name__ == "__main__":
                       f"{len(img_idx)} entradas de reconstruccion", flush=True)
 
             log_rows.append((current_iter, i, score.item(), held_val))
+            
+            if current_iter > 12:
+                diagnose = initializer.diagnose_orientations(texp_align, rotM, outlier_threshold=2.0, symmetry=sym)
+                img_idx, rotM, shiftM, w_ent = initializer.select_non_suspect(img_idx, rotM, shiftM, w_ent, diagnose)
+
+
 
             vol = R.reconstruct_volume_weight(mmap, sym, filtRes, sampling, dim, rotM, shifts=shiftM,
                                            posit=positivity, img_idx=img_idx, weights=w_ent)
@@ -521,9 +555,9 @@ if __name__ == "__main__":
             angle_triplet = next_angle_triplet
             next_angle_triplet = None
             # Actualizo PCA
-            if current_iter not in (2, 4):
+            # if current_iter not in (2, 4):
+            if current_iter != 2:
             # if current_iter not in (3, 5):
-            # if current_iter != 3:
                 del freqBn, coef, grid_flat, cvecs
                 Ntrain = texp.shape[0]
                 freqBn, cvecs, coef = pca.calculatePCAbasis(
