@@ -188,7 +188,7 @@ if __name__=="__main__":
     if refImages:
         maxRes = highRes
     else: 
-        maxRes = 16.0   
+        maxRes = 40.0   
 
     freqBn, cvecs, coef = pca.calculatePCAbasis(mmap, Ntrain, nBand, dim, sampling, maxRes, 
                                                 minRes=530, per_eig=per_eig_value, batchPCA=True)
@@ -376,8 +376,8 @@ if __name__=="__main__":
                     else:
                         torch.cuda.empty_cache()
                         # expImages_star = mmap_star.data[initBatch:endBatch].astype(np.float32)
-                        cl, tMatrix, batch_projExp_cpu, cl_ctf = bnb.align_particles_to_classes(expImages, 
-                                        cl, cl_ctf, tMatrix, iter, subset, matches, vectorshift, classes,
+                        cl, tMatrix, batch_projExp_cpu = bnb.align_particles_to_classes(expImages, 
+                                        cl, tMatrix, iter, subset, matches, vectorshift, classes,
                                          freqBn, coef, cvecs, mask, expStar, initBatch, endBatch)
     
                     
@@ -385,8 +385,8 @@ if __name__=="__main__":
                     file = output+"_%s_%s.mrcs"%(initBatch,iter+1)
                     save_images(cl.cpu().detach().numpy(), sampling, file)
                     
-                    file = output+"_ctf_%s_%s.mrcs"%(initBatch,iter+1)
-                    save_images(cl_ctf.cpu().detach().numpy(), sampling, file)
+                    # file = output+"_ctf_%s_%s.mrcs"%(initBatch,iter+1)
+                    # save_images(cl_ctf.cpu().detach().numpy(), sampling, file)
     
     
                     if mode == "create_classes" and iter == niter-1:
@@ -447,7 +447,7 @@ if __name__=="__main__":
     
         #save classes        
     file_final = output+".mrcs"
-    save_images(cl_ctf.cpu().detach().numpy(), sampling, file_final) 
+    save_images(cl.cpu().detach().numpy(), sampling, file_final) 
 
     # print(counts.int())
     
