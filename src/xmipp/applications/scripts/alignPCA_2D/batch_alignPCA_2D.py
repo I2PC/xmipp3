@@ -369,7 +369,7 @@ if __name__=="__main__":
                     classes = len(cl)
                     
                     if mode == "create_classes":
-                        cl, tMatrix, batch_projExp_cpu, cl_ctf = bnb.create_classes(
+                        cl, tMatrix, batch_projExp_cpu = bnb.create_classes(
                             mmap, tMatrix, iter, subset, expBatchSize, matches, vectorshift, 
                             classes, final_classes, freqBn, coef, cvecs, mask, expStar)
 

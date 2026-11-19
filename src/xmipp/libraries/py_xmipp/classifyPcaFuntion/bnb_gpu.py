@@ -545,7 +545,7 @@ class BnBgpu:
     
     
     @torch.no_grad()
-    def align_particles_to_classes(self, data, cl, cl_ctf, tMatrix, iter, expBatchSize, matches, vectorshift, classes, freqBn, coef, cvecs, mask, expStar, initBatch, endBatch):
+    def align_particles_to_classes(self, data, cl, tMatrix, iter, expBatchSize, matches, vectorshift, classes, freqBn, coef, cvecs, mask, expStar, initBatch, endBatch):
         
         # ctf = ctfClass(expStar, device=self.cuda)
         
