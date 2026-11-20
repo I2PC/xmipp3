@@ -390,17 +390,38 @@ class BnBgpu:
             for n in range(classes):
                 if newCL[n].shape[0] > 20: # Minimum particles to consider
                     
-                    #K-means over PCA proj
-                    _, labels = self.kmeans_pytorch_for_averages(newCL[n], newProj[n], cvecs, num_clusters=2, num_iters=15)
+                    # #K-means over PCA proj
+                    # _, labels = self.kmeans_pytorch_for_averages(newCL[n], newProj[n], cvecs, num_clusters=2, num_iters=15)
+                    #
+                    # part_A = newCL[n][labels == 0]
+                    # part_B = newCL[n][labels == 1]
+                    #
+                    # if n < split:
+                    #     newCL[n] = part_A
+                    #     newCL[n + classes] = part_B
+                    # else:
+                    #     newCL[n] = torch.cat([part_A, part_B], dim=0)
                     
-                    part_A = newCL[n][labels == 0]
-                    part_B = newCL[n][labels == 1]
-                    
-                    if n < split:
-                        newCL[n] = part_A
-                        newCL[n + classes] = part_B
+                    averages, labels, n_clusters = (self.kmeans_pytorch_for_averages_split(newCL[n], newProj[n], cvecs, num_iters=100, n_init=5))
+
+                    if self.n_clusters_ == 2:
+            
+                        part_A = newCL[n][labels == 0]
+                        part_B = newCL[n][labels == 1]
+            
+                        if n < split:
+            
+                            newCL[n] = part_A
+                            newCL[n + classes] = part_B
+            
+                        else:
+            
+                            newCL[n] = torch.cat([part_A, part_B], dim=0)
+            
                     else:
-                        newCL[n] = torch.cat([part_A, part_B], dim=0)
+                        # No se ha encontrado una división suficientemente clara
+                        # Se conserva la clase original
+                        newCL[n] = newCL[n]
         
         
         clk = self.averages_createClasses(mmap, iter, newCL)       
@@ -1083,11 +1104,6 @@ class BnBgpu:
                 "num_clusters debe estar entre 1 y N."
             )
     
-        # Normalización robusta
-        # mean = X.mean(dim=0)
-        # std = X.std(dim=0, unbiased=False).clamp_min(1e-6)
-        # X = (X - mean) / std
-    
         # --------------------------------------------------
         # Inicialización K-means++
         # --------------------------------------------------
@@ -1175,9 +1191,7 @@ class BnBgpu:
                     counts[k] += 1
     
             # Recalcular centroides usando las etiquetas actualizadas
-            counts = torch.bincount(
-                labels, minlength=num_clusters
-            ).to(dtype=X.dtype)
+            counts = torch.bincount(labels, minlength=num_clusters).to(dtype=X.dtype)
     
             centroids_new = torch.zeros_like(centroids)
     
@@ -1262,6 +1276,236 @@ class BnBgpu:
             averages.append(avg)
     
         return torch.stack(averages), labels
+    
+    
+    
+    @torch.no_grad()
+    def kmeans_pytorch_for_averages_split(
+        self,
+        Im_tensor,
+        X,
+        eigvect,
+        num_iters=100,
+        n_init=5,
+        bic_margin=0.0,
+        verbose=False
+    ):
+        """
+        Decide automáticamente si una clase debe dividirse en 1 o 2 grupos.
+    
+        - Ajusta un GMM de 1 componente y otro de 2 componentes sobre las
+          coordenadas PCA.
+        - Compara ambos modelos mediante BIC.
+        - Si BIC(2) < BIC(1), conserva los dos grupos.
+        - Si no, devuelve un único grupo.
+    
+        Devuelve:
+            averages: tensor con los promedios de cada grupo.
+            labels: etiqueta de cada partícula (0 o, si hay división, 0/1).
+        """
+    
+        import math
+        import torch
+    
+        device = X.device
+        image_device = Im_tensor.device
+        image_dtype = Im_tensor.dtype
+    
+        N = Im_tensor.shape[0]
+    
+        if N == 0:
+            raise ValueError("No hay partículas en Im_tensor.")
+    
+        if N != X.shape[0]:
+            raise ValueError("Im_tensor y X deben contener el mismo número de partículas.")
+    
+        if num_iters < 1:
+            raise ValueError("num_iters debe ser mayor que 0.")
+    
+        if n_init < 1:
+            raise ValueError("n_init debe ser mayor que 0.")
+    
+        # Número de dimensiones PCA, manteniendo tu formato original.
+        d = eigvect[0].shape[1]
+    
+        # Preparar las características PCA.
+        features = X.reshape(N, -1)[:, :d].to(
+            device=device,
+            dtype=torch.float32
+        )
+    
+        if not torch.isfinite(features).all():
+            raise ValueError("X contiene valores NaN o infinitos.")
+    
+        # Con una sola partícula no se puede dividir.
+        if N < 2:
+            labels = torch.zeros(N, dtype=torch.long, device=image_device)
+            averages = Im_tensor.float().mean(dim=0, keepdim=True)
+            return averages, labels
+    
+        # Evitar problemas numéricos.
+        eps = 1e-6
+        global_var = features.var(dim=0, unbiased=False).clamp_min(eps)
+        variance_floor = (global_var * 1e-6).clamp_min(eps)
+    
+        def fit_gmm(K):
+            """
+            GMM con covarianzas diagonales y algoritmo EM.
+            Devuelve el modelo con mayor log-verosimilitud.
+            """
+    
+            best_loglik = -float("inf")
+            best_labels = None
+    
+            for _ in range(n_init):
+    
+                # Inicialización de medias mediante selección de muestras.
+                indices = [torch.randint(N, (1,), device=device).item()]
+    
+                for _k in range(1, K):
+                    current_means = features[indices]
+                    distances = torch.cdist(
+                        features,
+                        current_means
+                    ).min(dim=1).values
+    
+                    distances[indices] = 0
+                    probs = distances.square()
+    
+                    if probs.sum() <= eps:
+                        remaining = torch.ones(N, device=device, dtype=torch.bool)
+                        remaining[indices] = False
+                        candidates = torch.where(remaining)[0]
+                        if len(candidates) == 0:
+                            break
+                        new_index = candidates[0].item()
+                    else:
+                        new_index = torch.multinomial(probs, 1).item()
+    
+                    indices.append(new_index)
+    
+                if len(indices) != K:
+                    continue
+    
+                means = features[indices].clone()
+                variances = global_var.unsqueeze(0).repeat(K, 1).clone()
+                weights = torch.full(
+                    (K,), 1.0 / K, device=device
+                )
+    
+                for _iteration in range(num_iters):
+    
+                    # E-step: probabilidades de pertenencia.
+                    log_prob = (
+                        -0.5 * (
+                            torch.log(2 * math.pi * variances)
+                            + (features[:, None, :] - means[None, :, :]).square()
+                            / variances[None, :, :]
+                        ).sum(dim=2)
+                        + torch.log(weights.clamp_min(eps))[None, :]
+                    )
+    
+                    log_norm = torch.logsumexp(log_prob, dim=1)
+                    responsibilities = torch.exp(
+                        log_prob - log_norm[:, None]
+                    )
+    
+                    # M-step: actualizar parámetros.
+                    Nk = responsibilities.sum(dim=0).clamp_min(eps)
+    
+                    weights = Nk / N
+    
+                    means = (
+                        responsibilities.T @ features
+                    ) / Nk[:, None]
+    
+                    diff = features[:, None, :] - means[None, :, :]
+    
+                    variances = (
+                        responsibilities[:, :, None] * diff.square()
+                    ).sum(dim=0) / Nk[:, None]
+    
+                    variances = torch.maximum(
+                        variances,
+                        variance_floor[None, :]
+                    )
+    
+                # Calcular la log-verosimilitud final.
+                log_prob = (
+                    -0.5 * (
+                        torch.log(2 * math.pi * variances)
+                        + (features[:, None, :] - means[None, :, :]).square()
+                        / variances[None, :, :]
+                    ).sum(dim=2)
+                    + torch.log(weights.clamp_min(eps))[None, :]
+                )
+    
+                loglik = torch.logsumexp(log_prob, dim=1).sum().item()
+    
+                if loglik > best_loglik:
+                    best_loglik = loglik
+                    best_labels = log_prob.argmax(dim=1)
+    
+            if best_labels is None:
+                raise RuntimeError("No se pudo ajustar el modelo GMM.")
+    
+            # Número de parámetros de un GMM diagonal:
+            # medias + varianzas + pesos.
+            n_params = K * (2 * d) + (K - 1)
+    
+            bic = -2.0 * best_loglik + n_params * math.log(N)
+    
+            return bic, best_labels
+    
+        # Comparar el modelo de una población con el de dos poblaciones.
+        bic_1, labels_1 = fit_gmm(1)
+        bic_2, labels_2 = fit_gmm(2)
+    
+        # Dividir solamente si el modelo de dos grupos está mejor justificado.
+        if bic_2 + bic_margin < bic_1:
+            labels = labels_2
+        else:
+            labels = labels_1
+    
+        # Renumerar etiquetas para que sean consecutivas.
+        unique_labels = torch.unique(labels)
+        labels = torch.stack([
+            (labels == label).long() * i
+            for i, label in enumerate(unique_labels)
+        ]).sum(dim=0)
+    
+        n_clusters = len(unique_labels)
+    
+        # Calcular los promedios de las imágenes de cada grupo.
+        images = Im_tensor.to(dtype=torch.float32)
+        averages = []
+    
+        for k in range(n_clusters):
+            mask = labels == k
+            group_images = images[mask.to(image_device)]
+    
+            averages.append(group_images.mean(dim=0))
+    
+        averages = torch.stack(averages)
+    
+        # Guardar información para inspeccionar el resultado.
+        self.cluster_sizes_ = torch.bincount(
+            labels, minlength=n_clusters
+        ).to(image_device)
+    
+        self.bic_1_ = bic_1
+        self.bic_2_ = bic_2
+        self.n_clusters_ = n_clusters
+    
+        labels = labels.to(image_device)
+    
+        if verbose:
+            print(f"BIC (1 grupo): {bic_1:.2f}")
+            print(f"BIC (2 grupos): {bic_2:.2f}")
+            print(f"Grupos seleccionados: {n_clusters}")
+            print(f"Tamaño de los grupos: {self.cluster_sizes_.tolist()}")
+    
+        return averages.to(dtype=torch.float32), labels
     
 
     def determine_batches(self, free_memory, dim):
