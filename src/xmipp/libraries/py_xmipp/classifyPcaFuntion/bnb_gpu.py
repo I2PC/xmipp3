@@ -387,7 +387,10 @@ class BnBgpu:
 
         #  Structural Split  
         if 2 <= iter < iterSplit and split > 0:
+            sc, eje = split_score(newProj)
+            print(sc, eje)
             for n in range(classes):
+
                 if newCL[n].shape[0] > 20: # Minimum particles to consider
                     
                     # #K-means over PCA proj
@@ -446,7 +449,7 @@ class BnBgpu:
             sizes = lengths[valid_mask]
             clk = clk[valid_mask]
             # clk = clk[torch.argsort(res_classes)]
-            clk = clk[torch.argsort(sizes, descending=False)]
+            clk = clk[torch.argsort(sizes, descending=True)]
             
             
 
@@ -1506,6 +1509,22 @@ class BnBgpu:
             print(f"Tamaño de los grupos: {self.cluster_sizes_.tolist()}")
     
         return averages.to(dtype=torch.float32), labels
+    
+    
+    @torch.no_grad()
+    def split_score(self, P, tangent=None):
+        # P: (n, D) proyecciones PCA de una clase; tangent: (T, D) derivadas rot/shift (opcional)
+        n, D = P.shape
+        Pc = P - P.mean(0, keepdim=True)
+        if tangent is not None:
+            Q, _ = torch.linalg.qr(tangent.T)       # (D, T)
+            Pc = Pc - (Pc @ Q) @ Q.T                # quita la variación por desalineamiento
+        ev, evec = torch.linalg.eigh(Pc.T @ Pc / (n - 1))
+        ev, evec = ev.flip(0), evec.flip(1)
+        sigma2 = ev.median()                        # válido si n >> D
+        lam_plus = sigma2 * (1 + (D / n) ** 0.5) ** 2
+        excess = (ev[0] - lam_plus).clamp(min=0)
+        return n * excess, evec[:, 0]               # score y eje de split
     
 
     def determine_batches(self, free_memory, dim):
