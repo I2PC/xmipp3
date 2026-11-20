@@ -402,7 +402,7 @@ class BnBgpu:
                     # else:
                     #     newCL[n] = torch.cat([part_A, part_B], dim=0)
                     
-                    averages, labels, n_clusters = (self.kmeans_pytorch_for_averages_split(newCL[n], newProj[n], cvecs, num_iters=100, n_init=5))
+                    averages, labels, = (self.kmeans_pytorch_for_averages_split(newCL[n], newProj[n], cvecs, num_iters=100, n_init=5))
 
                     if self.n_clusters_ == 2:
             
