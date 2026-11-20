@@ -446,7 +446,7 @@ class BnBgpu:
             sizes = lengths[valid_mask]
             clk = clk[valid_mask]
             # clk = clk[torch.argsort(res_classes)]
-            clk = clk[torch.argsort(sizes, descending=True)]
+            clk = clk[torch.argsort(sizes, descending=False)]
             
             
 
