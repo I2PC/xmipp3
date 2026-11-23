@@ -387,7 +387,7 @@ class BnBgpu:
 
         #  Structural Split  
         if 2 <= iter < iterSplit and split > 0:
-            sc, eje = self.split_score(newProj)
+            scores, axes = self.split_score(newProj)
             for n in range(classes):
                 if scores is not None:
                     # las `split` clases con mayor score (solo las que tienen score > 0)
