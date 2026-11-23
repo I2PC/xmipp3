@@ -789,21 +789,23 @@ def process_class(
 
     weights = gmm_weights_np if gmm_weights_np is not None else robust_weights_np
 
-    outlier_proportion = pipeline_config.io.outlier_proportion_for_avgs
-    bottom_weight = np.quantile(weights, outlier_proportion)
-    top_weight = np.quantile(weights, 1.0 - outlier_proportion)
+    high_weight_average = None
+    if pipeline_config.io.out_high_weight_avgs:
+        outlier_proportion = pipeline_config.io.outlier_proportion_for_avgs
+        top_weight = np.quantile(weights, 1.0 - outlier_proportion)
+        high_mask = weights >= top_weight
 
-    low_mask = weights <= bottom_weight
-    high_mask = weights >= top_weight
+        if high_mask.any():
+            high_weight_average = images[high_mask].mean(dim=0).detach().cpu().numpy()
 
-    low_weight_average = (
-        images[low_mask].mean(dim=0).detach().cpu().numpy() if low_mask.any() else None
-    )
-    high_weight_average = (
-        images[high_mask].mean(dim=0).detach().cpu().numpy()
-        if high_mask.any()
-        else None
-    )
+    low_weight_average = None
+    if pipeline_config.io.out_low_weight_avgs:
+        outlier_proportion = pipeline_config.io.outlier_proportion_for_avgs
+        bottom_weight = np.quantile(weights, outlier_proportion)
+        low_mask = weights <= bottom_weight
+
+        if low_mask.any():
+            low_weight_average = images[low_mask].mean(dim=0).detach().cpu().numpy()
 
     return ClassProcessingResults(
         unmasked_corrected_average=unmasked_corrected_average,
