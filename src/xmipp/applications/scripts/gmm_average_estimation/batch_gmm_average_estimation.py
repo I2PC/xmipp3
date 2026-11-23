@@ -45,7 +45,9 @@ from xmippPyModules.gmmAverageTools.weights import (
     tagare_weight_precomputed,
 )
 
-Estimator: TypeAlias = RecursiveGMMEstimator | ADMMEstimator | JointIRLSFourier | IRLSMEstimator
+Estimator: TypeAlias = (
+    RecursiveGMMEstimator | ADMMEstimator | JointIRLSFourier | IRLSMEstimator
+)
 EstimatorType = Literal["irls", "fourier_irls", "admm"]
 ESTIMATOR_TYPES: tuple[str, ...] = get_args(EstimatorType)
 
@@ -84,6 +86,7 @@ class IOConfig:
     outlier_proportion_for_avgs: float = DEFAULT_OUTLIER_PROPORTION_FOR_AVERAGES
     group_by_column: str = MDL_REF_COLUMN
     out_gmm_diagnostics: Path | None = None
+    overwrite: bool = False
 
 
 @dataclass
@@ -236,6 +239,12 @@ def build_argument_parser() -> argparse.ArgumentParser:
         "--out-gmm-diagnostics",
         type=Path,
         help="Path to a directory where the information about GMM fits will be stored.",
+    )
+    io_group.add_argument(
+        "--overwrite",
+        action=argparse.BooleanOptionalAction,
+        help="Overwrite image stacks if they already exist on the requested paths.",
+        default=False,
     )
 
     # Shared estimator hyperparameters
@@ -427,6 +436,7 @@ def parse_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
         outlier_proportion_for_avgs=args.outlier_proportion_for_avgs,
         group_by_column=args.group_by_column,
         out_gmm_diagnostics=args.out_gmm_diagnostics,
+        overwrite=args.overwrite,
     )
 
     if args.estimator_type == "fourier_irls":
@@ -1064,15 +1074,35 @@ def main() -> None:
             gmm_fits_info.append(fit_info)
 
     if robust_avgs is not None:
-        mrcfile.write(name=pipeline_config.io.out_corrected_avgs, data=robust_avgs)
+        mrcfile.write(
+            name=pipeline_config.io.out_corrected_avgs,
+            data=robust_avgs,
+            overwrite=pipeline_config.io.overwrite,
+        )
     if original_avgs is not None:
-        mrcfile.write(name=pipeline_config.io.out_original_avgs, data=original_avgs)
+        mrcfile.write(
+            name=pipeline_config.io.out_original_avgs,
+            data=original_avgs,
+            overwrite=pipeline_config.io.overwrite,
+        )
     if diff_avgs is not None:
-        mrcfile.write(name=pipeline_config.io.out_difference_avgs, data=diff_avgs)
+        mrcfile.write(
+            name=pipeline_config.io.out_difference_avgs,
+            data=diff_avgs,
+            overwrite=pipeline_config.io.overwrite,
+        )
     if low_w_avgs is not None:
-        mrcfile.write(name=pipeline_config.io.out_low_weight_avgs, data=low_w_avgs)
+        mrcfile.write(
+            name=pipeline_config.io.out_low_weight_avgs,
+            data=low_w_avgs,
+            overwrite=pipeline_config.io.overwrite,
+        )
     if high_w_avgs is not None:
-        mrcfile.write(name=pipeline_config.io.out_high_weight_avgs, data=high_w_avgs)
+        mrcfile.write(
+            name=pipeline_config.io.out_high_weight_avgs,
+            data=high_w_avgs,
+            overwrite=pipeline_config.io.overwrite,
+        )
 
     if out_md is not None:
         if out_md[weight_columns].isna().any().any():

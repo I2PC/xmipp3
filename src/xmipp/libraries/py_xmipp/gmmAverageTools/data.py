@@ -58,7 +58,10 @@ def read_images(
 
     # Memory-map the stack instead of loading the full .mrcs into RAM.
     with mrcfile.mmap(stack_path, permissive=True, mode="r") as mrc:
-        particles_np = np.asarray(mrc.data[indices], dtype=np.float32)
+        stack = mrc.data
+        if stack.ndim == 2:
+            stack = stack[np.newaxis, ...]
+        particles_np = np.asarray(stack[indices], dtype=np.float32)
 
     # Convert everything to tensors
     particles = torch.as_tensor(particles_np, dtype=torch.float32, device=device)
