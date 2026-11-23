@@ -390,33 +390,33 @@ class BnBgpu:
             scores, axes = self.split_score(newProj)
             print(scores)
             print("----------------")
-            for n in range(classes):
-                if scores is not None:
-                    # las `split` clases con mayor score (solo las que tienen score > 0)
-                    k_top = min(split, classes)
-                    top_sc, top_idx = torch.topk(scores[:classes], k_top)
-                    free_slots = list(range(classes, total_slots))
-    
-                    for sc, n in zip(top_sc.tolist(), top_idx.tolist()):
-                        if sc <= 0 or not free_slots:
-                            break
-                        
-                        print(
-                            f"Clase {n}: "
-                            f"images={newCL[n].shape[0]}, "
-                            f"projections={newProj[n].shape[0]}"
-                        )
-    
-                        P = newProj[n].float()
-                        t = (P - P.mean(0, keepdim=True)) @ axes[n]
-                        labels = self._otsu_cut_1d(t, min_frac=0.1)
-                        if labels is None:
-                            continue
-    
-                        dst = free_slots.pop(0)
-                        imgs = newCL[n]
-                        newCL[dst] = imgs[labels == 1]
-                        newCL[n] = imgs[labels == 0]
+            # for n in range(classes):
+            if scores is not None:
+                # las `split` clases con mayor score (solo las que tienen score > 0)
+                k_top = min(split, classes)
+                top_sc, top_idx = torch.topk(scores[:classes], k_top)
+                free_slots = list(range(classes, total_slots))
+
+                for sc, n in zip(top_sc.tolist(), top_idx.tolist()):
+                    if sc <= 0 or not free_slots:
+                        break
+                    
+                    print(
+                        f"Clase {n}: "
+                        f"images={newCL[n].shape[0]}, "
+                        f"projections={newProj[n].shape[0]}"
+                    )
+
+                    P = newProj[n].float()
+                    t = (P - P.mean(0, keepdim=True)) @ axes[n]
+                    labels = self._otsu_cut_1d(t, min_frac=0.1)
+                    if labels is None:
+                        continue
+
+                    dst = free_slots.pop(0)
+                    imgs = newCL[n]
+                    newCL[dst] = imgs[labels == 1]
+                    newCL[n] = imgs[labels == 0]
 
                 # if newCL[n].shape[0] > 20: # Minimum particles to consider
                 #
