@@ -1,9 +1,9 @@
 channels:
-  - nvidia
+  - nvidia/label/cuda-13.1.1
   - conda-forge
   - nodefaults
 dependencies:
-  - cuda=13.1.1
+  - cuda-toolkit
   - gcc_linux-64
   - gxx_linux-64
   - cmake=3.31.8
