@@ -388,6 +388,8 @@ class BnBgpu:
         #  Structural Split  
         if 2 <= iter < iterSplit and split > 0:
             scores, axes = self.split_score(newProj)
+            print(scores)
+            print("----------------")
             for n in range(classes):
                 if scores is not None:
                     # las `split` clases con mayor score (solo las que tienen score > 0)
@@ -398,6 +400,12 @@ class BnBgpu:
                     for sc, n in zip(top_sc.tolist(), top_idx.tolist()):
                         if sc <= 0 or not free_slots:
                             break
+                        
+                        print(
+                            f"Clase {n}: "
+                            f"images={newCL[n].shape[0]}, "
+                            f"projections={newProj[n].shape[0]}"
+                        )
     
                         P = newProj[n].float()
                         t = (P - P.mean(0, keepdim=True)) @ axes[n]
