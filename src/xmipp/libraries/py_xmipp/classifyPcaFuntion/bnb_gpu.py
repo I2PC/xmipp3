@@ -1512,19 +1512,53 @@ class BnBgpu:
     
     
     @torch.no_grad()
-    def split_score(self, P, tangent=None):
-        # P: (n, D) proyecciones PCA de una clase; tangent: (T, D) derivadas rot/shift (opcional)
-        n, D = P.shape
-        Pc = P - P.mean(0, keepdim=True)
-        if tangent is not None:
-            Q, _ = torch.linalg.qr(tangent.T)       # (D, T)
-            Pc = Pc - (Pc @ Q) @ Q.T                # quita la variación por desalineamiento
-        ev, evec = torch.linalg.eigh(Pc.T @ Pc / (n - 1))
-        ev, evec = ev.flip(0), evec.flip(1)
-        sigma2 = ev.median()                        # válido si n >> D
-        lam_plus = sigma2 * (1 + (D / n) ** 0.5) ** 2
-        excess = (ev[0] - lam_plus).clamp(min=0)
-        return n * excess, evec[:, 0]               # score y eje de split
+    def split_score(self, newProj, min_ratio=3.0, min_n=20, edge_factor=1.1):
+        """
+        newProj: lista de K tensores (n_k, D) o None (proyecciones PCA por clase).
+        Devuelve:
+            scores: (K,) exceso de varianza por clase (0 si no hay estructura o no hay datos suficientes)
+            axes:   (K, D) eje principal de cada clase (ceros si no válida)
+        """
+        K = len(newProj)
+        ref = next((P for P in newProj if P is not None), None)
+        if ref is None:
+            return None, None
+        dev, D = ref.device, ref.shape[1]
+
+        scores = torch.zeros(K, device=dev)
+        axes = torch.zeros(K, D, device=dev)
+
+        # clases con datos suficientes para estimar una covarianza DxD
+        idx = [k for k, P in enumerate(newProj)
+               if P is not None and P.shape[0] >= max(min_n, min_ratio * D)]
+        if not idx:
+            return scores, axes
+
+        covs, ns = [], []
+        for k in idx:
+            P = newProj[k].float()
+            Pc = P - P.mean(0, keepdim=True)
+            covs.append(Pc.T @ Pc)
+            ns.append(P.shape[0])
+
+        n = torch.tensor(ns, device=dev, dtype=torch.float32)
+        C = torch.stack(covs) / (n - 1).view(-1, 1, 1)            # (V, D, D)
+
+        ev, evec = torch.linalg.eigh(C)                           # una sola llamada batched
+        top = ev[:, -1]                                           # autovalor mayor
+        ax = evec[:, :, -1]                                       # su eje
+
+        # suelo de ruido: mediana de autovalores (corrección por D/n) y borde de Marchenko-Pastur
+        gamma = D / n
+        sigma2 = ev.median(dim=1).values / (1.0 - gamma / 3.0)
+        lam_plus = edge_factor * sigma2 * (1.0 + gamma.sqrt()) ** 2
+
+        sc = n * (top - lam_plus).clamp(min=0)
+
+        idx_t = torch.tensor(idx, device=dev)
+        scores[idx_t] = sc
+        axes[idx_t] = ax
+        return scores, axes
     
 
     def determine_batches(self, free_memory, dim):
