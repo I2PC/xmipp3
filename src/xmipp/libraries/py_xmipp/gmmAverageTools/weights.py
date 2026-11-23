@@ -1,4 +1,4 @@
-from typing import Callable, Union
+from collections.abc import Callable
 
 import torch
 
@@ -9,7 +9,7 @@ TAGARE_CONSTANT: float = 1.0e-5
 def cosine_similarity(
     images: torch.Tensor,
     reference: torch.Tensor,
-    std: Union[torch.Tensor, float] = 1.0,
+    std: torch.Tensor | float = 1.0,
     eps: float = 1.0e-8,
 ) -> torch.Tensor:
     """
@@ -43,7 +43,7 @@ def cosine_similarity(
 def cross_correlation_weight(
     images: torch.Tensor,
     reference: torch.Tensor,
-    std: Union[torch.Tensor, float] = 1.0,
+    std: torch.Tensor | float = 1.0,
     eps: float = 1.0e-8,
 ) -> torch.Tensor:
     """
@@ -83,7 +83,7 @@ def cross_correlation_weight(
 def tagare_weight(
     images: torch.Tensor,
     reference: torch.Tensor,
-    std: Union[torch.Tensor, float] = 1.0,
+    std: torch.Tensor | float = 1.0,
     beta: float = 1.0e-6,
     centered_correlation: bool = False,
     eps: float = 1.0e-6,
@@ -205,9 +205,9 @@ def calculate_beta_auto(
 def smooth_redescending_weights_modulus(
     images: torch.Tensor,
     reference: torch.Tensor,
-    std: Union[torch.Tensor, float],
+    std: torch.Tensor | float,
     delta: float,
-):
+) -> torch.Tensor:
     """
     Computes smooth redescending M-estimator weights using a Gaussian-like influence metric.
     Applies ``.abs()`` to the differences between the images and the reference in
@@ -241,7 +241,7 @@ def smooth_redescending_weights_modulus(
 def smooth_redescending_weights_norm(
     images: torch.Tensor,
     reference: torch.Tensor,
-    std: Union[torch.Tensor, float],
+    std: torch.Tensor | float,
     delta: float,
 ) -> torch.Tensor:
     """

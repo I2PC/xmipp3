@@ -1,7 +1,6 @@
-from typing import Callable, Optional, Union
+from collections.abc import Callable
 
 import torch
-
 from xmippPyModules.gmmAverageTools.weights import (
     cosine_similarity,
     cross_correlation_weight,
@@ -9,14 +8,13 @@ from xmippPyModules.gmmAverageTools.weights import (
     tagare_weight_precomputed,
 )
 
-
 DistanceFunction = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 
 
 def cosine_distance(
     images: torch.Tensor,
     reference: torch.Tensor,
-    std: Union[torch.Tensor, float] = 1.0,
+    std: torch.Tensor | float = 1.0,
     eps: float = 1.0e-8,
     inv_type: str = "neg",
 ) -> torch.Tensor:
@@ -48,7 +46,7 @@ def cosine_distance(
 def cross_correlation_distance(
     images: torch.Tensor,
     reference: torch.Tensor,
-    std: Union[torch.Tensor, float] = 1.0,
+    std: torch.Tensor | float = 1.0,
     eps: float = 1.0e-8,
     inv_type: str = "neg",
 ) -> torch.Tensor:
@@ -80,7 +78,7 @@ def cross_correlation_distance(
 def tagare_distance(
     images: torch.Tensor,
     reference: torch.Tensor,
-    std: Union[torch.Tensor, float] = 1.0,
+    std: torch.Tensor | float = 1.0,
     beta: float = 1.0e-6,
     centered_correlation: bool = False,
     eps: float = 1.0e-6,
@@ -171,7 +169,7 @@ def tagare_distance_precomputed(
 
 def invert_similarity(
     similarity: torch.Tensor,
-    inv_type: Optional[str] = "neg",
+    inv_type: str | None = "neg",
     eps: float = 1.0e-6,
     inplace: bool = True,
 ) -> torch.Tensor:

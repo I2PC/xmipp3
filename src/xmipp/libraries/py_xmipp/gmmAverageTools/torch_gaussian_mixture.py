@@ -1,4 +1,3 @@
-from typing import Optional
 import math
 
 import torch
@@ -39,9 +38,9 @@ class TorchGaussianMixture:
         max_iter: int = 100,
         tol: float = 1.0e-4,
         reg_covar: float = 1.0e-6,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
         warm_start: bool = False,
-    ):
+    ) -> None:
         self.n_components = n_components
         self.max_iter = max_iter
         self.tol = tol
@@ -49,16 +48,16 @@ class TorchGaussianMixture:
         self.random_state = random_state
         self.warm_start = warm_start
 
-        self.means_init: Optional[torch.Tensor] = None
-        self.weights_init: Optional[torch.Tensor] = None
+        self.means_init: torch.Tensor | None = None
+        self.weights_init: torch.Tensor | None = None
 
-        self.weights_: Optional[torch.Tensor] = None
-        self.means_: Optional[torch.Tensor] = None
-        self.covariances_: Optional[torch.Tensor] = None
+        self.weights_: torch.Tensor | None = None
+        self.means_: torch.Tensor | None = None
+        self.covariances_: torch.Tensor | None = None
 
         self.converged_: bool = False
         self.n_iter_: int = 0
-        self.lower_bound_: Optional[torch.Tensor] = None
+        self.lower_bound_: torch.Tensor | None = None
 
     def _prepare_input(self, x: torch.Tensor) -> torch.Tensor:
         x = torch.as_tensor(x)
@@ -77,7 +76,7 @@ class TorchGaussianMixture:
 
         return x
 
-    def _make_generator(self, device: torch.device) -> Optional[torch.Generator]:
+    def _make_generator(self, device: torch.device) -> torch.Generator | None:
         if self.random_state is None:
             return None
 

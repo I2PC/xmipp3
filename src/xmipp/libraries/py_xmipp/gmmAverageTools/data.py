@@ -1,10 +1,10 @@
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Union, Iterable, Optional
 
-import numpy as np
 import mrcfile
-import starfile
+import numpy as np
 import pandas as pd
+import starfile
 import torch
 
 MDL_REF_COLUMN = "ref"
@@ -13,8 +13,8 @@ MDL_ITEM_ID_COLUMN = "itemId"
 
 def read_images(
     data: pd.DataFrame,
-    class_id: Optional[int] = None,
-    device: Union[torch.device, str] = "cpu",
+    class_id: int | None = None,
+    device: torch.device | str = "cpu",
 ) -> torch.Tensor:
     """
     Reads a metadata DataFrame and returns the requested images as a tensor.

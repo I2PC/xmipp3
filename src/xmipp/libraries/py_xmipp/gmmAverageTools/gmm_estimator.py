@@ -1,11 +1,9 @@
-from typing import Optional, Tuple
 
 import torch
-
 from xmippPyModules.gmmAverageTools.distances import DistanceFunction
-from xmippPyModules.gmmAverageTools.utils import weighted_average
-from xmippPyModules.gmmAverageTools.torch_gaussian_mixture import TorchGaussianMixture
 from xmippPyModules.gmmAverageTools.results import EstimatorResult, GMMDiagnostics
+from xmippPyModules.gmmAverageTools.torch_gaussian_mixture import TorchGaussianMixture
+from xmippPyModules.gmmAverageTools.utils import weighted_average
 
 MIN_ELEMENTS_FOR_GMM = 50
 DEFAULT_BAD_WEIGHT = 0.05
@@ -17,14 +15,14 @@ class _UnusableGMM(Exception):
 
     def __init__(
         self,
-        reason,
-        distances,
-        raw=None,
-        cummin=None,
-        peak=None,
-        model_valid=False,
-        degeneracy=(None, None),
-    ):
+        reason: str,
+        distances: torch.Tensor,
+        raw: torch.Tensor | None = None,
+        cummin: torch.Tensor | None = None,
+        peak: torch.Tensor | None = None,
+        model_valid: bool = False,
+        degeneracy: tuple[bool | None, bool | None] = (None, None),
+    ) -> None:
         super().__init__(reason)
         self.reason = reason
         self.distances = distances
@@ -45,15 +43,15 @@ class RecursiveGMMEstimator:
         tol: float = 1.0e-4,
         standardize_distances: bool = True,
         initialize_params: bool = True,
-        initial_bad_mean_quantile: Optional[float] = None,
-        initial_bad_weight: Optional[float] = None,
-        random_state: Optional[int] = None,
+        initial_bad_mean_quantile: float | None = None,
+        initial_bad_weight: float | None = None,
+        random_state: int | None = None,
         gmm_max_iter: int = 20,
         gmm_tol: float = 1.0e-4,
         check_degenerate_model: bool = True,
         min_component_separation: float = 0.05,
         min_good_component_weight: float = 0.30,
-    ):
+    ) -> None:
         self.model = TorchGaussianMixture(
             n_components=2,
             max_iter=gmm_max_iter,
@@ -124,7 +122,7 @@ class RecursiveGMMEstimator:
 
     def _preprocess_distances(
         self, distances: torch.Tensor, clip_distances: bool = False
-    ) -> Tuple[torch.Tensor, float, float]:
+    ) -> tuple[torch.Tensor, float, float]:
         """
         Optionally clips the minimum distances to the 0.005 quantile, and/or standardizes
         them to zero mean and standard deviation of one.
@@ -150,25 +148,25 @@ class RecursiveGMMEstimator:
 
         return (distances - mean) / std, mean.item(), std.item()
 
-    def _get_good_component_idx(self):
+    def _get_good_component_idx(self) -> torch.Tensor:
         """
         Returns the index of the component of the GMM model with a lower mean.
         """
         return torch.argmin(self.model.means_.mean(dim=1))
 
-    def _get_model_means(self) -> Tuple[float, float]:
+    def _get_model_means(self) -> tuple[float, float]:
         """
         Returns the GMM model's two scalar means
         """
         return self.model.means_[0, 0].item(), self.model.means_[1, 0].item()
 
-    def _get_model_variances(self) -> Tuple[float, float]:
+    def _get_model_variances(self) -> tuple[float, float]:
         """
         Returns the GMM model's two scalar variances
         """
         return self.model.covariances_[0].item(), self.model.covariances_[1].item()
 
-    def _get_model_component_weights(self) -> Tuple[float, float]:
+    def _get_model_component_weights(self) -> tuple[float, float]:
         """
         Returns the GMM model's weight for each of its components. The order
         they are returned in matches the internal model's order, which does
@@ -179,7 +177,7 @@ class RecursiveGMMEstimator:
 
     def _responsibility_weights(
         self, model: TorchGaussianMixture, distances: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Calculate posterior probabilities of belonging to the good GMM component.
 
@@ -204,7 +202,7 @@ class RecursiveGMMEstimator:
 
         return raw, cummin, peak
 
-    def _degeneracy_checks(self) -> Tuple[bool, bool]:
+    def _degeneracy_checks(self) -> tuple[bool, bool]:
         """
         Checks whether the two components of a GMM model are degenerate, i.e,
         their means are too close to represent two distinct groups OR the component
@@ -251,7 +249,7 @@ class RecursiveGMMEstimator:
         images: torch.Tensor,
         reference: torch.Tensor,
         initialize_params: bool = False,
-    ) -> Tuple[
+    ) -> tuple[
         torch.Tensor,
         torch.Tensor,
         torch.Tensor,
@@ -359,7 +357,7 @@ class RecursiveGMMEstimator:
     def fit(
         self,
         images: torch.Tensor,
-        reference: Optional[torch.Tensor] = None,
+        reference: torch.Tensor | None = None,
     ) -> EstimatorResult:
         """
         Coordinates the whole GMM robust estimation process:

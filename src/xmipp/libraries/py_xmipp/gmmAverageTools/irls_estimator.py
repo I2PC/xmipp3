@@ -1,9 +1,7 @@
-from typing import Optional, Tuple
 
 import torch
-
-from xmippPyModules.gmmAverageTools.weights import WeightFunction
 from xmippPyModules.gmmAverageTools.results import EstimatorResult
+from xmippPyModules.gmmAverageTools.weights import WeightFunction
 
 
 class IRLSMEstimator:
@@ -15,10 +13,10 @@ class IRLSMEstimator:
         max_iter: int,
         tol: float,
         damping_coef: float = 0.0,
-        min_weight: Optional[float] = None,
-        max_weight: Optional[float] = None,
+        min_weight: float | None = None,
+        max_weight: float | None = None,
         eps: float = 1.0e-8,
-    ):
+    ) -> None:
         self.weight_function = weight_function
         self.max_iter = max_iter
         self.tol = tol
@@ -32,7 +30,7 @@ class IRLSMEstimator:
 
     @torch.inference_mode()
     def _validate_prior(
-        self, prior_mean: Optional[torch.Tensor], prior_variance: Optional[torch.Tensor]
+        self, prior_mean: torch.Tensor | None, prior_variance: torch.Tensor | None
     ) -> None:
         if (prior_mean is None) != (prior_variance is None):
             raise ValueError(
@@ -44,9 +42,9 @@ class IRLSMEstimator:
     def _get_safe_variance(
         self,
         images: torch.Tensor,
-        image_variance: Optional[torch.Tensor],
-        image_std: Optional[torch.Tensor],
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        image_variance: torch.Tensor | None,
+        image_std: torch.Tensor | None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Calculates per-pixel image variance and standard deviation, clamping them
         to protect against division by zero
@@ -68,10 +66,10 @@ class IRLSMEstimator:
         images: torch.Tensor,
         weights: torch.Tensor,
         *,
-        ctf: Optional[torch.Tensor] = None,
-        prior_mean: Optional[torch.Tensor] = None,
-        prior_variance: Optional[torch.Tensor] = None,
-        image_variance: Optional[torch.Tensor] = None,
+        ctf: torch.Tensor | None = None,
+        prior_mean: torch.Tensor | None = None,
+        prior_variance: torch.Tensor | None = None,
+        image_variance: torch.Tensor | None = None,
         eps: float = 1.0e-8,
     ) -> torch.Tensor:
         # New estimate calculation:
@@ -103,10 +101,10 @@ class IRLSMEstimator:
         image_variance: torch.Tensor,
         image_std: torch.Tensor,
         reference: torch.Tensor,
-        ctf: Optional[torch.Tensor] = None,
-        prior_mean: Optional[torch.Tensor] = None,
-        prior_variance: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        ctf: torch.Tensor | None = None,
+        prior_mean: torch.Tensor | None = None,
+        prior_variance: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """Performs a single iteration of the Reweighted Least Squares update"""
         weights = self.weight_function(images, reference, image_std)
 
@@ -139,14 +137,14 @@ class IRLSMEstimator:
         self,
         images: torch.Tensor,
         *,
-        image_variance: Optional[torch.Tensor] = None,
-        image_std: Optional[torch.Tensor] = None,
-        ctf: Optional[torch.Tensor] = None,
-        reference: Optional[torch.Tensor] = None,
-        prior_mean: Optional[torch.Tensor] = None,
-        prior_variance: Optional[torch.Tensor] = None,
-        max_iter_override: Optional[int] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        image_variance: torch.Tensor | None = None,
+        image_std: torch.Tensor | None = None,
+        ctf: torch.Tensor | None = None,
+        reference: torch.Tensor | None = None,
+        prior_mean: torch.Tensor | None = None,
+        prior_variance: torch.Tensor | None = None,
+        max_iter_override: int | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Executes the low-level Iteratively Reweighted Least Squares (IRLS) optimization.
 
@@ -265,13 +263,13 @@ class IRLSMEstimator:
         self,
         images: torch.Tensor,
         *,
-        image_variance: Optional[torch.Tensor] = None,
-        image_std: Optional[torch.Tensor] = None,
-        ctf: Optional[torch.Tensor] = None,
-        reference: Optional[torch.Tensor] = None,
-        prior_mean: Optional[torch.Tensor] = None,
-        prior_variance: Optional[torch.Tensor] = None,
-        max_iter_override: Optional[int] = None,
+        image_variance: torch.Tensor | None = None,
+        image_std: torch.Tensor | None = None,
+        ctf: torch.Tensor | None = None,
+        reference: torch.Tensor | None = None,
+        prior_mean: torch.Tensor | None = None,
+        prior_variance: torch.Tensor | None = None,
+        max_iter_override: int | None = None,
     ) -> EstimatorResult:
         """
         Executes the IRLS optimization and returns a standardized EstimatorResult.

@@ -1,65 +1,62 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 
-import os
 import argparse
-from pathlib import Path
 import warnings
-from typing import Tuple, Union, Optional, Dict, Literal, get_args, Any, Iterable
+from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from functools import partial
+from pathlib import Path
+from typing import Any, Literal, TypeAlias, get_args
 
 import mrcfile
 import numpy as np
+import pandas as pd
 import starfile
 import torch
-import pandas as pd
-
+from xmippPyModules.gmmAverageTools.admm_estimator import ADMMEstimator
 from xmippPyModules.gmmAverageTools.data import (
-    read_images,
-    MDL_REF_COLUMN,
     MDL_ITEM_ID_COLUMN,
+    MDL_REF_COLUMN,
+    read_images,
 )
-
-from xmippPyModules.gmmAverageTools.results import GMMDiagnostics
-
-# Import estimator types
-from xmippPyModules.gmmAverageTools.gmm_estimator import RecursiveGMMEstimator
-from xmippPyModules.gmmAverageTools.irls_estimator import IRLSMEstimator
 from xmippPyModules.gmmAverageTools.fourier_irls_estimator import (
     JointIRLSFourier,
     WeightApproach,
 )
-from xmippPyModules.gmmAverageTools.admm_estimator import ADMMEstimator
 
-# Import weight and distance functions
-from xmippPyModules.gmmAverageTools.weights import (
-    calculate_beta_auto,
-    tagare_weight_precomputed,
-    smooth_redescending_weights_modulus,
-    smooth_redescending_weights_norm,
-)
+# Import estimator types
+from xmippPyModules.gmmAverageTools.gmm_estimator import RecursiveGMMEstimator
+from xmippPyModules.gmmAverageTools.irls_estimator import IRLSMEstimator
 
 # Utilities: masks, weighted averages
 from xmippPyModules.gmmAverageTools.masks import (
     create_circular_mask,
     create_lowpass_rfft_mask,
 )
+from xmippPyModules.gmmAverageTools.results import GMMDiagnostics
 from xmippPyModules.gmmAverageTools.utils import weighted_average
 
-Estimator = Union[
-    RecursiveGMMEstimator, ADMMEstimator, JointIRLSFourier, IRLSMEstimator
-]
+# Import weight and distance functions
+from xmippPyModules.gmmAverageTools.weights import (
+    calculate_beta_auto,
+    smooth_redescending_weights_modulus,
+    smooth_redescending_weights_norm,
+    tagare_weight_precomputed,
+)
+
+Estimator: TypeAlias = RecursiveGMMEstimator | ADMMEstimator | JointIRLSFourier | IRLSMEstimator
 EstimatorType = Literal["irls", "fourier_irls", "admm"]
-ESTIMATOR_TYPES: Tuple[str, ...] = get_args(EstimatorType)
+ESTIMATOR_TYPES: tuple[str, ...] = get_args(EstimatorType)
 
 UNASSIGNED_GROUP_VALUE = -1
 
-DEFAULT_SMOOTH_DELTA: Dict[WeightApproach, float] = {
+DEFAULT_SMOOTH_DELTA: dict[WeightApproach, float] = {
     "per-image": 1.5,
     "per-coefficient": 1.5,
 }
 
-DEFAULT_MAX_ITERATIONS: Dict[EstimatorType, int] = {
+DEFAULT_MAX_ITERATIONS: dict[EstimatorType, int] = {
     "irls": 50,
     "fourier_irls": 50,
     "admm": 30,
@@ -78,15 +75,15 @@ DEFAULT_OUTLIER_PROPORTION_FOR_AVERAGES = 0.1
 class IOConfig:
     input_xmd: Path
     base_xmd: Path
-    out_star: Optional[Path] = None
-    out_corrected_avgs: Optional[Path] = None
-    out_original_avgs: Optional[Path] = None
-    out_difference_avgs: Optional[Path] = None
-    out_low_weight_avgs: Optional[Path] = None
-    out_high_weight_avgs: Optional[Path] = None
+    out_star: Path | None = None
+    out_corrected_avgs: Path | None = None
+    out_original_avgs: Path | None = None
+    out_difference_avgs: Path | None = None
+    out_low_weight_avgs: Path | None = None
+    out_high_weight_avgs: Path | None = None
     outlier_proportion_for_avgs: float = DEFAULT_OUTLIER_PROPORTION_FOR_AVERAGES
     group_by_column: str = MDL_REF_COLUMN
-    out_gmm_diagnostics: Optional[Path] = None
+    out_gmm_diagnostics: Path | None = None
 
 
 @dataclass
@@ -96,7 +93,7 @@ class GMMConfig:
     standardize_distances: bool
     initialize_params: bool
     initial_bad_weight: float
-    initial_bad_quantile: float 
+    initial_bad_quantile: float
     check_degenerate: bool
     min_component_separation: float
     min_good_component_weight: float
@@ -109,7 +106,7 @@ class EstimatorConfig:
     tolerance: float
     random_state: int
     damping_coef: float = 0.0
-    params: Dict[str, Any] = field(default_factory=dict)
+    params: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -117,7 +114,7 @@ class PipelineConfig:
     device: str
     io: IOConfig
     estimator: EstimatorConfig
-    gmm: Optional[GMMConfig] = None
+    gmm: GMMConfig | None = None
 
 
 @dataclass
@@ -152,8 +149,8 @@ class ClassProcessingResults:
     unmasked_corrected_average: np.ndarray
     unmasked_original_average: np.ndarray
     robust_weights: np.ndarray
-    gmm_weights: Optional[np.ndarray] = None
-    gmm_diagnostics: Optional[GMMDiagnostics] = None
+    gmm_weights: np.ndarray | None = None
+    gmm_diagnostics: GMMDiagnostics | None = None
     unmasked_low_weight_average: np.ndarray | None = None
     unmasked_high_weight_average: np.ndarray | None = None
 
@@ -341,7 +338,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
     )
 
     # IRLS options
-    irls_parser = subparsers.add_parser("irls", help="Standard IRLS procedure")
+    subparsers.add_parser("irls", help="Standard IRLS procedure")
 
     # ADMM options
     admm_parser = subparsers.add_parser("admm", help="ADMM optimization procedure")
@@ -520,7 +517,7 @@ def validate_item_ids(data: pd.DataFrame, name: str) -> None:
 
     if data[MDL_ITEM_ID_COLUMN].duplicated().any():
         raise ValueError(
-            f"{name} metadata contains duplicated " f"'{MDL_ITEM_ID_COLUMN}' values."
+            f"{name} metadata contains duplicated '{MDL_ITEM_ID_COLUMN}' values."
         )
 
 
@@ -706,7 +703,7 @@ def fit_estimator(
     masked_images: torch.Tensor,
     unmasked_images: torch.Tensor,
     reference: torch.Tensor,
-) -> Tuple[np.ndarray, Optional[np.ndarray], np.ndarray, Optional[GMMDiagnostics]]:
+) -> tuple[np.ndarray, np.ndarray | None, np.ndarray, GMMDiagnostics | None]:
     """
     Fit the estimator and return a set of per-image weights and an optional set of
     per-image GMM weights for GMM-type estimators.
@@ -812,7 +809,7 @@ def process_class(
 def write_weights_to_dataframe(
     write_metadata: pd.DataFrame,
     robust_weights_np: np.ndarray,
-    gmm_weights_np: Optional[np.ndarray],
+    gmm_weights_np: np.ndarray | None,
     item_ids: np.ndarray,
     group_by_column: str,
     group_by_value: int,
@@ -870,13 +867,13 @@ def get_output_buffers(
     input_metadata_df: pd.DataFrame,
     weight_columns: Iterable[str],
     n_classes: int,
-) -> Tuple[
-    Optional[pd.DataFrame],
-    Optional[np.ndarray],
-    Optional[np.ndarray],
-    Optional[np.ndarray],
-    Optional[np.ndarray],
-    Optional[np.ndarray],
+) -> tuple[
+    pd.DataFrame | None,
+    np.ndarray | None,
+    np.ndarray | None,
+    np.ndarray | None,
+    np.ndarray | None,
+    np.ndarray | None,
 ]:
     group_by_column = io_config.group_by_column
 
@@ -1086,7 +1083,7 @@ def main() -> None:
             raise RuntimeError("Some particles were not assigned a valid group.")
 
         out_md[group_by_column] = output_groups.astype(np.int64)
-        
+
         starfile.write(data=out_md, filename=args.out_star)
 
     if gmm_out_path is not None and gmm_fits_info:
