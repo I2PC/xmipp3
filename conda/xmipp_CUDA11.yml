@@ -4,6 +4,8 @@ channels:
   - nodefaults
 dependencies:
   - cuda=11.8.0
+  - cuda-runtime=11.8
+  - cuda-toolkit=11.8
   - gcc_linux-64
   - gxx_linux-64
   - cmake=3.31.8
