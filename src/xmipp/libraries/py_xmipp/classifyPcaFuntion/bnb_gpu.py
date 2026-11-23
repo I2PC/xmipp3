@@ -388,43 +388,62 @@ class BnBgpu:
         #  Structural Split  
         if 2 <= iter < iterSplit and split > 0:
             sc, eje = self.split_score(newProj)
-            print(sc, eje)
             for n in range(classes):
+                if scores is not None:
+                    # las `split` clases con mayor score (solo las que tienen score > 0)
+                    k_top = min(split, classes)
+                    top_sc, top_idx = torch.topk(scores[:classes], k_top)
+                    free_slots = list(range(classes, total_slots))
+    
+                    for sc, n in zip(top_sc.tolist(), top_idx.tolist()):
+                        if sc <= 0 or not free_slots:
+                            break
+    
+                        P = newProj[n].float()
+                        t = (P - P.mean(0, keepdim=True)) @ axes[n]
+                        labels = self._otsu_cut_1d(t, min_frac=0.1)
+                        if labels is None:
+                            continue
+    
+                        dst = free_slots.pop(0)
+                        imgs = newCL[n]
+                        newCL[dst] = imgs[labels == 1]
+                        newCL[n] = imgs[labels == 0]
 
-                if newCL[n].shape[0] > 20: # Minimum particles to consider
-                    
-                    # #K-means over PCA proj
-                    # _, labels = self.kmeans_pytorch_for_averages(newCL[n], newProj[n], cvecs, num_clusters=2, num_iters=15)
-                    #
-                    # part_A = newCL[n][labels == 0]
-                    # part_B = newCL[n][labels == 1]
-                    #
-                    # if n < split:
-                    #     newCL[n] = part_A
-                    #     newCL[n + classes] = part_B
-                    # else:
-                    #     newCL[n] = torch.cat([part_A, part_B], dim=0)
-                    
-                    averages, labels, = (self.kmeans_pytorch_for_averages_split(newCL[n], newProj[n], cvecs, num_iters=100, n_init=5))
-
-                    if self.n_clusters_ == 2:
-            
-                        part_A = newCL[n][labels == 0]
-                        part_B = newCL[n][labels == 1]
-            
-                        if n < split:
-            
-                            newCL[n] = part_A
-                            newCL[n + classes] = part_B
-            
-                        else:
-            
-                            newCL[n] = torch.cat([part_A, part_B], dim=0)
-            
-                    else:
-                        # No se ha encontrado una división suficientemente clara
-                        # Se conserva la clase original
-                        newCL[n] = newCL[n]
+                # if newCL[n].shape[0] > 20: # Minimum particles to consider
+                #
+                #     # #K-means over PCA proj
+                #     # _, labels = self.kmeans_pytorch_for_averages(newCL[n], newProj[n], cvecs, num_clusters=2, num_iters=15)
+                #     #
+                #     # part_A = newCL[n][labels == 0]
+                #     # part_B = newCL[n][labels == 1]
+                #     #
+                #     # if n < split:
+                #     #     newCL[n] = part_A
+                #     #     newCL[n + classes] = part_B
+                #     # else:
+                #     #     newCL[n] = torch.cat([part_A, part_B], dim=0)
+                #
+                #     averages, labels, = (self.kmeans_pytorch_for_averages_split(newCL[n], newProj[n], cvecs, num_iters=100, n_init=5))
+                #
+                #     if self.n_clusters_ == 2:
+                #
+                #         part_A = newCL[n][labels == 0]
+                #         part_B = newCL[n][labels == 1]
+                #
+                #         if n < split:
+                #
+                #             newCL[n] = part_A
+                #             newCL[n + classes] = part_B
+                #
+                #         else:
+                #
+                #             newCL[n] = torch.cat([part_A, part_B], dim=0)
+                #
+                #     else:
+                #         # No se ha encontrado una división suficientemente clara
+                #         # Se conserva la clase original
+                #         newCL[n] = newCL[n]
         
         
         clk = self.averages_createClasses(mmap, iter, newCL)       
@@ -1559,6 +1578,30 @@ class BnBgpu:
         scores[idx_t] = sc
         axes[idx_t] = ax
         return scores, axes
+    
+    
+    @torch.no_grad()
+    def _otsu_cut_1d(self, t, min_frac=0.1):
+        """Corte 1D que maximiza la varianza entre grupos. Devuelve labels 0/1 o None."""
+        n = t.numel()
+        ts, order = torch.sort(t)
+        csum = torch.cumsum(ts, 0)
+        total = csum[-1]
+        k = torch.arange(1, n, device=t.device, dtype=ts.dtype)   # tamaño del grupo izquierdo
+        m1 = csum[:-1] / k
+        m2 = (total - csum[:-1]) / (n - k)
+        between = k * (n - k) * (m1 - m2) ** 2
+
+        lo = max(int(min_frac * n), 2)
+        valid = (k >= lo) & (k <= n - lo)
+        if not valid.any():
+            return None
+        between = torch.where(valid, between, torch.full_like(between, -1.0))
+
+        kbest = int(between.argmax()) + 1
+        labels = torch.zeros(n, dtype=torch.long, device=t.device)
+        labels[order[kbest:]] = 1
+        return labels
     
 
     def determine_batches(self, free_memory, dim):
