@@ -387,7 +387,7 @@ class BnBgpu:
 
         #  Structural Split  
         if 2 <= iter < iterSplit and split > 0:
-            sc, eje = split_score(newProj)
+            sc, eje = self.split_score(newProj)
             print(sc, eje)
             for n in range(classes):
 
