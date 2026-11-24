@@ -102,7 +102,6 @@ class EstimatorConfig:
     estimator_type: EstimatorType
     max_iter: int
     tolerance: float
-    random_state: int
     damping_coef: float = 0.0
     params: dict[str, Any] = field(default_factory=dict)
 
@@ -230,12 +229,6 @@ def build_argument_parser() -> argparse.ArgumentParser:
 
     # Shared estimator hyperparameters
     estimator_group = parser.add_argument_group("Shared estimator options")
-    estimator_group.add_argument(
-        "--estimator-random-state",
-        type=int,
-        default=42,
-        help="Random seed for estimator initialization",
-    )
     estimator_group.add_argument(
         "--estimator-tolerance",
         type=float,
@@ -448,7 +441,6 @@ def parse_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
         estimator_type=args.estimator_type,
         max_iter=max_iter,
         tolerance=args.estimator_tolerance,
-        random_state=args.estimator_random_state,
         damping_coef=args.damping_coef,
         params=method_params,
     )
@@ -663,7 +655,6 @@ def initialize_estimator(
         tol=estimator_config.tolerance,
         initial_bad_mean_quantile=gmm_config.initial_bad_quantile,
         initial_bad_weight=gmm_config.initial_bad_weight,
-        random_state=estimator_config.random_state,
         gmm_max_iter=gmm_config.internal_max_iter,
         check_degenerate_model=gmm_config.check_degenerate,
         min_component_separation=gmm_config.min_component_separation,
