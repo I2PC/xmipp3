@@ -406,7 +406,7 @@ class TwoDClassAverageClusterer:
                  particle_diameter=None, radius_frac=0.85,
                  n_angles=180, max_shift_frac=0.05, shift_step=1.0, mirror=False,
                  max_harmonic=None, block_mb=512, apix=None,
-                 lowpass=None, highpass=None, min_reliability=0.3):
+                 lowpass=None, highpass=None):
         if (threshold is None) == (n_clusters is None):
             raise ValueError("Indica exactamente uno de threshold o n_clusters.")
         self.threshold = threshold
@@ -414,10 +414,15 @@ class TwoDClassAverageClusterer:
         self.device = torch.device(
             device if device is not None else
             ("cuda" if torch.cuda.is_available() else "cpu"))
-        self.size = size
+
+        self.size = size                      # None -> tamaño automático según apix
+        self.target_apix = target_apix
+        self.min_size = min_size
+        self.max_size = max_size
+        self.particle_diameter = particle_diameter
         self.radius_frac = radius_frac
         self.n_angles = n_angles
-        self.max_shift = max_shift
+        self.max_shift_frac = max_shift_frac  # fracción del tamaño de trabajo
         self.shift_step = shift_step
         self.mirror = mirror
         self.max_harmonic = max_harmonic
@@ -432,11 +437,6 @@ class TwoDClassAverageClusterer:
         self.representative_averages_ = None
         self.similarity_ = None
         self.alignment_ = None
-        self.target_apix = target_apix
-        self.min_size, self.max_size = min_size, max_size
-        self.particle_diameter = particle_diameter     # Å (opcional)
-        self.max_shift_frac = max_shift_frac           # fracción del tamaño de trabajo
-        self.min_reliability = min_reliability
         
         
     def auto_size(self, h):
