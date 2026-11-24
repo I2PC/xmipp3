@@ -318,6 +318,7 @@ if __name__=="__main__":
                         cl, tMatrix, batch_projExp_cpu = bnb.align_particles_to_classes(expImages, 
                                         cl, tMatrix, iter, subset, matches, vectorshift, classes,
                                          freqBn, coef, cvecs, mask, sigma, sampling)
+                        cl = bnb.finalize_classes_from_sums(sampling)
     
                     
                     # save classes

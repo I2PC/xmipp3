@@ -454,7 +454,12 @@ class BnBgpu:
                 #         newCL[n] = newCL[n]
         
         
-        clk = self.averages_createClasses(mmap, iter, newCL)       
+        # clk = self.averages_createClasses(mmap, iter, newCL)  
+        if iter == 17:
+            clk, self.S1, self.S2, self.n1, self.n2 = self.averages_createClasses(
+                mmap, iter, newCL, return_halves=True)
+        else:
+            clk = self.averages_createClasses(mmap, iter, newCL)     
 
         if iter > 1:
             # cut = (25 if iter < 5 else 20) if sampling < 3 else (35 if iter < 5 else 30)
@@ -498,6 +503,74 @@ class BnBgpu:
     
     
     def align_particles_to_classes(self, data, cl, tMatrix, iter, expBatchSize, matches, vectorshift, classes, freqBn, coef, cvecs, mask, sigma, sampling):
+        
+        # print("----------align-to-classes-------------")
+                
+        #rotate and translations
+        rotBatch = -matches[:,3].view(expBatchSize,1)
+        translations = list(map(lambda i: vectorshift[i], matches[:, 4].int()))
+        translations = torch.tensor(translations, device = self.cuda).view(expBatchSize,2)
+        
+        centerIm = data.shape[1]/2 
+        centerxy = torch.tensor([centerIm,centerIm], device = self.cuda)
+                            
+        transforIm, tMatrix = self.center_particles_inverse_save_matrix(data, tMatrix, 
+                                                                         rotBatch, translations, centerxy)
+                
+        del rotBatch,translations, centerxy 
+        
+        if mask:
+            transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma)
+        else: 
+            transforIm = transforIm * self.create_circular_mask(transforIm)
+                               
+    
+        
+        batch_projExp_cpu = self.create_batchExp(transforIm, freqBn, coef, cvecs)
+        
+        if iter == 2:
+            
+              # inicialización perezosa (por ejemplo si se usa --ref y no hubo fase de creación)
+            if not hasattr(self, 'S1'):
+                K, H, W = cl.shape
+                self.S1 = torch.zeros((K, H, W), device=cl.device)
+                self.S2 = torch.zeros((K, H, W), device=cl.device)
+                self.n1 = torch.zeros(K, device=cl.device)
+                self.n2 = torch.zeros(K, device=cl.device)
+
+            labels = matches[:, 1].long()
+            half = torch.rand(labels.shape[0], device=transforIm.device) < 0.5
+
+            for S, nn, sel in ((self.S1, self.n1, half), (self.S2, self.n2, ~half)):
+                S.index_add_(0, labels[sel], transforIm[sel])
+                nn += torch.bincount(labels[sel], minlength=classes).to(nn.dtype)
+
+        del(transforIm)
+        clk = cl
+
+        return (clk, tMatrix, batch_projExp_cpu) 
+    
+    @torch.no_grad()
+    def finalize_classes_from_sums(self, sampling):
+        n1 = self.n1.clamp(min=1).view(-1, 1, 1)
+        n2 = self.n2.clamp(min=1).view(-1, 1, 1)
+
+        avg  = (self.S1 + self.S2) / (self.n1 + self.n2).clamp(min=1).view(-1, 1, 1)
+        avg1 = self.S1 / n1
+        avg2 = self.S2 / n2
+
+        res = self.frc_resolution_from_halves(avg1, avg2, self.n1, self.n2, sampling)
+
+        clk = self.gaussian_lowpass_filter_2D_adaptive(avg, res, sampling)
+        clk = self.highpass_cosine_sharpen(clk, res, sampling)
+        clk = clk * self.create_circular_mask(clk)
+        return clk
+            
+            
+   
+    
+    
+    def align_particles_to_classes_ok(self, data, cl, tMatrix, iter, expBatchSize, matches, vectorshift, classes, freqBn, coef, cvecs, mask, sigma, sampling):
         
         # print("----------align-to-classes-------------")
                 
@@ -620,7 +693,7 @@ class BnBgpu:
     
     
     @torch.no_grad()
-    def averages_createClasses(self, mmap, iter, newCL): 
+    def averages_createClasses_ok(self, mmap, iter, newCL): 
         
         classes = len(newCL)       
   
@@ -631,6 +704,35 @@ class BnBgpu:
             else:
                 clk.append(torch.zeros((mmap.data.shape[1], mmap.data.shape[2]), device=newCL[0].device))
         clk = torch.stack(clk)
+        return clk
+    
+    @torch.no_grad()
+    def averages_createClasses(self, mmap, iter, newCL, return_halves=False):
+
+        classes = len(newCL)
+        _, H, W = mmap.data.shape
+        device = newCL[0].device
+
+        S1 = torch.zeros((classes, H, W), device=device)
+        S2 = torch.zeros((classes, H, W), device=device)
+        n1 = torch.zeros(classes, device=device)
+        n2 = torch.zeros(classes, device=device)
+
+        for n in range(classes):
+            x = newCL[n]
+            c = x.shape[0]
+            if c == 0:
+                continue
+            h = torch.rand(c, device=device) < 0.5          # mitad aleatoria
+            S1[n] = x[h].sum(dim=0)
+            S2[n] = x[~h].sum(dim=0)
+            n1[n] = h.sum()
+            n2[n] = c - h.sum()
+
+        clk = (S1 + S2) / (n1 + n2).clamp(min=1).view(-1, 1, 1)
+
+        if return_halves:
+            return clk, S1, S2, n1, n2
         return clk
     
     
@@ -909,6 +1011,51 @@ class BnBgpu:
         del r_bin, freq_bins
         
         return res_out#, frc_curves, freq_bins
+    
+    
+    @torch.no_grad()
+    def frc_resolution_from_halves(self, avg1, avg2, n1, n2, pixel_size,
+                                   frc_threshold=0.143, fallback_res=100.0,
+                                   rcut=100.0, smooth=True):
+        K, h, w = avg1.shape
+        device = avg1.device
+        Rmax = min(h, w) // 2
+
+        fy = torch.fft.fftfreq(h, d=pixel_size, device=device)
+        fx = torch.fft.rfftfreq(w, d=pixel_size, device=device)
+        gy, gx = torch.meshgrid(fy, fx, indexing="ij")
+        r = torch.sqrt(gx**2 + gy**2)
+
+        freq_bins = torch.linspace(0, 0.5 / pixel_size, Rmax, device=device)
+        r_bin = (torch.bucketize(r.flatten(), freq_bins) - 1).clamp(0, Rmax - 1)
+        idx = r_bin.unsqueeze(0).expand(K, -1)
+
+        f1 = torch.fft.rfft2(avg1, norm="forward").reshape(K, -1)
+        f2 = torch.fft.rfft2(avg2, norm="forward").reshape(K, -1)
+
+        num = torch.zeros(K, Rmax, device=device).scatter_add_(1, idx, (f1 * f2.conj()).real)
+        d1 = torch.zeros(K, Rmax, device=device).scatter_add_(1, idx, f1.abs() ** 2)
+        d2 = torch.zeros(K, Rmax, device=device).scatter_add_(1, idx, f2.abs() ** 2)
+        frc = num / (torch.sqrt(d1 * d2) + 1e-12)
+
+        if smooth:
+            kernel = torch.tensor([0.25, 0.5, 0.25], device=device).view(1, 1, -1)
+            frc = torch.nn.functional.conv1d(frc.unsqueeze(1), kernel, padding=1).squeeze(1)
+
+        below = frc < frc_threshold                       # (K, Rmax)
+        has = below.any(dim=1)
+        first = below.float().argmax(dim=1)               # primer cruce
+        ok = has & (first > 0)
+
+        res = torch.full((K,), float('nan'), device=device)
+        res[ok] = 1.0 / freq_bins[first[ok]]
+
+        res = torch.where((n1 + n2) < 8, torch.full_like(res, 40.0), res)   # pocas partículas
+
+        nq_save = (2 * pixel_size) / 0.8
+        res = torch.nan_to_num(res, nan=nq_save, posinf=nq_save, neginf=nq_save)
+        res = torch.where(res > rcut, torch.full_like(res, fallback_res), res)
+        return res
 
     
     @torch.no_grad()
