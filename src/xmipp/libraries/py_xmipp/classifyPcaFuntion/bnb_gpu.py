@@ -12,6 +12,7 @@ import kornia
 import random
 import math
 from xmippPyModules.classifyPcaFuntion.class_postprocess import ClassPostprocess
+from xmippPyModules.classifyPcaFuntion.class_clustering import TwoDClassAverageClusterer
 import mrcfile
 import numpy as np
 
@@ -481,7 +482,9 @@ class BnBgpu:
             sizes = lengths[valid_mask]
             clk = clk[valid_mask]
             # clk = clk[torch.argsort(res_classes)]
-            clk = clk[torch.argsort(sizes, descending=True)]
+            order = torch.argsort(sizes, descending=True)
+            clk = clk[order]
+            sizes = sizes[order]
             
             
 
@@ -497,7 +500,11 @@ class BnBgpu:
             for _ in range(2):
                 clk = self.center_by_com(clk)  
         
-        clk = clk * self.create_circular_mask(clk)                
+        clk = clk * self.create_circular_mask(clk)   
+        
+        if 2 <= iter <= iterSplit - 2:
+            keep = self.select_distinct_averages(clk, sizes, sampling)
+            clk = clk[keep]             
         
         return(clk, tMatrix, batch_projExp_cpu)
     
@@ -565,6 +572,26 @@ class BnBgpu:
         clk = self.highpass_cosine_sharpen(clk, res, sampling)
         clk = clk * self.create_circular_mask(clk)
         return clk
+    
+    @torch.no_grad()
+    def select_distinct_averages(self, clk, sizes, sampling,
+                                 threshold=0.93, min_n=10, lowpass=20.0):
+        K = clk.shape[0]
+        ok = torch.where(sizes >= min_n)[0]
+        if ok.numel() < 3:
+            return torch.arange(K, device=clk.device)
+
+        clusterer = TwoDClassAverageClusterer(threshold=threshold, device=clk.device,
+                                              apix=sampling, lowpass=lowpass)
+        clusterer.fit(clk[ok])
+
+        keep = [torch.where(sizes < min_n)[0]]               # clases pequeñas: se dejan
+        for members in clusterer.clusters_:
+            idx = ok[torch.as_tensor(members, device=ok.device)]
+            keep.append(idx[sizes[idx].argmax()].view(1))    # el más poblado del cluster
+
+        keep = torch.cat(keep)
+        return keep[torch.argsort(sizes[keep], descending=True)]
             
             
    

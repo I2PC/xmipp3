@@ -402,10 +402,11 @@ class TwoDClassAverageClusterer:
         return labels
 
     def __init__(self, threshold=0.90, n_clusters=None, device=None,
-                 size=64, radius_frac=0.85, n_angles=180,
-                 max_shift=3.0, shift_step=1.0, mirror=False,
+                 size=None, target_apix=6.0, min_size=48, max_size=96,
+                 particle_diameter=None, radius_frac=0.85,
+                 n_angles=180, max_shift_frac=0.05, shift_step=1.0, mirror=False,
                  max_harmonic=None, block_mb=512, apix=None,
-                 lowpass=None, highpass=None):
+                 lowpass=None, highpass=None, min_reliability=0.3):
         if (threshold is None) == (n_clusters is None):
             raise ValueError("Indica exactamente uno de threshold o n_clusters.")
         self.threshold = threshold
@@ -431,8 +432,33 @@ class TwoDClassAverageClusterer:
         self.representative_averages_ = None
         self.similarity_ = None
         self.alignment_ = None
+        self.target_apix = target_apix
+        self.min_size, self.max_size = min_size, max_size
+        self.particle_diameter = particle_diameter     # Å (opcional)
+        self.max_shift_frac = max_shift_frac           # fracción del tamaño de trabajo
+        self.min_reliability = min_reliability
+        
+        
+    def auto_size(self, h):
+        if self.apix is None:
+            return min(h, 64)
+        s = int(round(h * self.apix / self.target_apix))
+        s = max(self.min_size, min(self.max_size, s))
+        return min(s - s % 2, h)
+    
+    def split_half_corr(self, a, b, radius_frac):
+        n, h, w = a.shape
+        c = h // 2
+        yy, xx = torch.meshgrid(torch.arange(h, device=a.device) - c,
+                                torch.arange(w, device=a.device) - c, indexing='ij')
+        m = ((xx ** 2 + yy ** 2) <= (radius_frac * c) ** 2).to(a.dtype)
+        cnt = m.sum()
+        a = (a - (a * m).sum((1, 2), keepdim=True) / cnt) * m
+        b = (b - (b * m).sum((1, 2), keepdim=True) / cnt) * m
+        return (a * b).sum((1, 2)) / (a.pow(2).sum((1, 2)).sqrt() * b.pow(2).sum((1, 2)).sqrt() + 1e-8)
+    
 
-    def fit(self, averages):
+    def fit(self, averages,  halves=None):
         """Calcula similitudes y clustering. Devuelve `self`."""
         if isinstance(averages, np.ndarray):
             data = torch.from_numpy(np.asarray(averages, dtype=np.float32))
@@ -457,14 +483,36 @@ class TwoDClassAverageClusterer:
         # los representantes sin transformaciones ni cambios de resolución.
         original_data = data.contiguous()
         data = data.to(self.device).contiguous()
-        work, _ = self.preprocess(
-            data, size=self.size or None, apix=self.apix,
-            lowpass=self.lowpass, highpass=self.highpass)
+        
+        size = self.size if self.size is not None else self.auto_size(data.shape[-1])
+        work, apix_w = self.preprocess(data, size=size, apix=self.apix,
+                                       lowpass=self.lowpass, highpass=self.highpass)
+        s = work.shape[-1]
+
+        if self.particle_diameter is not None and apix_w is not None:
+            radius_frac = min(1.1 * 0.5 * self.particle_diameter / apix_w / (s // 2), 1.0)
+        else:
+            radius_frac = self.radius_frac
+
         alignment = self.pairwise_alignment(
-            work, radius_frac=self.radius_frac, n_angles=self.n_angles,
-            max_shift=self.max_shift, shift_step=self.shift_step,
-            mirror=self.mirror, max_harmonic=self.max_harmonic,
-            block_mb=self.block_mb)
+            work, radius_frac=radius_frac, n_angles=self.n_angles,
+            max_shift=self.max_shift_frac * s, shift_step=self.shift_step,
+            mirror=self.mirror, max_harmonic=self.max_harmonic, block_mb=self.block_mb)
+        
+        if halves is not None:
+            h1, h2 = (torch.as_tensor(x, dtype=torch.float32, device=self.device) for x in halves)
+            w1, _ = self.preprocess(h1, size=size, apix=self.apix, lowpass=self.lowpass, highpass=self.highpass)
+            w2, _ = self.preprocess(h2, size=size, apix=self.apix, lowpass=self.lowpass, highpass=self.highpass)
+            r = self.split_half_corr(w1, w2, radius_frac)
+            rel = 2 * r / (1 + r)                                   # Spearman-Brown: fiabilidad del average completo
+            sim = alignment["similarity"]
+            sim = (sim / torch.sqrt(rel.clamp(min=1e-3)[:, None] * rel.clamp(min=1e-3)[None, :])).clamp(max=1.0)
+            bad = rel < self.min_reliability                        # clases demasiado ruidosas: no se fusionan
+            sim[bad, :] = -1.0
+            sim[:, bad] = -1.0
+            sim.fill_diagonal_(1.0)
+            alignment["similarity"] = sim
+            self.reliability_ = rel.detach().cpu().numpy()
 
         similarity = alignment["similarity"]
         labels = self.cluster_classes(
