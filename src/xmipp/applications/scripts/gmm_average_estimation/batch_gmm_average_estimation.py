@@ -146,7 +146,7 @@ class ClassProcessingResults:
         The (unweighted) averages of the 10 percent of images with lowest
         and highest weights, respectively.
         These can be None if said subsets are not well-defined (e.g., because the
-        estimator produced constant weights).
+        estimator produced constant weights), or if they have not been requested.
     """
 
     unmasked_corrected_average: np.ndarray
@@ -978,7 +978,7 @@ def main() -> None:
         input_metadata_df[group_by_column], errors="raise"
     ).astype(np.int64)
 
-    group_by_values: Iterable[int] = sorted(input_metadata_df[group_by_column].unique())
+    groups = input_metadata_df.groupby(group_by_column, sort=True)
 
     weight_columns = get_weight_columns(pipeline_config)
     out_md, robust_avgs, original_avgs, low_w_avgs, high_w_avgs, diff_avgs = (
@@ -986,7 +986,7 @@ def main() -> None:
             io_config=pipeline_config.io,
             input_metadata_df=input_metadata_df,
             weight_columns=weight_columns,
-            n_classes=len(group_by_values),
+            n_classes=groups.ngroups,
         )
     )
 
@@ -1001,13 +1001,9 @@ def main() -> None:
     if gmm_out_path is not None:
         gmm_out_path.mkdir(exist_ok=True)
 
-    for index, class_value in enumerate(group_by_values):
-        class_rows = input_metadata_df[group_by_column] == class_value
-        class_data = input_metadata_df[class_rows]
-
+    for index, (class_value, class_data) in enumerate(groups):
         class_results = process_class(
-            class_data=class_data,
-            pipeline_config=pipeline_config,
+            class_data=class_data, pipeline_config=pipeline_config
         )
 
         if robust_avgs is not None:
