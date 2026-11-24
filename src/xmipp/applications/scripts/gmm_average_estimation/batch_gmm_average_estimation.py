@@ -90,8 +90,6 @@ class IOConfig:
 class GMMConfig:
     external_max_iter: int
     internal_max_iter: int
-    standardize_distances: bool
-    initialize_params: bool
     initial_bad_weight: float
     initial_bad_quantile: float
     check_degenerate: bool
@@ -278,18 +276,6 @@ def build_argument_parser() -> argparse.ArgumentParser:
         ),
     )
     gmm_group.add_argument(
-        "--gmm-standardize-distances",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Standardize the distances before fitting the GMM model to them.",
-    )
-    gmm_group.add_argument(
-        "--gmm-initialize-params",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="For each image class, initialize the GMM model's means and weights to default values.",
-    )
-    gmm_group.add_argument(
         "--gmm-initial-bad-weight",
         type=float,
         help="Initial weight for the GMM component with a lower mean.",
@@ -472,8 +458,6 @@ def parse_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
         gmm_cfg = GMMConfig(
             external_max_iter=args.gmm_external_max_iter,
             internal_max_iter=args.gmm_internal_max_iter,
-            standardize_distances=args.gmm_standardize_distances,
-            initialize_params=args.gmm_initialize_params,
             initial_bad_weight=args.gmm_initial_bad_weight,
             # GMM works with distances internally, so the quantile has to be flipped
             initial_bad_quantile=(
@@ -677,8 +661,6 @@ def initialize_estimator(
         distance_function=distance_function,
         max_iter=gmm_config.external_max_iter,
         tol=estimator_config.tolerance,
-        standardize_distances=gmm_config.standardize_distances,
-        initialize_params=gmm_config.initialize_params,
         initial_bad_mean_quantile=gmm_config.initial_bad_quantile,
         initial_bad_weight=gmm_config.initial_bad_weight,
         random_state=estimator_config.random_state,

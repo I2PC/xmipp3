@@ -25,8 +25,6 @@ class RecursiveGMMEstimator:
         distance_function: DistanceFunction,
         max_iter: int = 1,
         tol: float = 1.0e-4,
-        standardize_distances: bool = True,
-        initialize_params: bool = True,
         initial_bad_mean_quantile: float | None = None,
         initial_bad_weight: float | None = None,
         random_state: int | None = None,
@@ -47,9 +45,7 @@ class RecursiveGMMEstimator:
         self.distance_function = distance_function
         self.max_iter = max_iter
         self.tol = tol
-        self.standardize_distances = standardize_distances
 
-        self.initialize_params = initialize_params
         if initial_bad_mean_quantile is not None and not (
             0.5 < initial_bad_mean_quantile < 1.0
         ):
@@ -116,33 +112,20 @@ class RecursiveGMMEstimator:
         self.model.means_init = component_means.reshape(2, 1)
         self.model.weights_init = component_weights
 
-    def _preprocess_distances(
-        self, distances: torch.Tensor, clip_distances: bool = False
-    ) -> torch.Tensor:
+    def _preprocess_distances(self, distances: torch.Tensor) -> torch.Tensor:
         """
-        Optionally clips the minimum distances to the 0.005 quantile, and/or standardizes
-        them to zero mean and standard deviation of one.
+        Validate and standardize the distances used for GMM fitting.
         """
         if distances.numel() < MIN_ELEMENTS_FOR_GMM:
             raise _UnusableGMM("too_few_distances", distances)
 
-        raw_distances = distances
-        if clip_distances:
-            distance_clip_min = torch.quantile(distances, 0.005)
-            distances = distances.clip(min=distance_clip_min)
-
         spread = distances.std(unbiased=False)
         dist_range = distances.max() - distances.min()
         if not torch.isfinite(spread) or dist_range < 1.0e-8:
-            raise _UnusableGMM("constant_distances", raw_distances)
-
-        if not self.standardize_distances:
-            return distances
+            raise _UnusableGMM("constant_distances", distances)
 
         std = distances.std().clamp_min(1.0e-8)
-        mean = distances.mean()
-
-        return (distances - mean) / std
+        return (distances - distances.mean()) / std
 
     def _get_good_component_idx(self) -> torch.Tensor:
         """
@@ -344,7 +327,7 @@ class RecursiveGMMEstimator:
                 distances, weights, reference, converged = self._fit_one_iteration(
                     images,
                     reference,
-                    initialize_params=self.initialize_params and i == 0,
+                    initialize_params=(i == 0),
                 )
             except _UnusableGMM as exc:
                 distances = exc.distances
