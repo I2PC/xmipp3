@@ -1,5 +1,6 @@
+from collections.abc import Callable
+
 import torch
-from xmippPyModules.gmmAverageTools.distances import DistanceFunction
 from xmippPyModules.gmmAverageTools.results import EstimatorResult
 from xmippPyModules.gmmAverageTools.torch_gaussian_mixture import TorchGaussianMixture
 from xmippPyModules.gmmAverageTools.utils import weighted_average
@@ -8,6 +9,7 @@ MIN_ELEMENTS_FOR_GMM = 50
 DEFAULT_BAD_WEIGHT = 0.05
 DEFAULT_BAD_QUANTILE = 0.95
 
+DistanceFunction = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 
 class _UnusableGMM(Exception):
     """Fall back to uniform weights after an unusable GMM iteration."""

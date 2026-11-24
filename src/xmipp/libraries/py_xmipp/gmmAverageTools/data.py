@@ -1,21 +1,15 @@
-from collections.abc import Iterable
 from pathlib import Path
 
 import mrcfile
 import numpy as np
 import pandas as pd
-import starfile
 import torch
 
 MDL_REF_COLUMN = "ref"
 MDL_ITEM_ID_COLUMN = "itemId"
 
 
-def read_images(
-    data: pd.DataFrame,
-    class_id: int | None = None,
-    device: torch.device | str = "cpu",
-) -> torch.Tensor:
+def read_images(data: pd.DataFrame, device: torch.device | str = "cpu") -> torch.Tensor:
     """
     Reads a metadata DataFrame and returns the requested images as a tensor.
 
@@ -27,10 +21,6 @@ def read_images(
         image in the image stack, in the format ``"index@path/to/stack.mrcs"``,
         with 1-based indices.
 
-    class_id: int, optional
-        Class ID identifying the images that should be read. If set to None,
-        all the images in ``data`` will be read. Default is None.
-
     device: torch.device or str
         Device where the output tensors should be placed.
 
@@ -40,12 +30,7 @@ def read_images(
         Tensor of shape ``(n_images, height, width)`` on the specified device,
         containing the particle images.
     """
-    if class_id is None:
-        used_data = data
-    else:
-        used_data = data[data[MDL_REF_COLUMN] == class_id]
-
-    image_names = used_data["image"].to_numpy()
+    image_names = data["image"].to_numpy()
 
     # Image names have the form "000001@Runs/path-to-images.mrcs", with 1-based indices
     indices = np.array(
@@ -67,30 +52,3 @@ def read_images(
     particles = torch.as_tensor(particles_np, dtype=torch.float32, device=device)
 
     return particles
-
-
-def write_star_with_weights(
-    input_star: Path,
-    output_star: Path,
-    weights_list: Iterable[np.ndarray],
-    column_names: Iterable[str] = ["RobustWeight"],
-) -> None:
-    """
-    Reads the input .star or .xmd file and saves a .star file with an extra column
-    containing the weights
-    """
-    for weights in weights_list:
-        if weights.ndim != 1:
-            raise ValueError(f"Expected one-dimensional weights, got {weights.ndim = }")
-
-    data = starfile.read(input_star)
-
-    for weights, column_name in zip(weights_list, column_names):
-        if len(weights) != len(data):
-            raise ValueError(
-                f"Number of weights ({len(weights)}) does not match number of particles "
-                f"({len(data)})."
-            )
-        data[column_name] = weights
-
-    starfile.write(data, output_star)
