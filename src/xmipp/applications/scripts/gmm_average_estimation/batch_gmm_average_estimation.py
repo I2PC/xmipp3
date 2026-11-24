@@ -708,39 +708,6 @@ def initialize_estimator(
     )
 
 
-def fit_estimator(
-    estimator: Estimator,
-    masked_images: torch.Tensor,
-    unmasked_images: torch.Tensor,
-    reference: torch.Tensor,
-) -> tuple[np.ndarray, np.ndarray | None, np.ndarray, GMMDiagnostics | None]:
-    """
-    Fit the estimator and return a set of per-image weights and an optional set of
-    per-image GMM weights for GMM-type estimators.
-    Also returns an estimate using the unmasked images and the estimator's weights.
-    """
-    # Estimators return an EstimatorResult object with estimate, weights, gmm_diagnostics
-    result = estimator.fit(images=masked_images, reference=reference)
-
-    if result.gmm_diagnostics is not None:
-        robust_weights = -result.gmm_diagnostics.distances
-        gmm_weights = result.weights
-        weights = gmm_weights
-    else:
-        robust_weights = result.weights
-        gmm_weights = None
-        weights = robust_weights
-
-    unmasked_new_average = weighted_average(unmasked_images, weights)
-
-    return (
-        robust_weights.detach().cpu().numpy().reshape(-1),
-        None if gmm_weights is None else gmm_weights.detach().cpu().numpy().reshape(-1),
-        unmasked_new_average.detach().cpu().numpy(),
-        result.gmm_diagnostics,
-    )
-
-
 def process_class(
     class_data: pd.DataFrame,
     pipeline_config: PipelineConfig,
@@ -777,21 +744,29 @@ def process_class(
     )
     reference = masked_images.mean(dim=0)
 
-    robust_weights_np, gmm_weights_np, unmasked_corrected_average, gmm_diagnostics = (
-        fit_estimator(
-            estimator,
-            masked_images=masked_images,
-            unmasked_images=images,
-            reference=reference,
-        )
+    result = estimator.fit(images=masked_images, reference=reference)
+    gmm_diagnostics = result.gmm_diagnostics
+    fit_weights_np = result.weights.detach().cpu().numpy().reshape(-1)
+
+    if gmm_diagnostics is None:
+        robust_weights_np = fit_weights_np
+        gmm_weights_np = None
+    else:
+        robust_weights_np = -gmm_diagnostics.distances.detach().cpu().numpy().reshape(-1)
+        gmm_weights_np = fit_weights_np
+
+    io = pipeline_config.io
+
+    unmasked_corrected_average = (
+        weighted_average(images, result.weights).detach().cpu().numpy()
     )
     unmasked_original_average = images.mean(dim=0).detach().cpu().numpy()
 
-    weights = gmm_weights_np if gmm_weights_np is not None else robust_weights_np
+    weights = fit_weights_np
 
     high_weight_average = None
-    if pipeline_config.io.out_high_weight_avgs:
-        outlier_proportion = pipeline_config.io.outlier_proportion_for_avgs
+    if io.out_high_weight_avgs:
+        outlier_proportion = io.outlier_proportion_for_avgs
         top_weight = np.quantile(weights, 1.0 - outlier_proportion)
         high_mask = weights >= top_weight
 
@@ -799,8 +774,8 @@ def process_class(
             high_weight_average = images[high_mask].mean(dim=0).detach().cpu().numpy()
 
     low_weight_average = None
-    if pipeline_config.io.out_low_weight_avgs:
-        outlier_proportion = pipeline_config.io.outlier_proportion_for_avgs
+    if io.out_low_weight_avgs:
+        outlier_proportion = io.outlier_proportion_for_avgs
         bottom_weight = np.quantile(weights, outlier_proportion)
         low_mask = weights <= bottom_weight
 
