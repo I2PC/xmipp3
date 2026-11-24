@@ -498,4 +498,5 @@ class RecursiveGMMEstimator:
             estimate=reference,
             weights=weights.view(-1, 1, 1),
             gmm_diagnostics=diagnostics,
+            gmm_distances=distances,
         )

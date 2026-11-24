@@ -741,13 +741,12 @@ def process_class(
     gmm_diagnostics = result.gmm_diagnostics
     fit_weights_np = result.weights.detach().cpu().numpy().reshape(-1)
 
-    if gmm_diagnostics is None:
+    gmm_distances = result.gmm_distances
+    if gmm_distances is None:
         robust_weights_np = fit_weights_np
         gmm_weights_np = None
     else:
-        robust_weights_np = (
-            -gmm_diagnostics.distances.detach().cpu().numpy().reshape(-1)
-        )
+        robust_weights_np = -gmm_distances.detach().cpu().numpy().reshape(-1)
         gmm_weights_np = fit_weights_np
 
     io = pipeline_config.io

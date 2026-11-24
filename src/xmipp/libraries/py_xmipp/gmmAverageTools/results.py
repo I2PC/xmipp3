@@ -100,8 +100,12 @@ class EstimatorResult:
     gmm_diagnostics : GMMDiagnostics, optional
         Diagnostics object for assessing the GMM fit. Set to None for non-GMM estimators.
         Default is None.
+    gmm_distances : torch.Tensor, optional
+        Unprocessed distances from the last GMM iteration. Set to None for non-GMM estimators.
+        Default is None.
     """
 
     estimate: torch.Tensor
     weights: torch.Tensor
     gmm_diagnostics: GMMDiagnostics | None = None
+    gmm_distances: torch.Tensor | None = None
