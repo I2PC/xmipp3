@@ -80,7 +80,6 @@ class IOConfig:
     out_star: Path | None = None
     out_corrected_avgs: Path | None = None
     out_original_avgs: Path | None = None
-    out_difference_avgs: Path | None = None
     out_low_weight_avgs: Path | None = None
     out_high_weight_avgs: Path | None = None
     outlier_proportion_for_avgs: float = DEFAULT_OUTLIER_PROPORTION_FOR_AVERAGES
@@ -207,11 +206,6 @@ def build_argument_parser() -> argparse.ArgumentParser:
         "--out-original-avgs",
         type=Path,
         help="Path to output .mrcs file for original class averages",
-    )
-    io_group.add_argument(
-        "--out-difference-avgs",
-        type=Path,
-        help="Path to output .mrcs file for the differences between original class averages and corrected class averages",
     )
     io_group.add_argument(
         "--out-low-weight-avgs",
@@ -430,7 +424,6 @@ def parse_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
         out_star=args.out_star,
         out_corrected_avgs=args.out_corrected_avgs,
         out_original_avgs=args.out_original_avgs,
-        out_difference_avgs=args.out_difference_avgs,
         out_low_weight_avgs=args.out_low_weight_avgs,
         out_high_weight_avgs=args.out_high_weight_avgs,
         outlier_proportion_for_avgs=args.outlier_proportion_for_avgs,
@@ -752,7 +745,9 @@ def process_class(
         robust_weights_np = fit_weights_np
         gmm_weights_np = None
     else:
-        robust_weights_np = -gmm_diagnostics.distances.detach().cpu().numpy().reshape(-1)
+        robust_weights_np = (
+            -gmm_diagnostics.distances.detach().cpu().numpy().reshape(-1)
+        )
         gmm_weights_np = fit_weights_np
 
     io = pipeline_config.io
@@ -853,7 +848,6 @@ def get_output_buffers(
     np.ndarray | None,
     np.ndarray | None,
     np.ndarray | None,
-    np.ndarray | None,
 ]:
     group_by_column = io_config.group_by_column
 
@@ -911,17 +905,12 @@ def get_output_buffers(
     if io_config.out_high_weight_avgs:
         high_weight_averages = np.empty(shape=average_stacks_shape, dtype=np.float32)
 
-    difference_avgs = None
-    if io_config.out_difference_avgs:
-        difference_avgs = np.empty(shape=average_stacks_shape, dtype=np.float32)
-
     return (
         write_metadata,
         corrected_averages,
         original_averages,
         low_weight_averages,
         high_weight_averages,
-        difference_avgs,
     )
 
 
@@ -949,13 +938,11 @@ def main() -> None:
     groups = input_metadata_df.groupby(group_by_column, sort=True)
 
     weight_columns = get_weight_columns(pipeline_config)
-    out_md, robust_avgs, original_avgs, low_w_avgs, high_w_avgs, diff_avgs = (
-        get_output_buffers(
-            io_config=pipeline_config.io,
-            input_metadata_df=input_metadata_df,
-            weight_columns=weight_columns,
-            n_classes=groups.ngroups,
-        )
+    out_md, robust_avgs, original_avgs, low_w_avgs, high_w_avgs = get_output_buffers(
+        io_config=pipeline_config.io,
+        input_metadata_df=input_metadata_df,
+        weight_columns=weight_columns,
+        n_classes=groups.ngroups,
     )
 
     gmm_fits_info = []
@@ -979,12 +966,6 @@ def main() -> None:
 
         if original_avgs is not None:
             original_avgs[index] = class_results.unmasked_original_average
-
-        if diff_avgs is not None:
-            diff_avgs[index] = (
-                class_results.unmasked_corrected_average
-                - class_results.unmasked_original_average
-            )
 
         if low_w_avgs is not None:
             low_w_avgs[index] = (
@@ -1049,12 +1030,6 @@ def main() -> None:
         mrcfile.write(
             name=pipeline_config.io.out_original_avgs,
             data=original_avgs,
-            overwrite=pipeline_config.io.overwrite,
-        )
-    if diff_avgs is not None:
-        mrcfile.write(
-            name=pipeline_config.io.out_difference_avgs,
-            data=diff_avgs,
             overwrite=pipeline_config.io.overwrite,
         )
     if low_w_avgs is not None:
