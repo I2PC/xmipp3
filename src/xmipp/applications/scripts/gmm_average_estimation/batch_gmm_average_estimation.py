@@ -827,7 +827,7 @@ def write_weights_to_dataframe(
     group_by_value: int,
     eps_std: float = 1.0e-6,
 ) -> None:
-    """Accumulate maximum weights and retain the best-weight group per particle."""
+    """Store each particle's group and all weights from its best assignment."""
     std = robust_weights_np.std()
     standardized_weights = (
         (robust_weights_np - robust_weights_np.mean()) / std
@@ -850,28 +850,21 @@ def write_weights_to_dataframe(
 
     primary_column = GMM_WEIGHT_COL if gmm_weights_np is not None else ROBUST_WEIGHT_COL
     output_ids = write_metadata[MDL_ITEM_ID_COLUMN]
-    class_mask = output_ids.isin(item_ids)
+    matched_ids = output_ids.loc[output_ids.isin(item_ids)]
 
-    incoming_primary = output_ids.map(
-        pd.Series(weights_by_column[primary_column], index=item_ids)
+    incoming = pd.DataFrame(weights_by_column, index=item_ids).reindex(
+        matched_ids.to_numpy()
     )
-    current_primary = write_metadata[primary_column]
+    incoming.index = matched_ids.index
 
-    # Calculate this before updating the stored maxima.
-    better_group = class_mask & (
-        current_primary.isna() | (incoming_primary > current_primary)
+    previous_primary = write_metadata.loc[matched_ids.index, primary_column]
+    better_group = previous_primary.isna() | (
+        incoming[primary_column] > previous_primary
     )
+    winners = incoming.loc[better_group]
 
-    for column, values in weights_by_column.items():
-        incoming = output_ids.loc[class_mask].map(pd.Series(values, index=item_ids))
-        previous = write_metadata.loc[class_mask, column]
-
-        write_metadata.loc[class_mask, column] = np.fmax(
-            previous.to_numpy(),
-            incoming.to_numpy(),
-        )
-
-    write_metadata.loc[better_group, group_by_column] = group_by_value
+    write_metadata.loc[winners.index, list(weights_by_column)] = winners
+    write_metadata.loc[winners.index, group_by_column] = group_by_value
 
 
 def get_output_buffers(
