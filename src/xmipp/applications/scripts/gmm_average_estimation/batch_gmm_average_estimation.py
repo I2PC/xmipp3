@@ -34,7 +34,6 @@ from xmippPyModules.gmmAverageTools.masks import (
     create_circular_mask,
     create_lowpass_rfft_mask,
 )
-from xmippPyModules.gmmAverageTools.results import GMMDiagnostics
 from xmippPyModules.gmmAverageTools.utils import weighted_average
 
 # Import weight and distance functions
@@ -84,7 +83,6 @@ class IOConfig:
     out_high_weight_avgs: Path | None = None
     outlier_proportion_for_avgs: float = DEFAULT_OUTLIER_PROPORTION_FOR_AVERAGES
     group_by_column: str = MDL_REF_COLUMN
-    out_gmm_diagnostics: Path | None = None
     overwrite: bool = False
 
 
@@ -138,9 +136,6 @@ class ClassProcessingResults:
     gmm_weights : np.ndarray, optional
         Array of shape ``(n,)`` containing the weight each image received after
         GMM reweighting. Set to None for non-GMM estimators. Default is None.
-    gmm_diagnostics : GMMDiagnostics, optional
-        Diagnostics object for assessing the GMM fit.
-        Set to None for non-GMM estimators. Default is None.
     unmasked_low_weight_average, unmkased_high_weight_average : np.ndarray, optional
         The (unweighted) averages of the 10 percent of images with lowest
         and highest weights, respectively.
@@ -152,7 +147,6 @@ class ClassProcessingResults:
     unmasked_original_average: np.ndarray
     robust_weights: np.ndarray
     gmm_weights: np.ndarray | None = None
-    gmm_diagnostics: GMMDiagnostics | None = None
     unmasked_low_weight_average: np.ndarray | None = None
     unmasked_high_weight_average: np.ndarray | None = None
 
@@ -228,11 +222,6 @@ def build_argument_parser() -> argparse.ArgumentParser:
         type=str,
         default=MDL_REF_COLUMN,
         help=f"Column by which images are grouped (default: '{MDL_REF_COLUMN}')",
-    )
-    io_group.add_argument(
-        "--out-gmm-diagnostics",
-        type=Path,
-        help="Path to a directory where the information about GMM fits will be stored.",
     )
     io_group.add_argument(
         "--overwrite",
@@ -428,7 +417,6 @@ def parse_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
         out_high_weight_avgs=args.out_high_weight_avgs,
         outlier_proportion_for_avgs=args.outlier_proportion_for_avgs,
         group_by_column=args.group_by_column,
-        out_gmm_diagnostics=args.out_gmm_diagnostics,
         overwrite=args.overwrite,
     )
 
@@ -738,7 +726,6 @@ def process_class(
     reference = masked_images.mean(dim=0)
 
     result = estimator.fit(images=masked_images, reference=reference)
-    gmm_diagnostics = result.gmm_diagnostics
     fit_weights_np = result.weights.detach().cpu().numpy().reshape(-1)
 
     gmm_distances = result.gmm_distances
@@ -783,7 +770,6 @@ def process_class(
         unmasked_high_weight_average=high_weight_average,
         robust_weights=robust_weights_np,
         gmm_weights=gmm_weights_np,
-        gmm_diagnostics=gmm_diagnostics,
     )
 
 
@@ -944,17 +930,6 @@ def main() -> None:
         n_classes=groups.ngroups,
     )
 
-    gmm_fits_info = []
-    distances_dict = {}
-    gmm_weights_dict = {}
-    gmm_raw_responsibilities_dict = {}
-    gmm_peak_weights_dict = {}
-    gmm_cummin_weights_dict = {}
-
-    gmm_out_path = pipeline_config.io.out_gmm_diagnostics
-    if gmm_out_path is not None:
-        gmm_out_path.mkdir(exist_ok=True)
-
     for index, (class_value, class_data) in enumerate(groups):
         class_results = process_class(
             class_data=class_data, pipeline_config=pipeline_config
@@ -989,35 +964,6 @@ def main() -> None:
                 robust_weights_np=class_results.robust_weights,
                 gmm_weights_np=class_results.gmm_weights,
             )
-
-        diagnostics = class_results.gmm_diagnostics
-        if gmm_out_path is not None and diagnostics is not None:
-            fit_info = diagnostics.get_fit_info_dict()
-            distances = diagnostics.distances.detach().cpu().numpy().reshape(-1)
-
-            dict_key = str(class_value)
-            distances_dict[dict_key] = distances
-
-            # A fallback before a valid GMM fit has no posterior to compare.
-            if diagnostics.weights is not None:
-                gmm_weights_dict[dict_key] = (
-                    diagnostics.weights.detach().cpu().numpy().reshape(-1)
-                )
-            if diagnostics.cummin_weights is not None:
-                gmm_cummin_weights_dict[dict_key] = (
-                    diagnostics.cummin_weights.detach().cpu().numpy().reshape(-1)
-                )
-            if diagnostics.raw_responsibilities is not None:
-                gmm_raw_responsibilities_dict[dict_key] = (
-                    diagnostics.raw_responsibilities.detach().cpu().numpy().reshape(-1)
-                )
-            if diagnostics.peak_weights is not None:
-                gmm_peak_weights_dict[dict_key] = (
-                    diagnostics.peak_weights.detach().cpu().numpy().reshape(-1)
-                )
-
-            fit_info["class_id"] = class_value
-            gmm_fits_info.append(fit_info)
 
     if robust_avgs is not None:
         mrcfile.write(
@@ -1055,21 +1001,6 @@ def main() -> None:
         out_md[group_by_column] = output_groups.astype(np.int64)
 
         starfile.write(data=out_md, filename=args.out_star)
-
-    if gmm_out_path is not None and gmm_fits_info:
-        np.savez_compressed(gmm_out_path / "distances.npz", **distances_dict)
-        np.savez_compressed(gmm_out_path / "gmmWeights.npz", **gmm_weights_dict)
-        np.savez_compressed(
-            gmm_out_path / "gmmPeakWeights.npz", **gmm_peak_weights_dict
-        )
-        np.savez_compressed(
-            gmm_out_path / "gmmRawResponsibilities.npz", **gmm_raw_responsibilities_dict
-        )
-        np.savez_compressed(
-            gmm_out_path / "gmmCumminWeights.npz", **gmm_cummin_weights_dict
-        )
-        gmm_df = pd.DataFrame(gmm_fits_info)
-        gmm_df.to_csv(gmm_out_path / "gmmFits.csv", index=False)
 
 
 if __name__ == "__main__":
