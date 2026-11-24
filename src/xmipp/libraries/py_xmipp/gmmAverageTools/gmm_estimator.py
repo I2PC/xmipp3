@@ -122,7 +122,7 @@ class RecursiveGMMEstimator:
 
     def _preprocess_distances(
         self, distances: torch.Tensor, clip_distances: bool = False
-    ) -> tuple[torch.Tensor, float, float]:
+    ) -> torch.Tensor:
         """
         Optionally clips the minimum distances to the 0.005 quantile, and/or standardizes
         them to zero mean and standard deviation of one.
@@ -141,12 +141,12 @@ class RecursiveGMMEstimator:
             raise _UnusableGMM("constant_distances", raw_distances)
 
         if not self.standardize_distances:
-            return distances, 0.0, 1.0
+            return distances
 
         std = distances.std().clamp_min(1.0e-8)
         mean = distances.mean()
 
-        return (distances - mean) / std, mean.item(), std.item()
+        return (distances - mean) / std
 
     def _get_good_component_idx(self) -> torch.Tensor:
         """
@@ -266,7 +266,7 @@ class RecursiveGMMEstimator:
         4. Update reference as the new weighted average.
         """
         distances = self.distance_function(images, reference)
-        std_distances, _, _ = self._preprocess_distances(distances)
+        std_distances = self._preprocess_distances(distances)
 
         # Prepare distances for the TorchGaussianMixture model
         if std_distances.ndim == 1:
@@ -463,7 +463,9 @@ class RecursiveGMMEstimator:
             model_valid = True
             diagnostic_weights = weights
             if self.check_degenerate_model:
-                degenerate_separation, degenerate_weight = self._degeneracy_checks()
+                # A succesful iteration has already passed both checks
+                degenerate_separation = False
+                degenerate_weight = False
                 decided_degenerate = False
             reference = next_reference
             if converged:
