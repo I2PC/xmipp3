@@ -1,4 +1,3 @@
-
 import torch
 from xmippPyModules.gmmAverageTools.results import EstimatorResult
 from xmippPyModules.gmmAverageTools.weights import WeightFunction
@@ -12,17 +11,11 @@ class IRLSMEstimator:
         weight_function: WeightFunction,
         max_iter: int,
         tol: float,
-        damping_coef: float = 0.0,
-        min_weight: float | None = None,
-        max_weight: float | None = None,
         eps: float = 1.0e-8,
     ) -> None:
         self.weight_function = weight_function
         self.max_iter = max_iter
         self.tol = tol
-        self.damping_coef = damping_coef
-        self.min_weight = min_weight
-        self.max_weight = max_weight
         self.eps = eps
 
         self.n_its = None
@@ -108,10 +101,6 @@ class IRLSMEstimator:
         """Performs a single iteration of the Reweighted Least Squares update"""
         weights = self.weight_function(images, reference, image_std)
 
-        # Weight capping
-        if self.min_weight is not None or self.max_weight is not None:
-            weights = torch.clamp_(weights, min=self.min_weight, max=self.max_weight)
-
         if weights.ndim == 1:
             # Reshape weights to shape (batch, 1, ..., 1) to broadcast over image batch
             weights = weights.reshape(weights.shape[0], *((1,) * (images.ndim - 1)))
@@ -126,11 +115,7 @@ class IRLSMEstimator:
             eps=self.eps,
         )
 
-        # Use update damping for calculating the new estimate
-        eta = self.damping_coef
-        new_estimate = eta * reference + (1.0 - eta) * update
-
-        return new_estimate, weights
+        return update, weights
 
     @torch.inference_mode()
     def solve(

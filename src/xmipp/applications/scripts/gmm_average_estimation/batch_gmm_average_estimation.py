@@ -102,7 +102,6 @@ class EstimatorConfig:
     estimator_type: EstimatorType
     max_iter: int
     tolerance: float
-    damping_coef: float = 0.0
     params: dict[str, Any] = field(default_factory=dict)
 
 
@@ -247,7 +246,6 @@ def build_argument_parser() -> argparse.ArgumentParser:
             "this means the number of iterations for the most external GMM layer."
         ),
     )
-    estimator_group.add_argument("--damping-coef", type=float, default=0.0)
 
     # GMM options
     gmm_group = parser.add_argument_group("GMM reweighting options")
@@ -441,7 +439,6 @@ def parse_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
         estimator_type=args.estimator_type,
         max_iter=max_iter,
         tolerance=args.estimator_tolerance,
-        damping_coef=args.damping_coef,
         params=method_params,
     )
 
@@ -552,7 +549,6 @@ def _initialize_irls(
         weight_function=tagare_weight_function,
         max_iter=config.max_iter,
         tol=config.tolerance,
-        damping_coef=config.damping_coef,
     )
 
 
@@ -580,10 +576,7 @@ def _initialize_fourier_irls(
         )
 
     irls_solver = IRLSMEstimator(
-        weight_function=weight_function,
-        max_iter=config.max_iter,
-        tol=config.tolerance,
-        damping_coef=config.damping_coef,
+        weight_function=weight_function, max_iter=config.max_iter, tol=config.tolerance
     )
 
     return JointIRLSFourier(
