@@ -1,7 +1,6 @@
-
 import torch
 from xmippPyModules.gmmAverageTools.distances import DistanceFunction
-from xmippPyModules.gmmAverageTools.results import EstimatorResult, GMMDiagnostics
+from xmippPyModules.gmmAverageTools.results import EstimatorResult
 from xmippPyModules.gmmAverageTools.torch_gaussian_mixture import TorchGaussianMixture
 from xmippPyModules.gmmAverageTools.utils import weighted_average
 
@@ -11,26 +10,11 @@ DEFAULT_BAD_QUANTILE = 0.95
 
 
 class _UnusableGMM(Exception):
-    """An unusable mixture: return the conventional mean without another iteration."""
+    """Fall back to uniform weights after an unusable GMM iteration."""
 
-    def __init__(
-        self,
-        reason: str,
-        distances: torch.Tensor,
-        raw: torch.Tensor | None = None,
-        cummin: torch.Tensor | None = None,
-        peak: torch.Tensor | None = None,
-        model_valid: bool = False,
-        degeneracy: tuple[bool | None, bool | None] = (None, None),
-    ) -> None:
+    def __init__(self, reason: str, distances: torch.Tensor) -> None:
         super().__init__(reason)
-        self.reason = reason
         self.distances = distances
-        self.raw = raw
-        self.cummin = cummin
-        self.peak = peak
-        self.model_valid = model_valid
-        self.degeneracy = degeneracy
 
 
 class RecursiveGMMEstimator:
@@ -66,9 +50,13 @@ class RecursiveGMMEstimator:
         self.standardize_distances = standardize_distances
 
         self.initialize_params = initialize_params
-        if initial_bad_mean_quantile is not None and not(0.5 < initial_bad_mean_quantile < 1.0):
-            raise ValueError("initial_bad_mean_quantile must be strictly between 0.5 and 1.0")
-        if initial_bad_weight is not None and not(0.0 < initial_bad_weight < 1.0):
+        if initial_bad_mean_quantile is not None and not (
+            0.5 < initial_bad_mean_quantile < 1.0
+        ):
+            raise ValueError(
+                "initial_bad_mean_quantile must be strictly between 0.5 and 1.0"
+            )
+        if initial_bad_weight is not None and not (0.0 < initial_bad_weight < 1.0):
             raise ValueError("initial_bad_weight must be strictly between 0.0 and 1.0")
         self.initial_bad_mean_quantile = initial_bad_mean_quantile
         self.initial_bad_weight = initial_bad_weight
@@ -103,7 +91,11 @@ class RecursiveGMMEstimator:
         - Good (lower distance) class: weight 0.8, mean equal to the 0.2 quantile of distances.
         - Bad (higher distance) class: weight 0.2, mean equal to the 0.8 quantile of distances.
         """
-        bad_weight = DEFAULT_BAD_WEIGHT if self.initial_bad_weight is None else self.initial_bad_weight
+        bad_weight = (
+            DEFAULT_BAD_WEIGHT
+            if self.initial_bad_weight is None
+            else self.initial_bad_weight
+        )
 
         component_weights = torch.tensor(
             [1.0 - bad_weight, bad_weight],
@@ -111,7 +103,11 @@ class RecursiveGMMEstimator:
             device=distances.device,
         )
 
-        bad_quantile = DEFAULT_BAD_QUANTILE if self.initial_bad_mean_quantile is None else self.initial_bad_mean_quantile
+        bad_quantile = (
+            DEFAULT_BAD_QUANTILE
+            if self.initial_bad_mean_quantile is None
+            else self.initial_bad_mean_quantile
+        )
         quantiles_for_means = torch.tensor(
             [0.5, bad_quantile], dtype=distances.dtype, device=distances.device
         )
@@ -177,30 +173,22 @@ class RecursiveGMMEstimator:
 
     def _responsibility_weights(
         self, model: TorchGaussianMixture, distances: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        Calculate posterior probabilities of belonging to the good GMM component.
-
-        Enforce non-increasing weights with increasing distance using a
-        cumulative minimum.
-        """
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return raw responsibilities and peak-anchored weights for the good component."""
         good_component = self._get_good_component_idx()
         raw = model.predict_proba(distances)[:, good_component]
         order = torch.argsort(distances.reshape(-1))
         sorted_raw = raw[order]
 
-        sorted_cummin = sorted_raw.cummin(dim=0).values
         peak_idx = int(sorted_raw.argmax())
         sorted_peak = sorted_raw.clone()
         sorted_peak[:peak_idx] = sorted_raw[peak_idx]
         sorted_peak[peak_idx:] = sorted_raw[peak_idx:].cummin(dim=0).values
 
-        cummin = torch.empty_like(raw)
         peak = torch.empty_like(raw)
-        cummin[order] = sorted_cummin
         peak[order] = sorted_peak
 
-        return raw, cummin, peak
+        return raw, peak
 
     def _degeneracy_checks(self) -> tuple[bool, bool]:
         """
@@ -249,15 +237,7 @@ class RecursiveGMMEstimator:
         images: torch.Tensor,
         reference: torch.Tensor,
         initialize_params: bool = False,
-    ) -> tuple[
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        bool,
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-    ]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, bool]:
         """
         Performs one iteration of the GMM estimation procedure:
         1. Calculate distances from each image to the reference.
@@ -266,16 +246,16 @@ class RecursiveGMMEstimator:
         4. Update reference as the new weighted average.
         """
         distances = self.distance_function(images, reference)
-        std_distances = self._preprocess_distances(distances)
+        preprocessed_distances = self._preprocess_distances(distances)
 
         # Prepare distances for the TorchGaussianMixture model
-        if std_distances.ndim == 1:
-            std_distances = std_distances[:, None]
+        if preprocessed_distances.ndim == 1:
+            preprocessed_distances = preprocessed_distances[:, None]
 
         if initialize_params:
-            self._initialize_model_params(std_distances)
+            self._initialize_model_params(preprocessed_distances)
 
-        self.model.fit(std_distances)
+        self.model.fit(preprocessed_distances)
 
         parameters = (self.model.means_, self.model.covariances_, self.model.weights_)
         finite_parameters = all(torch.isfinite(p).all() for p in parameters)
@@ -284,44 +264,24 @@ class RecursiveGMMEstimator:
         if not (finite_parameters and valid_covariances and valid_weights):
             raise _UnusableGMM("invalid_gmm", distances)
 
-        raw_responsibilities, cummin_weights, peak_weights = (
-            self._responsibility_weights(self.model, std_distances)
+        raw_responsibilities, weights = self._responsibility_weights(
+            self.model, preprocessed_distances
         )
-        weights = peak_weights
 
         if not all(
             torch.isfinite(w).all() and bool(((w >= 0) & (w <= 1)).all())
-            for w in (raw_responsibilities, cummin_weights, peak_weights)
+            for w in (raw_responsibilities, weights)
         ):
             raise RuntimeError("Got invalid responsibilities from GMM")
 
-        degeneracy = (None, None)
-        if self.check_degenerate_model:
-            degeneracy = self._degeneracy_checks()
-            if any(degeneracy):
-                raise _UnusableGMM(
-                    "degenerate_components",
-                    distances,
-                    raw_responsibilities,
-                    cummin_weights,
-                    peak_weights,
-                    model_valid=True,
-                    degeneracy=degeneracy,
-                )
+        if self.check_degenerate_model and any(self._degeneracy_checks()):
+            raise _UnusableGMM("degenerate_components", distances)
 
         # Reject a collapsed correction before it can corrupt the next reference.
         if weights.mean() < 1.0e-4 or (
             weights.sum() < 0.05 * raw_responsibilities.sum()
         ):
-            raise _UnusableGMM(
-                "collapsed_weights",
-                distances,
-                raw_responsibilities,
-                cummin_weights,
-                peak_weights,
-                model_valid=True,
-                degeneracy=degeneracy,
-            )
+            raise _UnusableGMM("collapsed_weights", distances)
 
         # Reshape weights to allow broadcasting over images
         weight_shape = (images.shape[0],) + (1,) * (images.ndim - 1)
@@ -330,28 +290,12 @@ class RecursiveGMMEstimator:
         # The weight sum has been checked; do not add a fixed epsilon to it.
         next_reference = weighted_average(images, weights, eps=0.0)
         if not torch.isfinite(next_reference).all():
-            raise _UnusableGMM(
-                "invalid_reference",
-                distances,
-                raw_responsibilities,
-                cummin_weights,
-                peak_weights,
-                model_valid=True,
-                degeneracy=degeneracy,
-            )
+            raise _UnusableGMM("invalid_reference", distances)
         rel_change = torch.linalg.norm(next_reference - reference) / (
             torch.linalg.norm(reference) + 1.0e-8
         )
 
-        return (
-            distances,
-            weights,
-            next_reference,
-            bool(rel_change < self.tol),
-            raw_responsibilities,
-            cummin_weights,
-            peak_weights,
-        )
+        return distances, weights, next_reference, bool(rel_change < self.tol)
 
     @torch.inference_mode()
     def fit(
@@ -359,47 +303,21 @@ class RecursiveGMMEstimator:
         images: torch.Tensor,
         reference: torch.Tensor | None = None,
     ) -> EstimatorResult:
-        """
-        Coordinates the whole GMM robust estimation process:
-        1. Calculate initial reference (if not provided)
-        2. Calculate distances from each image to the reference
-        3. Fit a 2-component GMM to the distance distribution
-        4. Use GMM model to assign weights to each image
-        5. Calculate new reference as the weighted average of the images.
-        6. If the change in the reference is small enough or the number
-        of iterations exceeds ``self.max_iter``, stop. Otherwise go back
-        to step 2, using the newly calculated reference.
+        """Fit a robust average by iteratively reweighting images with a GMM.
 
         Parameters
         ----------
         images : torch.Tensor
-            Tensor of shape ``(n_images, *image_shape)`` containing the images to
-            be averaged using the robust IRLS procedure, batched along the first
-            dimension of the ``images`` tensor.
-        reference : Optional[torch.Tensor], optional
-            Initial reference for the robust averaging (e.g. the average of
-            all the images). Should match the shape of one image.
-            If not provided, it will the default to the average of the
-            input images (i.e. ``reference = images.mean(dim=0)``).
+            Images of shape ``(n_images, *image_shape)``.
+        reference : torch.Tensor, optional
+            Initial reference with the shape of one image. Defaults to the image mean.
 
         Returns
         -------
-        torch.Tensor
-            The robust average produced by the estimator on its final iteration.
-        torch.Tensor or None
-            The weights each particle received on the last iteration of the
-            estimation process. The robust average output is the average
-            of the input images weighted by these weights. Will only be None
-            if the maximum number of iterations is set to zero.
-            Will only be None if the maximum number of iterations is set to zero.
-        torch.Tensor or None
-            The distance from each particle to the reference that each particle
-            got on the estimator's last iteration. These are the distances that
-            the GMM was fit to in order to calculate the final image weights.
-            They are not the distances from each image to the output estimate,
-            but to the previous reference, which was used as input to the last
-            iteration.
-            Will only be None if the maximum number of iterations is set to zero.
+        EstimatorResult
+            The estimate, final weights, and last iteration's unprocessed distances.
+            With zero iterations, returns the initial reference, unit weights,
+            and zero distances.
         """
         # Reset the GMM to avoid carrying over state from previous fit() calls
         self.model = self._new_model()
@@ -416,87 +334,30 @@ class RecursiveGMMEstimator:
             device=images.device,
         )
         distances = torch.zeros_like(weights)
-        diagnostic_weights = None
-        raw_responsibilities = None
-        cummin_weights = None
-        peak_weights = None
-        model_valid = False
-        fallback_reason = "no_iterations" if self.max_iter == 0 else None
-        decided_degenerate = None
-        degenerate_separation = None
-        degenerate_weight = None
         self.converged = False
         self.n_its = 0
 
         for i in range(self.max_iter):
             self.n_its = i + 1
 
-            model_valid = False
             try:
-                (
-                    distances,
-                    weights,
-                    next_reference,
-                    converged,
-                    raw_responsibilities,
-                    cummin_weights,
-                    peak_weights,
-                ) = self._fit_one_iteration(
+                distances, weights, reference, converged = self._fit_one_iteration(
                     images,
                     reference,
                     initialize_params=self.initialize_params and i == 0,
                 )
             except _UnusableGMM as exc:
                 distances = exc.distances
-                diagnostic_weights = exc.peak
-                raw_responsibilities = exc.raw
-                cummin_weights = exc.cummin
-                peak_weights = exc.peak
-                model_valid = exc.model_valid
-                degenerate_separation, degenerate_weight = exc.degeneracy
-                fallback_reason = exc.reason
-                decided_degenerate = True
                 weights = torch.ones_like(weights)
                 reference = images.mean(dim=0)
                 break
 
-            model_valid = True
-            diagnostic_weights = weights
-            if self.check_degenerate_model:
-                # A succesful iteration has already passed both checks
-                degenerate_separation = False
-                degenerate_weight = False
-                decided_degenerate = False
-            reference = next_reference
             if converged:
                 self.converged = True
                 break
 
-        # Missing parameters/weight arrays indicate that this iteration did not
-        # produce a valid fitted model. Do not report a stale warm-started model.
-        missing = (float("nan"), float("nan"))
-        diagnostics = GMMDiagnostics(
-            distances=distances,
-            standardized_distances=self.standardize_distances,
-            means=self._get_model_means() if model_valid else missing,
-            variances=self._get_model_variances() if model_valid else missing,
-            component_weights=(
-                self._get_model_component_weights() if model_valid else missing
-            ),
-            weights=diagnostic_weights,
-            cummin_weights=cummin_weights,
-            raw_responsibilities=raw_responsibilities,
-            peak_weights=peak_weights,
-            decided_degenerate=decided_degenerate,
-            decided_too_close=degenerate_separation,
-            decided_too_small=degenerate_weight,
-            fallback_reason=fallback_reason,
-            gmm_converged=self.model.converged_ if model_valid else None,
-            gmm_n_iter=self.model.n_iter_ if model_valid else None,
-        )
         return EstimatorResult(
             estimate=reference,
             weights=weights.view(-1, 1, 1),
-            gmm_diagnostics=diagnostics,
             gmm_distances=distances,
         )
