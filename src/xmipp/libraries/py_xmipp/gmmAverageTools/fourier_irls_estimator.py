@@ -62,7 +62,7 @@ class JointIRLSFourier:
         ctf: torch.Tensor | None,
         reference: torch.Tensor | None,
         prior_mean: torch.Tensor | None,
-        prior_variance: torch.Tensor | None,
+        prior_variance: torch.Tensor | float | None,
         mask: torch.Tensor | None,
     ) -> tuple[
         torch.Tensor,
@@ -71,7 +71,7 @@ class JointIRLSFourier:
         torch.Tensor | None,
         torch.Tensor | None,
         torch.Tensor | None,
-        torch.Tensor | None,
+        torch.Tensor | float | None,
     ]:
         if mask is None:
             return (
@@ -92,7 +92,7 @@ class JointIRLSFourier:
         if prior_mean is not None:
             prior_mean = prior_mean[mask]
 
-        if prior_variance is not None and prior_variance.numel() > 1:
+        if isinstance(prior_variance, torch.Tensor) and prior_variance.numel() > 1:
             prior_variance = prior_variance[mask]
 
         if ctf is not None:
@@ -124,7 +124,7 @@ class JointIRLSFourier:
         ctf: torch.Tensor | None = None,
         reference: torch.Tensor | None = None,
         prior_mean: torch.Tensor | None = None,
-        prior_variance: torch.Tensor | None = None,
+        prior_variance: torch.Tensor | float | None = None,
         max_iter_override: int | None = None,
         fourier_transform_images: bool = True,
         mask: torch.Tensor | None = None,
@@ -155,7 +155,7 @@ class JointIRLSFourier:
             Prior mean in the same domain as ``images``.
             Cannot be provided without also providing a value for ``prior_variance``.
             If not provided, no regularization will be applied.
-        prior_variance : torch.Tensor, optional
+        prior_variance : torch.Tensor or float, optional
             Prior variance for the estimator. This effectively controls the strength
             of the regularization imposed by the prior mean. A higher value of the
             prior variance means a *weaker* regularization.
@@ -268,7 +268,7 @@ class JointIRLSFourier:
         ctf: torch.Tensor | None = None,
         reference: torch.Tensor | None = None,
         prior_mean: torch.Tensor | None = None,
-        prior_variance: torch.Tensor | None = None,
+        prior_variance: torch.Tensor | float | None = None,
         max_iter_override: int | None = None,
         fourier_transform_images: bool = True,
         mask: torch.Tensor | None = None,
@@ -291,7 +291,7 @@ class JointIRLSFourier:
             See ``JointIRLSFourier.solve()``.
         prior_mean : torch.Tensor, optional
             See ``JointIRLSFourier.solve()``.
-        prior_variance : torch.Tensor, optional
+        prior_variance : torch.Tensor or float, optional
             See ``JointIRLSFourier.solve()``.
         max_iter_override : int, optional
             See ``JointIRLSFourier.solve()``.
