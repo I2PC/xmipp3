@@ -512,8 +512,8 @@ def validate_item_ids(data: pd.DataFrame, name: str) -> None:
         )
 
 
-def validate_assignments(data: pd.DataFrame, group_by_column: str) -> None:
-    """Validate particle IDs, nonnegative integer groups, and unique assignments."""
+def validate_assignments(data: pd.DataFrame, group_by_column: str) -> pd.Series:
+    """Validate particle assignments and return the group IDs as integers."""
     keys = [MDL_ITEM_ID_COLUMN, group_by_column]
 
     missing_columns = [key for key in keys if key not in data.columns]
@@ -545,6 +545,8 @@ def validate_assignments(data: pd.DataFrame, group_by_column: str) -> None:
             "Input metadata contains repeated particle assignments "
             "within the same group."
         )
+
+    return pairs[group_by_column].astype(np.int64)
 
 
 def _initialize_irls(
@@ -898,15 +900,12 @@ def main() -> None:
     args = parser.parse_args()
     pipeline_config = parse_pipeline_config(args)
 
-    group_by_column = pipeline_config.io.group_by_column
     input_metadata_df = pd.DataFrame(starfile.read(pipeline_config.io.input_xmd))
 
-    validate_assignments(input_metadata_df, group_by_column)
-
-    input_metadata_df[group_by_column] = pd.to_numeric(
-        input_metadata_df[group_by_column], errors="raise"
-    ).astype(np.int64)
-
+    group_by_column = pipeline_config.io.group_by_column
+    input_metadata_df[group_by_column] = validate_assignments(
+        input_metadata_df, group_by_column
+    )
     groups = input_metadata_df.groupby(group_by_column, sort=True)
 
     weight_columns = get_weight_columns(pipeline_config)
