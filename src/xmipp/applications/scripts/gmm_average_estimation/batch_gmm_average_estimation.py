@@ -120,6 +120,35 @@ class PipelineConfig:
     gmm: GMMConfig | None = None
 
 
+@dataclass(frozen=True)
+class FourierOptions:
+    weight_approach: WeightApproach
+    delta: float
+    lowpass_mask_cutoff: float | None
+
+
+def _resolve_fourier_options(
+    *,
+    weight_approach: WeightApproach,
+    delta: float | None,
+    lowpass_mask: bool,
+    lowpass_mask_cutoff: float | None,
+) -> FourierOptions:
+    if delta is None:
+        delta = DEFAULT_SMOOTH_DELTA[weight_approach]
+
+    if not lowpass_mask:
+        lowpass_mask_cutoff = None
+    elif lowpass_mask_cutoff is None:
+        lowpass_mask_cutoff = DEFAULT_LOWPASS_MASK_CUTOFF
+
+    return FourierOptions(
+        weight_approach=weight_approach,
+        delta=delta,
+        lowpass_mask_cutoff=lowpass_mask_cutoff,
+    )
+
+
 @dataclass
 class ClassProcessingResults:
     """
@@ -405,37 +434,28 @@ def parse_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
     )
 
     if args.estimator_type == "fourier_irls":
-        if args.lowpass_mask and args.lowpass_mask_cutoff is None:
-            args.lowpass_mask_cutoff = DEFAULT_LOWPASS_MASK_CUTOFF
         method_params = {
-            "delta": args.delta,
-            "weight_approach": args.weight_approach,
-            "lowpass_mask": args.lowpass_mask,
-            "lowpass_mask_cutoff": args.lowpass_mask_cutoff,
+            "fourier_options": _resolve_fourier_options(
+                weight_approach=args.weight_approach,
+                delta=args.delta,
+                lowpass_mask=args.lowpass_mask,
+                lowpass_mask_cutoff=args.lowpass_mask_cutoff,
+            )
         }
     elif args.estimator_type == "admm":
-        if args.fourier_lowpass_mask and args.fourier_lowpass_mask_cutoff is None:
-            args.fourier_lowpass_mask_cutoff = DEFAULT_LOWPASS_MASK_CUTOFF
         method_params = {
             "initial_mu": args.initial_mu,
             "fourier_multiplier": args.fourier_multiplier,
             "internal_max_iter": args.internal_max_iter,
-            "fourier_delta": args.fourier_delta,
-            "fourier_weight_approach": args.fourier_weight_approach,
-            "fourier_lowpass_mask": args.fourier_lowpass_mask,
-            "fourier_lowpass_mask_cutoff": args.fourier_lowpass_mask_cutoff,
+            "fourier_options": _resolve_fourier_options(
+                weight_approach=args.fourier_weight_approach,
+                delta=args.fourier_delta,
+                lowpass_mask=args.fourier_lowpass_mask,
+                lowpass_mask_cutoff=args.fourier_lowpass_mask_cutoff,
+            ),
         }
     else:
         method_params = {}
-
-    # Resolve dynamic default for 'delta' and 'fourier_delta'
-    for param_prefix in ["", "fourier_"]:
-        param_name = param_prefix + "delta"
-        if method_params.get(param_name) is None:
-            weight_approach_name = param_prefix + "weight_approach"
-            approach = method_params.get(weight_approach_name)
-            if approach in DEFAULT_SMOOTH_DELTA:
-                method_params[param_name] = DEFAULT_SMOOTH_DELTA[approach]
 
     # Resolve dynamic default for max_iter
     max_iter = args.estimator_max_iter
@@ -559,35 +579,51 @@ def _initialize_irls(
     )
 
 
+def _build_fourier_irls(
+    options: FourierOptions,
+    *,
+    image_shape: torch.Size,
+    device: torch.device,
+    max_iter: int,
+    tolerance: float,
+) -> JointIRLSFourier:
+    if options.weight_approach == "per-coefficient":
+        weight_function = partial(
+            smooth_redescending_weights_modulus, delta=options.delta
+        )
+    else:
+        weight_function = partial(smooth_redescending_weights_norm, delta=options.delta)
+
+    mask = None
+    if options.lowpass_mask_cutoff is not None:
+        mask_np = create_lowpass_rfft_mask(
+            image_shape=image_shape,
+            cutoff=options.lowpass_mask_cutoff,
+            unit="normalized",
+        )
+        mask = torch.as_tensor(mask_np, device=device)
+
+    solver = IRLSMEstimator(
+        weight_function=weight_function,
+        max_iter=max_iter,
+        tol=tolerance,
+    )
+    return JointIRLSFourier(
+        irls_solver=solver,
+        weight_approach=options.weight_approach,
+        mask=mask,
+    )
+
+
 def _initialize_fourier_irls(
     config: EstimatorConfig, unmasked_images: torch.Tensor, masked_images: torch.Tensor
 ) -> JointIRLSFourier:
-    params = config.params
-
-    if params["weight_approach"] == "per-coefficient":
-        weight_function = partial(
-            smooth_redescending_weights_modulus, delta=params["delta"]
-        )
-    else:
-        weight_function = partial(
-            smooth_redescending_weights_norm, delta=params["delta"]
-        )
-
-    use_mask = params.get("lowpass_mask")
-    mask = None
-    if use_mask:
-        mask = create_lowpass_rfft_mask(
-            image_shape=unmasked_images.shape[1:],
-            cutoff=params["lowpass_mask_cutoff"],
-            unit="normalized",
-        )
-
-    irls_solver = IRLSMEstimator(
-        weight_function=weight_function, max_iter=config.max_iter, tol=config.tolerance
-    )
-
-    return JointIRLSFourier(
-        irls_solver=irls_solver, weight_approach=params["weight_approach"], mask=mask
+    return _build_fourier_irls(
+        options=config.params["fourier_options"],
+        image_shape=unmasked_images.shape[1:],
+        device=unmasked_images.device,
+        max_iter=config.max_iter,
+        tolerance=config.tolerance,
     )
 
 
@@ -598,18 +634,12 @@ def _initialize_admm(
 
     real_irls_config = replace(config, max_iter=params["internal_max_iter"])
     real_irls = _initialize_irls(real_irls_config, unmasked_images, masked_images)
-
-    fourier_params = {
-        "delta": params["fourier_delta"],
-        "weight_approach": params["fourier_weight_approach"],
-        "lowpass_mask": params["fourier_lowpass_mask"],
-        "lowpass_mask_cutoff": params["fourier_lowpass_mask_cutoff"],
-    }
-    fourier_irls_config = replace(
-        config, max_iter=params["internal_max_iter"], params=fourier_params
-    )
-    fourier_irls = _initialize_fourier_irls(
-        fourier_irls_config, unmasked_images, masked_images
+    fourier_irls = _build_fourier_irls(
+        options=params["fourier_options"],
+        image_shape=unmasked_images.shape[1:],
+        device=unmasked_images.device,
+        max_iter=params["internal_max_iter"],
+        tolerance=config.tolerance,
     )
 
     return ADMMEstimator(

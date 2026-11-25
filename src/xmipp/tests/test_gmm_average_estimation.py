@@ -71,6 +71,46 @@ class GmmAverageScriptTest(unittest.TestCase):
                     atol=1e-6,
                 )
 
+    def test_cli_lowpass_mask_preserves_identical_particles(self):
+        import mrcfile
+        import numpy as np
+        import pandas as pd
+        import starfile
+
+        image = np.arange(35, dtype=np.float32).reshape(5, 7)
+        methods = (
+            ("fourier_irls", "--weight-approach", "--lowpass-mask"),
+            ("admm", "--fourier-weight-approach", "--fourier-lowpass-mask"),
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            stack = Path(tmpdir) / "particles.mrcs"
+            metadata = Path(tmpdir) / "particles.xmd"
+            mrcfile.write(stack, np.stack([image, image]))
+            starfile.write(
+                pd.DataFrame(
+                    {
+                        "image": [f"1@{stack}", f"2@{stack}"],
+                        "itemId": [1, 2],
+                        "ref": [1, 1],
+                    }
+                ),
+                metadata,
+            )
+
+            for method, weight_flag, mask_flag in methods:
+                with self.subTest(method=method):
+                    output = Path(tmpdir) / f"{method}.mrcs"
+                    self.run_cli(
+                        "--input-xmd", str(metadata),
+                        "--out-corrected-avgs", str(output),
+                        "--estimator-max-iter", "2",
+                        method, weight_flag, "per-image", mask_flag,
+                    )
+                    with mrcfile.open(output) as averages:
+                        np.testing.assert_allclose(
+                            averages.data.reshape(image.shape), image, rtol=1e-5, atol=1e-6
+                        )
+
     def test_cli_gmm_weights_reproduce_the_unmasked_corrected_average(self):
         import mrcfile
         import numpy as np
