@@ -14,7 +14,7 @@ import torch
 import torch.nn.functional as F
 
 
-class TwoDClassAverageClusterer:
+class Clusterer:
     
     """Agrupa averages 2D similares y devuelve el medoide de cada grupo.
 
@@ -557,3 +557,4 @@ class TwoDClassAverageClusterer:
         de miembros de su cluster; no se calcula ningún promedio.
         """
         return self.fit(averages).representative_averages_
+    
