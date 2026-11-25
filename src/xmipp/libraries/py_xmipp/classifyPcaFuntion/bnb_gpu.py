@@ -290,28 +290,25 @@ class BnBgpu(Split):
     
     
     @torch.no_grad()
-    def create_classes(self, mmap, tMatrix, iter, nExp, expBatchSize, matches, vectorshift, classes, 
-                       final_classes, freqBn, coef, cvecs, mask, sigma, sampling, cycles, last_iter=17):
-        
-        # print("----------create-classes-------------") 
-        iterSplit = 7    
-        
+    def create_classes(self, mmap, tMatrix, iter, nExp, expBatchSize, matches, vectorshift,
+                       classes, final_classes, freqBn, coef, cvecs, mask, sigma, sampling,
+                       cycles, last_iter=17, verbose = True):
+ 
+        iterSplit = 7
+ 
+        # ---- parámetros de la estrategia ----
         junk_iters = (3, 10)        # iteraciones en las que se marcan partículas malas
         junk_reserve_frac = 0.03    # fracción de final_classes reservada para clases basura
         pool_cap = 20000            # máximo de partículas malas que se guardan en GPU
-        merge_iters = (2, iterSplit - 2)   # iteraciones en las que se hace cluster de averages   
-            
-        if iter == 2: 
-            split = (final_classes - classes) * 60 // 100
+        merge_iters = (2, iterSplit - 2)   # iteraciones en las que se hace cluster de averages
+ 
+        if iter == 2:
+            split = max(0, (final_classes - classes) * 60 // 100)
         elif 3 <= iter < iterSplit and final_classes > classes:
             split = final_classes - classes
         else:
             split = 0
-        
-        # --- Z-score thresholds por clase ---    
-        # if iter < 10: # Filters the best-scoring particles
-        #     thr_low, thr_high = self.get_robust_zscore_thresholds(classes, matches)
-        
+ 
         # ---- clases basura de la iteración anterior (alineadas con cl) ----
         prev_junk = getattr(self, 'junk_cls', None)
         if prev_junk is None or prev_junk.numel() != classes:
@@ -319,59 +316,46 @@ class BnBgpu(Split):
         use_junk = junk_iters[0] <= iter < junk_iters[1]
  
         pool_imgs, pool_proj, pool_n, n_flag = [], [], 0, 0
-            
+ 
         total_slots = classes + split
         newCL = [[] for i in range(total_slots)]
         newProj = [[] for i in range(total_slots)]
-
-        step = int(np.ceil(nExp/expBatchSize))
+ 
+        step = int(np.ceil(nExp / expBatchSize))
         batch_projExp_cpu = [0 for i in range(step)]
-        
-        #rotate and translations
-        rotBatch = -matches[:,3].view(nExp,1)
+ 
+        # rotaciones y traslaciones
+        rotBatch = -matches[:, 3].view(nExp, 1)
         shift_idx = matches[:, 4].long().tolist()
         translations = torch.tensor([vectorshift[i] for i in shift_idx], device=self.cuda).view(nExp, 2)
-        # translations = list(map(lambda i: vectorshift[i], matches[:, 4].int()))
-        # translations = torch.tensor(translations, device = self.cuda).view(nExp,2)
-        
-        centerIm = mmap.data.shape[1]/2 
-        centerxy = torch.tensor([centerIm,centerIm], device = self.cuda)
-        
+ 
+        centerIm = mmap.data.shape[1] / 2
+        centerxy = torch.tensor([centerIm, centerIm], device=self.cuda)
+ 
         count = 0
         for initBatch in range(0, nExp, expBatchSize):
-            
-            endBatch = min(initBatch+expBatchSize, nExp)
-                        
-            transforIm, tMatrix[initBatch:endBatch] = self.center_particles_inverse_save_matrix(mmap.data[initBatch:endBatch], tMatrix[initBatch:endBatch], 
-                                                                             rotBatch[initBatch:endBatch], translations[initBatch:endBatch], centerxy)
-            
-   
+ 
+            endBatch = min(initBatch + expBatchSize, nExp)
+ 
+            transforIm, tMatrix[initBatch:endBatch] = self.center_particles_inverse_save_matrix(
+                mmap.data[initBatch:endBatch], tMatrix[initBatch:endBatch],
+                rotBatch[initBatch:endBatch], translations[initBatch:endBatch], centerxy)
+ 
             if mask:
-                sigma_gauss = (0.75*sigma) if (iter < 10 and iter % 2 == 1) else (sigma)# if iter < 10 else sigma
-
+                sigma_gauss = (0.75 * sigma) if (iter < 10 and iter % 2 == 1) else sigma
                 transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma_gauss)
             else:
                 transforIm = transforIm * self.create_circular_mask(transforIm)
-                
-
+ 
             proj_batch = self.batchExpToCpu(transforIm, freqBn, coef, cvecs)
             batch_projExp_cpu[count] = proj_batch
-            count+=1
-
-            #Create classes for batches
-            
+            count += 1
+ 
             batch_class_indices = matches[initBatch:endBatch, 1].to(self.cuda, non_blocking=True).long()
             batch_scores = matches[initBatch:endBatch, 2].to(self.cuda, non_blocking=True)
             projs_gpu = proj_batch.to(self.cuda, non_blocking=True)[0]
-            
-            # ---------- ZSCORE FILTER ----------
-            # if iter < 10:
-            #     low  = thr_low[batch_class_indices]
-            #     high = thr_high[batch_class_indices]
-            #     valid_mask = (batch_scores >= low) & (batch_scores <= high)
-            # else:
-            #     valid_mask = torch.ones_like(batch_scores, dtype=torch.bool)
-            
+ 
+            # ---------- partículas malas ----------
             if use_junk:
                 in_junk = prev_junk[batch_class_indices]            # ya estaban en una clase basura
                 flag = self.flag_junk_particles(batch_scores, projs_gpu, ref_mask=~in_junk)
@@ -387,36 +371,40 @@ class BnBgpu(Split):
                 valid_mask = ~to_junk
             else:
                 valid_mask = torch.ones_like(batch_scores, dtype=torch.bool)
-    
+ 
             if valid_mask.sum() == 0:
                 del transforIm
                 continue
-    
+ 
             transforIm = transforIm[valid_mask]
             batch_class_indices = batch_class_indices[valid_mask]
             projs_gpu = projs_gpu[valid_mask]
-                
+ 
             order = torch.argsort(batch_class_indices)
             imgs_sorted = transforIm[order]
-            projs_sorted = projs_gpu[order] 
+            projs_sorted = projs_gpu[order]
             lbls_sorted = batch_class_indices[order]
-            
+ 
             counts = torch.bincount(lbls_sorted, minlength=classes).tolist()
-            
+ 
             start = 0
             for n, c in enumerate(counts):
                 if c > 0:
-                    newCL[n].append(imgs_sorted[start:start+c])
-                    newProj[n].append(projs_sorted[start:start+c])
+                    newCL[n].append(imgs_sorted[start:start + c])
+                    newProj[n].append(projs_sorted[start:start + c])
                 start += c
-            
-            del(transforIm)
-
-        # Concatenación Global
+ 
+            del transforIm
+ 
+        # concatenación global
         _, H, W = mmap.data.shape
-        newCL = [torch.cat(l, dim=0) if len(l) > 0 else torch.empty((0,H,W), device=self.cuda) for l in newCL]
+        newCL = [torch.cat(l, dim=0) if len(l) > 0 else torch.empty((0, H, W), device=self.cuda) for l in newCL]
         newProj = [torch.cat(l, dim=0) if len(l) > 0 else None for l in newProj]
-        
+ 
+        if use_junk:
+            print(f"iter {iter}: partículas marcadas {n_flag}/{nExp} | pool {pool_n} | "
+                  f"clases basura previas {int(prev_junk.sum())}", flush=True)
+ 
         # ---- banderas por clase ----
         fresh_mask = torch.zeros(total_slots, dtype=torch.bool, device=self.cuda)
         junk_flags = torch.zeros(total_slots, dtype=torch.bool, device=self.cuda)
@@ -430,14 +418,19 @@ class BnBgpu(Split):
             n_res = min(max(1, round(junk_reserve_frac * final_classes)), len(free_slots))
         split_slots = free_slots[:len(free_slots) - n_res]
         junk_slots = free_slots[len(free_slots) - n_res:]
-
-        #  Structural Split  
-        # if 2 <= iter < iterSplit and split > 0:
+ 
         # ---- split de clases buenas por exceso de varianza ----
+        split_done = []
+        n_slots_split = len(split_slots)
+        n_big = sum(1 for P in newProj[:classes] if P is not None and P.shape[0] >= 3 * P.shape[1])
+        n_pos, max_score, no_cut = 0, 0.0, 0
+ 
         if 2 <= iter < iterSplit and split_slots:
             scores, axes = self.split_score(newProj)
             if scores is not None:
                 scores[:classes] = scores[:classes].masked_fill(prev_junk, 0.0)   # basura no se divide
+                n_pos = int((scores[:classes] > 0).sum())
+                max_score = float(scores[:classes].max())
                 top_sc, top_idx = torch.topk(scores[:classes], min(len(split_slots), classes))
  
                 for sc, n in zip(top_sc.tolist(), top_idx.tolist()):
@@ -445,6 +438,7 @@ class BnBgpu(Split):
                         break
                     labels = self._split_labels(newProj[n])
                     if labels is None:
+                        no_cut += 1
                         continue
                     dst = split_slots.pop(0)
                     imgs = newCL[n]
@@ -452,6 +446,14 @@ class BnBgpu(Split):
                     newCL[n] = imgs[labels == 0]
                     fresh_mask[n] = True
                     fresh_mask[dst] = True
+                    split_done.append((n, dst, sc, int((labels == 0).sum()), int((labels == 1).sum())))
+ 
+        if verbose and 2 <= iter < iterSplit:
+            print(f"[split] iter {iter}: huecos {n_slots_split} | clases con partículas suficientes {n_big}"
+                  f" | con exceso de varianza {n_pos} (score máx {max_score:.1f}) | divididas {len(split_done)}"
+                  f"{' | sin corte válido ' + str(no_cut) if no_cut else ''}", flush=True)
+            for n, dst, sc, a, b in split_done[:10]:
+                print(f"        clase {n} ({a + b} part.) -> {a} + {b} (nueva en {dst}) | score {sc:.1f}", flush=True)
  
         # ---- clases basura: slots de clases basura previas + huecos sin usar ----
         if use_junk:
@@ -460,102 +462,67 @@ class BnBgpu(Split):
                                           prev_idx + split_slots + junk_slots)
             if used:
                 junk_flags[used] = True
+            if verbose:
+                print(f"[junk] iter {iter}: pool {pool_n} | clases basura sembradas {len(used)}"
+                      f" (tamaños {[int(newCL[s].shape[0]) for s in used]})", flush=True)
         del pool_imgs, pool_proj
-
-                # if newCL[n].shape[0] > 20: # Minimum particles to consider
-                #
-                #     # #K-means over PCA proj
-                #     # _, labels = self.kmeans_pytorch_for_averages(newCL[n], newProj[n], cvecs, num_clusters=2, num_iters=15)
-                #     #
-                #     # part_A = newCL[n][labels == 0]
-                #     # part_B = newCL[n][labels == 1]
-                #     #
-                #     # if n < split:
-                #     #     newCL[n] = part_A
-                #     #     newCL[n + classes] = part_B
-                #     # else:
-                #     #     newCL[n] = torch.cat([part_A, part_B], dim=0)
-                #
-                #     averages, labels, = (self.kmeans_pytorch_for_averages_split(newCL[n], newProj[n], cvecs, num_iters=100, n_init=5))
-                #
-                #     if self.n_clusters_ == 2:
-                #
-                #         part_A = newCL[n][labels == 0]
-                #         part_B = newCL[n][labels == 1]
-                #
-                #         if n < split:
-                #
-                #             newCL[n] = part_A
-                #             newCL[n + classes] = part_B
-                #
-                #         else:
-                #
-                #             newCL[n] = torch.cat([part_A, part_B], dim=0)
-                #
-                #     else:
-                #         # No se ha encontrado una división suficientemente clara
-                #         # Se conserva la clase original
-                #         newCL[n] = newCL[n]
-        
-        
-        # clk = self.averages_createClasses(mmap, iter, newCL)  
+ 
+        # ---- averages ----
         if iter == last_iter:
             clk, self.S1, self.S2, self.n1, self.n2 = self.averages_createClasses(
                 mmap, iter, newCL, return_halves=True)
         else:
-            clk = self.averages_createClasses(mmap, iter, newCL)     
-
+            clk = self.averages_createClasses(mmap, iter, newCL)
+ 
         if iter > 1:
-            # cut = (25 if iter < 5 else 20) if sampling < 3 else (35 if iter < 5 else 30)
-            # cut_res = 100 if iter < (iterSplit-1) else 50
-            cut=50
-            cut_res = 50           
+            cut = 50
+            cut_res = 50
             res_classes = self.frc_resolution_tensor(newCL, sampling, fallback_res=cut_res, rcut=cut)
             clk = self.gaussian_lowpass_filter_2D_adaptive(clk, res_classes, sampling)
-            
+ 
             boost = None
-            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling, factorR = boost)
-            
-                
-        if iter < (iterSplit + 1): #order by size
-            
+            clk = self.highpass_cosine_sharpen(clk, res_classes, sampling, factorR=boost)
+ 
+        if iter < (iterSplit + 1):  # eliminar vacías y ordenar por tamaño
+ 
             lengths = torch.tensor([len(cls) for cls in newCL], device=clk.device)
             valid_mask = lengths > 0
-            # res_classes = res_classes[valid_mask]
             sizes = lengths[valid_mask]
             clk = clk[valid_mask]
-            # clk = clk[torch.argsort(res_classes)]
+ 
             order = torch.argsort(sizes, descending=True)
             clk = clk[order]
             sizes = sizes[order]
             fresh = fresh_mask[valid_mask][order]
             junk_flags = junk_flags[valid_mask][order]
-            
-            
-
+ 
         if iter in [10, 13]:
             clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
-                                intensity_percentile=50, smooth_sigma=1.0)
+                                                    intensity_percentile=50, smooth_sigma=1.0)
         if 1 < iter < 7 and iter % 2 == 0:
             clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
-                                intensity_percentile=50, smooth_sigma=1.0)
-
-        
+                                                    intensity_percentile=50, smooth_sigma=1.0)
+ 
         if iter > 2 and iter < 12:
             for _ in range(2):
-                clk = self.center_by_com(clk)  
-        
-        clk = clk * self.create_circular_mask(clk)   
-        
+                clk = self.center_by_com(clk)
+ 
+        clk = clk * self.create_circular_mask(clk)
+ 
         # ---- cluster de averages iguales (referencias de la siguiente iteración) ----
+        n_before_merge = clk.shape[0]
         if merge_iters[0] <= iter <= merge_iters[1]:
             keep = self.select_distinct_averages(clk, sizes, sampling, protect=(fresh | junk_flags))
             clk = clk[keep]
             junk_flags = junk_flags[keep]
  
-        self.junk_cls = junk_flags          # alineado con el cl que se devuelve           
-        
-        return(clk, tMatrix, batch_projExp_cpu)
+        if verbose:
+            print(f"[iter {iter:2d}] clases {classes} -> {clk.shape[0]} | divididas {len(split_done)}"
+                  f" | fusionadas {n_before_merge - clk.shape[0]} | clases basura {int(junk_flags.sum())}"
+                  f" | partículas en pool {pool_n}", flush=True)
+ 
+        self.junk_cls = junk_flags          # alineado con el cl que se devuelve
+        return (clk, tMatrix, batch_projExp_cpu)
     
     
     def align_particles_to_classes(self, data, cl, tMatrix, iter, expBatchSize, matches, vectorshift, classes, freqBn, coef, cvecs, mask, sigma, sampling):
@@ -624,8 +591,9 @@ class BnBgpu(Split):
     
     @torch.no_grad()
     def select_distinct_averages(self, clk, sizes, sampling, protect=None,
-                                 threshold=0.93, min_n=10, lowpass=20.0):
+                                 threshold=0.93, min_n=10, lowpass=20.0, verbose = True):
  
+        
         K = clk.shape[0]
         if protect is None:
             protect = torch.zeros(K, dtype=torch.bool, device=clk.device)
@@ -644,6 +612,18 @@ class BnBgpu(Split):
             keep.append(idx[sizes[idx].argmax()].view(1))       # el más poblado del cluster
  
         keep = torch.cat(keep)
+        
+        if verbose:
+            sim = torch.from_numpy(clusterer.similarity_)
+            pairs = clusterer.get_top_pairs(sim, top_k=5) if ok.numel() >= 2 else []
+            print(f"[merge] {K} clases -> {keep.numel()} | candidatas {ok.numel()}"
+                  f" (protegidas {int(protect.sum())}, pequeñas {int((sizes < min_n).sum())})"
+                  f" | umbral {threshold} | grupos fusionados {len(groups)}", flush=True)
+            for best, dropped in groups[:10]:
+                print(f"        se queda {best} (n={int(sizes[best])}) y absorbe {dropped}", flush=True)
+            print("        pares más similares (i, j, sim):",
+                  [(int(ok[i]), int(ok[j]), round(s, 3)) for i, j, s in pairs], flush=True)
+            
         return keep[torch.argsort(sizes[keep], descending=True)]
             
             
