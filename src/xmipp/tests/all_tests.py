@@ -27,4 +27,10 @@
 # **************************************************************************
 
 from test_binding import *
+from test_gmm_average_estimation import (
+    AdmmSolverTest,
+    GmmAverageScriptTest,
+    IrlsSolverTest,
+    RecursiveGmmTest,
+)
 from test_programs import *
