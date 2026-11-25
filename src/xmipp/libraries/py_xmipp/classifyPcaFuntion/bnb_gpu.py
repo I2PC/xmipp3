@@ -607,9 +607,13 @@ class BnBgpu(Split):
         clusterer.fit(clk[ok])
  
         keep = [torch.where((sizes < min_n) | protect)[0]]      # pequeñas y protegidas: se dejan
+        groups = []
         for members in clusterer.clusters_:
             idx = ok[torch.as_tensor(members, device=ok.device)]
-            keep.append(idx[sizes[idx].argmax()].view(1))       # el más poblado del cluster
+            best = idx[sizes[idx].argmax()]                     # el más poblado del cluster
+            keep.append(best.view(1))
+            if idx.numel() > 1:
+                groups.append((int(best), [int(i) for i in idx if int(i) != int(best)]))
  
         keep = torch.cat(keep)
         
