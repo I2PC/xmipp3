@@ -33,6 +33,43 @@ class GmmAverageScriptTest(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_read_images_preserves_order_across_stacks(self):
+        import mrcfile
+        import numpy as np
+        import pandas as pd
+        from xmippPyModules.gmmAverageTools.data import read_images
+
+        image = np.arange(15, dtype=np.float32).reshape(3, 5)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            stack = Path(tmpdir) / "particles.mrcs"
+            single = Path(tmpdir) / "single@particle.mrc"
+            mrcfile.write(stack, np.stack([image, 2 * image]))
+            mrcfile.write(single, 3 * image)
+            data = pd.DataFrame(
+                {"image": [f"2@{stack}", f"1@{single}", f"1@{stack}", f"2@{stack}"]},
+                index=[8, 1, 6, 0],
+            )
+            particles = read_images(data)
+
+        np.testing.assert_array_equal(
+            particles.numpy(), np.stack([2 * image, 3 * image, image, 2 * image])
+        )
+
+    def test_read_images_rejects_indices_outside_the_stack(self):
+        import mrcfile
+        import numpy as np
+        import pandas as pd
+        from xmippPyModules.gmmAverageTools.data import read_images
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            stack = Path(tmpdir) / "particle.mrc"
+            mrcfile.write(stack, np.ones((3, 5), dtype=np.float32))
+            for index, message in ((0, "1-based index"), (2, "exceeds")):
+                with self.subTest(index=index):
+                    data = pd.DataFrame({"image": [f"{index}@{stack}"]})
+                    with self.assertRaisesRegex(ValueError, message):
+                        read_images(data)
+
     def test_cli_writes_corrected_averages_in_class_order(self):
         import mrcfile
         import numpy as np
