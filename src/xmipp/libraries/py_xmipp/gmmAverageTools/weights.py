@@ -73,7 +73,10 @@ def calculate_beta_auto(
     float
         Automatically calculated beta value.
     """
-    return mult * TAGARE_CONSTANT / imgs.var(dim=(1, 2)).mean().item()
+    mean_variance = imgs.var(dim=(1, 2)).mean().item()
+    if mean_variance == 0.0:
+        raise ValueError("All particle images are spatially constant.")
+    return mult * TAGARE_CONSTANT / mean_variance
 
 
 def smooth_redescending_weights_modulus(
