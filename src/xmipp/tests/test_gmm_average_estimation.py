@@ -138,7 +138,7 @@ class GmmAverageScriptTest(unittest.TestCase):
                 "wRobustStd": np.nan,
                 "wRobustGmm": np.nan,
             }
-        )
+        ).set_index("itemId", drop=False)
         # The raw robust scores and GMM scores rank the assignments oppositely.
         write_weights_to_dataframe(
             output,
@@ -156,9 +156,19 @@ class GmmAverageScriptTest(unittest.TestCase):
             group_by_column="ref",
             group_by_value=9,
         )
+        # Equal GMM scores keep the earlier assignment and its weights.
+        write_weights_to_dataframe(
+            output,
+            robust_weights_np=np.array([0.99, 0.45]),
+            gmm_weights_np=np.array([0.85, 0.75]),
+            item_ids=np.array([42, 17]),
+            group_by_column="ref",
+            group_by_value=12,
+        )
 
         expected = pd.DataFrame(
             {
+                "itemId": [17, 42],
                 "ref": [2, 9],
                 "wRobust": [0.20, 0.35],
                 "wRobustStd": [-1.0, -1.0],
@@ -166,7 +176,7 @@ class GmmAverageScriptTest(unittest.TestCase):
             },
             index=pd.Index([17, 42], name="itemId"),
         )
-        pd.testing.assert_frame_equal(output.set_index("itemId"), expected, check_dtype=False)
+        pd.testing.assert_frame_equal(output, expected, check_dtype=False)
 
 
 class RecursiveGmmTest(unittest.TestCase):

@@ -71,6 +71,13 @@ GMM_WEIGHT_COL = "wRobustGmm"
 
 DEFAULT_OUTLIER_PROPORTION_FOR_AVERAGES = 0.1
 
+AVERAGE_STACK_OUTPUTS = (
+    ("out_corrected_avgs", "unmasked_corrected_average"),
+    ("out_original_avgs", "unmasked_original_average"),
+    ("out_low_weight_avgs", "unmasked_low_weight_average"),
+    ("out_high_weight_avgs", "unmasked_high_weight_average"),
+)
+
 
 @dataclass
 class IOConfig:
@@ -748,7 +755,10 @@ def write_weights_to_dataframe(
     group_by_value: int,
     eps_std: float = 1.0e-6,
 ) -> None:
-    """Store each particle's group and all weights from its best assignment."""
+    """
+    Store each particle's group and all weights from its best assignment.
+    The input ``write_metadata`` should be indexed by ``MDL_ITEM_ID_COLUMN``.
+    """
     std = robust_weights_np.std()
     standardized_weights = (
         (robust_weights_np - robust_weights_np.mean()) / std
@@ -770,15 +780,9 @@ def write_weights_to_dataframe(
             )
 
     primary_column = GMM_WEIGHT_COL if gmm_weights_np is not None else ROBUST_WEIGHT_COL
-    output_ids = write_metadata[MDL_ITEM_ID_COLUMN]
-    matched_ids = output_ids.loc[output_ids.isin(item_ids)]
+    incoming = pd.DataFrame(weights_by_column, index=item_ids)
+    previous_primary = write_metadata.loc[incoming.index, primary_column]
 
-    incoming = pd.DataFrame(weights_by_column, index=item_ids).reindex(
-        matched_ids.to_numpy()
-    )
-    incoming.index = matched_ids.index
-
-    previous_primary = write_metadata.loc[matched_ids.index, primary_column]
     better_group = previous_primary.isna() | (
         incoming[primary_column] > previous_primary
     )
@@ -788,49 +792,48 @@ def write_weights_to_dataframe(
     write_metadata.loc[winners.index, group_by_column] = group_by_value
 
 
-def get_output_buffers(
+def prepare_output_metadata(
     io_config: IOConfig,
     input_metadata_df: pd.DataFrame,
     weight_columns: Iterable[str],
+) -> pd.DataFrame | None:
+    if not io_config.out_star:
+        return None
+
+    # Metadata files can be large, avoid reading the same file twice if possible
+    if io_config.base_xmd != io_config.input_xmd:
+        write_metadata = pd.DataFrame(starfile.read(io_config.base_xmd))
+    else:
+        write_metadata = input_metadata_df.copy()
+
+    validate_item_ids(write_metadata, name="Base")
+
+    input_ids = pd.Index(input_metadata_df[MDL_ITEM_ID_COLUMN].unique())
+    base_ids = pd.Index(write_metadata[MDL_ITEM_ID_COLUMN])
+
+    missing_ids = input_ids.difference(base_ids)
+    if len(missing_ids):
+        raise ValueError(
+            f"{len(missing_ids)} input particles are absent from the base metadata."
+        )
+
+    # Filter out particles not present in input xmd
+    write_metadata = write_metadata.loc[
+        write_metadata[MDL_ITEM_ID_COLUMN].isin(input_ids)
+    ].set_index(MDL_ITEM_ID_COLUMN, drop=False)
+
+    # Initialize the weight to nan to later catch particles without weights
+    for column in weight_columns:
+        write_metadata[column] = np.nan
+    write_metadata[io_config.group_by_column] = UNASSIGNED_GROUP_VALUE
+    return write_metadata
+
+
+def allocate_average_stacks(
+    io_config: IOConfig,
+    input_metadata_df: pd.DataFrame,
     n_classes: int,
-) -> tuple[
-    pd.DataFrame | None,
-    np.ndarray | None,
-    np.ndarray | None,
-    np.ndarray | None,
-    np.ndarray | None,
-]:
-    group_by_column = io_config.group_by_column
-
-    write_metadata = None
-    if io_config.out_star:
-        # Metadata files can be large, avoid reading the same file twice if possible
-        if io_config.base_xmd != io_config.input_xmd:
-            write_metadata = pd.DataFrame(starfile.read(io_config.base_xmd))
-        else:
-            write_metadata = input_metadata_df.copy()
-
-        validate_item_ids(write_metadata, name="Base")
-
-        input_ids = pd.Index(input_metadata_df[MDL_ITEM_ID_COLUMN].unique())
-        base_ids = pd.Index(write_metadata[MDL_ITEM_ID_COLUMN])
-
-        missing_ids = input_ids.difference(base_ids)
-        if len(missing_ids):
-            raise ValueError(
-                f"{len(missing_ids)} input particles are absent from the base metadata."
-            )
-
-        # Filter out particles not present in input xmd
-        write_metadata = write_metadata.loc[
-            write_metadata[MDL_ITEM_ID_COLUMN].isin(input_ids)
-        ].copy()
-
-        # Initialize the weight to nan to later catch particles without weights
-        for column in weight_columns:
-            write_metadata[column] = np.nan
-        write_metadata[group_by_column] = UNASSIGNED_GROUP_VALUE
-
+) -> dict[str, tuple[Path, np.ndarray]]:
     stack_path = Path(
         str(input_metadata_df["image"].to_numpy()[0]).split("@", maxsplit=1)[1]
     )
@@ -839,30 +842,18 @@ def get_output_buffers(
         nx = mrc.header.nx
         ny = mrc.header.ny
 
+    average_stacks: dict[str, tuple[Path, np.ndarray]] = {}
     average_stacks_shape = (n_classes, ny, nx)
-    corrected_averages = None
-    if io_config.out_corrected_avgs:
-        corrected_averages = np.empty(shape=average_stacks_shape, dtype=np.float32)
 
-    original_averages = None
-    if io_config.out_original_avgs:
-        original_averages = np.empty(shape=average_stacks_shape, dtype=np.float32)
+    for path_field, result_field in AVERAGE_STACK_OUTPUTS:
+        path = getattr(io_config, path_field)
+        if path:
+            average_stacks[result_field] = (
+                path,
+                np.empty(average_stacks_shape, dtype=np.float32),
+            )
 
-    low_weight_averages = None
-    if io_config.out_low_weight_avgs:
-        low_weight_averages = np.empty(shape=average_stacks_shape, dtype=np.float32)
-
-    high_weight_averages = None
-    if io_config.out_high_weight_avgs:
-        high_weight_averages = np.empty(shape=average_stacks_shape, dtype=np.float32)
-
-    return (
-        write_metadata,
-        corrected_averages,
-        original_averages,
-        low_weight_averages,
-        high_weight_averages,
-    )
+    return average_stacks
 
 
 def get_weight_columns(pipeline_config: PipelineConfig):
@@ -889,10 +880,14 @@ def main() -> None:
     groups = input_metadata_df.groupby(group_by_column, sort=True)
 
     weight_columns = get_weight_columns(pipeline_config)
-    out_md, robust_avgs, original_avgs, low_w_avgs, high_w_avgs = get_output_buffers(
+    out_md = prepare_output_metadata(
         io_config=pipeline_config.io,
         input_metadata_df=input_metadata_df,
         weight_columns=weight_columns,
+    )
+    average_stacks = allocate_average_stacks(
+        io_config=pipeline_config.io,
+        input_metadata_df=input_metadata_df,
         n_classes=groups.ngroups,
     )
 
@@ -901,25 +896,9 @@ def main() -> None:
             class_data=class_data, pipeline_config=pipeline_config
         )
 
-        if robust_avgs is not None:
-            robust_avgs[index] = class_results.unmasked_corrected_average
-
-        if original_avgs is not None:
-            original_avgs[index] = class_results.unmasked_original_average
-
-        if low_w_avgs is not None:
-            low_w_avgs[index] = (
-                class_results.unmasked_low_weight_average
-                if class_results.unmasked_low_weight_average is not None
-                else 0.0
-            )
-
-        if high_w_avgs is not None:
-            high_w_avgs[index] = (
-                class_results.unmasked_high_weight_average
-                if class_results.unmasked_high_weight_average is not None
-                else 0.0
-            )
+        for result_field, (_, stack) in average_stacks.items():
+            average = getattr(class_results, result_field)
+            stack[index] = 0.0 if average is None else average
 
         if out_md is not None:
             write_weights_to_dataframe(
@@ -931,30 +910,8 @@ def main() -> None:
                 gmm_weights_np=class_results.gmm_weights,
             )
 
-    if robust_avgs is not None:
-        mrcfile.write(
-            name=pipeline_config.io.out_corrected_avgs,
-            data=robust_avgs,
-            overwrite=pipeline_config.io.overwrite,
-        )
-    if original_avgs is not None:
-        mrcfile.write(
-            name=pipeline_config.io.out_original_avgs,
-            data=original_avgs,
-            overwrite=pipeline_config.io.overwrite,
-        )
-    if low_w_avgs is not None:
-        mrcfile.write(
-            name=pipeline_config.io.out_low_weight_avgs,
-            data=low_w_avgs,
-            overwrite=pipeline_config.io.overwrite,
-        )
-    if high_w_avgs is not None:
-        mrcfile.write(
-            name=pipeline_config.io.out_high_weight_avgs,
-            data=high_w_avgs,
-            overwrite=pipeline_config.io.overwrite,
-        )
+    for path, stack in average_stacks.values():
+        mrcfile.write(name=path, data=stack, overwrite=pipeline_config.io.overwrite)
 
     if out_md is not None:
         if out_md[weight_columns].isna().any().any():
