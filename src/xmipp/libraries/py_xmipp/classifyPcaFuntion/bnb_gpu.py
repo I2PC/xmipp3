@@ -538,7 +538,8 @@ class BnBgpu(Split):
  
         # ---- at_fill: los huecos (los que sobraron más los que libera el cluster) se rellenan con basura ----
         n_junk_new = 0
-        if use_junk and at_fill and pool_imgs:
+        # if use_junk and at_fill and pool_imgs:
+        if use_junk and pool_imgs:
             n_holes = max(0, final_classes - clk.shape[0])
             n_new = min(n_holes, room)
             if n_new > 0:
