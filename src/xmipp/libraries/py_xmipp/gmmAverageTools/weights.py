@@ -1,135 +1,9 @@
-from typing import Callable, Union
+from collections.abc import Callable
 
 import torch
 
 WeightFunction = Callable[[torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
 TAGARE_CONSTANT: float = 1.0e-5
-
-
-def cosine_similarity(
-    images: torch.Tensor,
-    reference: torch.Tensor,
-    std: Union[torch.Tensor, float] = 1.0,
-    eps: float = 1.0e-8,
-) -> torch.Tensor:
-    """
-    Compute cosine-similarity weights between a batch of images and a reference.
-
-    Parameters
-    ----------
-    images : torch.Tensor
-        Input image batch. The first dimension is assumed to be the batch
-        dimension.
-    reference : torch.Tensor
-        Reference image tensor.
-    std : torch.Tensor or float, optional
-        Unused; kept for interface consistency.
-    eps : float, optional
-        Numerical-stability threshold used when normalizing vectors.
-
-    Returns
-    -------
-    torch.Tensor
-        One cosine-similarity weight per image, with shape ``(n_images,)``.
-    """
-    return torch.cosine_similarity(
-        images.flatten(1),
-        reference.flatten(),
-        dim=1,
-        eps=eps,
-    )
-
-
-def cross_correlation_weight(
-    images: torch.Tensor,
-    reference: torch.Tensor,
-    std: Union[torch.Tensor, float] = 1.0,
-    eps: float = 1.0e-8,
-) -> torch.Tensor:
-    """
-    Compute zero-mean cross-correlation weights between images and a reference.
-
-    Parameters
-    ----------
-    images : torch.Tensor
-        Input image batch. The first dimension is assumed to be the batch
-        dimension.
-    reference : torch.Tensor
-        Reference image tensor.
-    std : torch.Tensor or float, optional
-        Unused; kept for interface consistency.
-    eps : float, optional
-        Numerical-stability threshold used when normalizing vectors.
-
-    Returns
-    -------
-    torch.Tensor
-        One cross-correlation weight per image, with shape ``(n_images,)``.
-    """
-    image_dims = tuple(range(1, images.ndim))
-
-    centered_images = images - images.mean(dim=image_dims, keepdim=True)
-    centered_reference = reference - reference.mean()
-
-    return cosine_similarity(
-        centered_images,
-        centered_reference,
-        std=std,
-        eps=eps,
-    )
-
-
-@torch.no_grad()
-def tagare_weight(
-    images: torch.Tensor,
-    reference: torch.Tensor,
-    std: Union[torch.Tensor, float] = 1.0,
-    beta: float = 1.0e-6,
-    centered_correlation: bool = False,
-    eps: float = 1.0e-6,
-) -> torch.Tensor:
-    """
-    Compute Tagare weights between a batch of images and a reference.
-
-    The weight combines a correlation term with an exponential penalty based
-    on the component of each image orthogonal to the reference.
-
-    Parameters
-    ----------
-    images : torch.Tensor
-        Input image batch. The first dimension is assumed to be the batch
-        dimension.
-    reference : torch.Tensor
-        Reference image tensor.
-    std : torch.Tensor or float, optional
-        Unused; kept for interface consistency.
-    beta : float, optional
-        Scaling factor applied to the squared orthogonal residual.
-    centered_correlation : bool, optional
-        If True, use zero-mean cross-correlation for the correlation term.
-        Otherwise, use cosine similarity.
-    eps : float, optional
-        Numerical-stability threshold used when normalizing vectors.
-
-    Returns
-    -------
-    torch.Tensor
-        One Tagare weight per image, with shape ``(n_images,)``.
-    """
-    image_dims = tuple(range(1, images.ndim))
-
-    cosine_sim = cosine_similarity(images, reference, std, eps).abs_()
-
-    if centered_correlation:
-        correlation_term = cross_correlation_weight(images, reference, std, eps).abs_()
-    else:
-        correlation_term = cosine_sim
-
-    image_norm_sq = torch.linalg.vector_norm(images, dim=image_dims).square_()
-
-    orth_norm_sq = image_norm_sq * (1.0 - cosine_sim.square()).clamp_min_(0.0)
-
-    return orth_norm_sq.mul_(-beta).exp_().mul_(correlation_term)
 
 
 @torch.no_grad()
@@ -199,15 +73,18 @@ def calculate_beta_auto(
     float
         Automatically calculated beta value.
     """
-    return mult * TAGARE_CONSTANT / imgs.var(dim=(1, 2)).mean().item()
+    mean_variance = imgs.var(dim=(1, 2)).mean().item()
+    if mean_variance == 0.0:
+        raise ValueError("All particle images are spatially constant.")
+    return mult * TAGARE_CONSTANT / mean_variance
 
 
 def smooth_redescending_weights_modulus(
     images: torch.Tensor,
     reference: torch.Tensor,
-    std: Union[torch.Tensor, float],
+    std: torch.Tensor | float,
     delta: float,
-):
+) -> torch.Tensor:
     """
     Computes smooth redescending M-estimator weights using a Gaussian-like influence metric.
     Applies ``.abs()`` to the differences between the images and the reference in
@@ -241,7 +118,7 @@ def smooth_redescending_weights_modulus(
 def smooth_redescending_weights_norm(
     images: torch.Tensor,
     reference: torch.Tensor,
-    std: Union[torch.Tensor, float],
+    std: torch.Tensor | float,
     delta: float,
 ) -> torch.Tensor:
     """

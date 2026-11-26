@@ -1,11 +1,10 @@
-from typing import Tuple, Optional, NamedTuple
 from dataclasses import dataclass
+from typing import NamedTuple
 
-import torch
 import numpy as np
-
-from xmippPyModules.gmmAverageTools.irls_estimator import IRLSMEstimator
+import torch
 from xmippPyModules.gmmAverageTools.fourier_irls_estimator import JointIRLSFourier
+from xmippPyModules.gmmAverageTools.irls_estimator import IRLSMEstimator
 from xmippPyModules.gmmAverageTools.results import EstimatorResult
 
 
@@ -18,7 +17,7 @@ class ImageData(NamedTuple):
 class ADMMData(NamedTuple):
     real: ImageData
     fourier: ImageData
-    ctf: Optional[torch.Tensor] = None
+    ctf: torch.Tensor | None = None
 
 
 @dataclass
@@ -68,8 +67,8 @@ class ADMMEstimator:
         *,
         data: ADMMData,
         state: ADMMState,
-        real_irls_max_iter: Optional[int] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        real_irls_max_iter: int | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """Solves the real-space subproblem with IRLS"""
         # Pass signal shape from real reference to preserve odd dimensions
         real_shape = state.reference_real.shape[-2:]
@@ -94,8 +93,8 @@ class ADMMEstimator:
         data: ADMMData,
         state: ADMMState,
         next_real_transformed: torch.Tensor,
-        fourier_irls_max_iter: Optional[int] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        fourier_irls_max_iter: int | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """Solves the Fourier-space subproblem with the joint IRLS approach"""
         prior_mean = next_real_transformed - state.dual_vars / state.mu
         prior_variance = self.fourier_multiplier * (1.0 / state.mu)
@@ -117,8 +116,8 @@ class ADMMEstimator:
         *,
         data: ADMMData,
         state: ADMMState,
-        real_irls_max_iter: Optional[int] = None,
-        fourier_irls_max_iter: Optional[int] = None,
+        real_irls_max_iter: int | None = None,
+        fourier_irls_max_iter: int | None = None,
     ) -> ADMMIterationResult:
         # Real update
         next_real, real_update_weights = self._real_update(
@@ -148,15 +147,15 @@ class ADMMEstimator:
         self,
         images: torch.Tensor,
         *,
-        reference: Optional[torch.Tensor] = None,
-        images_fourier: Optional[torch.Tensor] = None,
-        initial_reference_real: Optional[torch.Tensor] = None,
-        initial_reference_fourier: Optional[torch.Tensor] = None,
-        image_variance_real: Optional[torch.Tensor] = None,
-        image_std_real: Optional[torch.Tensor] = None,
-        image_variance_fourier: Optional[torch.Tensor] = None,
-        image_std_fourier: Optional[torch.Tensor] = None,
-        ctf: Optional[torch.Tensor] = None,
+        reference: torch.Tensor | None = None,
+        images_fourier: torch.Tensor | None = None,
+        initial_reference_real: torch.Tensor | None = None,
+        initial_reference_fourier: torch.Tensor | None = None,
+        image_variance_real: torch.Tensor | None = None,
+        image_std_real: torch.Tensor | None = None,
+        image_variance_fourier: torch.Tensor | None = None,
+        image_std_fourier: torch.Tensor | None = None,
+        ctf: torch.Tensor | None = None,
     ) -> EstimatorResult:
         data = self._prepare_data(
             images=images,
@@ -253,7 +252,7 @@ class ADMMEstimator:
         state: ADMMState,
         results: ADMMIterationResult,
         primal_residual: torch.Tensor,
-    ):
+    ) -> tuple[float, float, np.float64, np.float64]:
         next_real = results.next_real
         next_real_transformed = results.next_real_transformed
         next_fourier = results.next_fourier
@@ -279,12 +278,12 @@ class ADMMEstimator:
     def _prepare_data(
         self,
         images: torch.Tensor,
-        images_fourier: Optional[torch.Tensor] = None,
-        image_variance_real: Optional[torch.Tensor] = None,
-        image_std_real: Optional[torch.Tensor] = None,
-        image_variance_fourier: Optional[torch.Tensor] = None,
-        image_std_fourier: Optional[torch.Tensor] = None,
-        ctf: Optional[torch.Tensor] = None,
+        images_fourier: torch.Tensor | None = None,
+        image_variance_real: torch.Tensor | None = None,
+        image_std_real: torch.Tensor | None = None,
+        image_variance_fourier: torch.Tensor | None = None,
+        image_std_fourier: torch.Tensor | None = None,
+        ctf: torch.Tensor | None = None,
     ) -> ADMMData:
         """Prepare real- and Fourier-space image data for ADMM estimation."""
         if images_fourier is None:
@@ -321,9 +320,9 @@ class ADMMEstimator:
     def _initialize_state(
         self,
         data: ADMMData,
-        reference: Optional[torch.Tensor] = None,
-        initial_reference_real: Optional[torch.Tensor] = None,
-        initial_reference_fourier: Optional[torch.Tensor] = None,
+        reference: torch.Tensor | None = None,
+        initial_reference_real: torch.Tensor | None = None,
+        initial_reference_fourier: torch.Tensor | None = None,
     ) -> ADMMState:
         """Initialize references, dual variables, and penalty parameter."""
         given_general_reference = reference is not None

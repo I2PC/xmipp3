@@ -1,9 +1,8 @@
-from typing import Tuple
 
 import numpy as np
 
 
-def create_circular_mask(image_shape: Tuple[int, int], radius: float) -> np.ndarray:
+def create_circular_mask(image_shape: tuple[int, int], radius: float) -> np.ndarray:
     """Create a circular mask centered in the image.
 
     Parameters

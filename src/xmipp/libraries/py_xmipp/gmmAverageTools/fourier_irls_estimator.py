@@ -1,7 +1,6 @@
-from typing import Optional, Tuple, Literal
+from typing import Literal
 
 import torch
-
 from xmippPyModules.gmmAverageTools.irls_estimator import IRLSMEstimator
 from xmippPyModules.gmmAverageTools.results import EstimatorResult
 
@@ -22,7 +21,7 @@ class JointIRLSFourier:
         irls_solver: IRLSMEstimator,
         eps: float = 1.0e-8,
         weight_approach: WeightApproach = "per-coefficient",
-        mask: Optional[torch.Tensor] = None,
+        mask: torch.Tensor | None = None,
     ) -> None:
         self.solver = irls_solver
         self.eps = eps
@@ -30,22 +29,24 @@ class JointIRLSFourier:
         self.mask = mask
 
     @property
-    def max_iter(self):
+    def max_iter(self) -> int:
         return self.solver.max_iter
 
     def _get_safe_variance(
         self,
         fourier_images: torch.Tensor,
-        image_variance: Optional[torch.Tensor] = None,
-        image_std: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        image_variance: torch.Tensor | None = None,
+        image_std: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Calculates the variance of the modulus of the Fourier space images.
         Returns the variance and the standard deviation, min-clamped to protect
         against division by zero.
         """
         if image_variance is None:
-            image_variance = fourier_images.abs().var(dim=0)
+            image_variance = fourier_images.abs().var(
+                dim=0, unbiased=fourier_images.shape[0] > 1
+            )
         if image_std is None:
             image_std = image_variance.sqrt()
 
@@ -58,21 +59,21 @@ class JointIRLSFourier:
         self,
         *,
         fourier_images: torch.Tensor,
-        image_variance: Optional[torch.Tensor],
-        image_std: Optional[torch.Tensor],
-        ctf: Optional[torch.Tensor],
-        reference: Optional[torch.Tensor],
-        prior_mean: Optional[torch.Tensor],
-        prior_variance: Optional[torch.Tensor],
-        mask: Optional[torch.Tensor],
-    ) -> Tuple[
+        image_variance: torch.Tensor,
+        image_std: torch.Tensor,
+        ctf: torch.Tensor | None,
+        reference: torch.Tensor | None,
+        prior_mean: torch.Tensor | None,
+        prior_variance: torch.Tensor | float | None,
+        mask: torch.Tensor | None,
+    ) -> tuple[
         torch.Tensor,
-        Optional[torch.Tensor],
-        Optional[torch.Tensor],
-        Optional[torch.Tensor],
-        Optional[torch.Tensor],
-        Optional[torch.Tensor],
-        Optional[torch.Tensor],
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor | None,
+        torch.Tensor | None,
+        torch.Tensor | None,
+        torch.Tensor | float | None,
     ]:
         if mask is None:
             return (
@@ -93,16 +94,16 @@ class JointIRLSFourier:
         if prior_mean is not None:
             prior_mean = prior_mean[mask]
 
-        if prior_variance is not None and prior_variance.numel() > 1:
+        if isinstance(prior_variance, torch.Tensor) and prior_variance.numel() > 1:
             prior_variance = prior_variance[mask]
 
         if ctf is not None:
             ctf = ctf[:, mask]
 
-        if image_variance is not None:
+        if image_variance.ndim > 0:
             image_variance = image_variance[mask]
 
-        if image_std is not None:
+        if image_std.ndim > 0:
             image_std = image_std[mask]
 
         return (
@@ -120,16 +121,16 @@ class JointIRLSFourier:
         self,
         images: torch.Tensor,
         *,
-        image_variance: Optional[torch.Tensor] = None,
-        image_std: Optional[torch.Tensor] = None,
-        ctf: Optional[torch.Tensor] = None,
-        reference: Optional[torch.Tensor] = None,
-        prior_mean: Optional[torch.Tensor] = None,
-        prior_variance: Optional[torch.Tensor] = None,
-        max_iter_override: Optional[int] = None,
+        image_variance: torch.Tensor | None = None,
+        image_std: torch.Tensor | None = None,
+        ctf: torch.Tensor | None = None,
+        reference: torch.Tensor | None = None,
+        prior_mean: torch.Tensor | None = None,
+        prior_variance: torch.Tensor | float | None = None,
+        max_iter_override: int | None = None,
         fourier_transform_images: bool = True,
-        mask: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        mask: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Executes the low-level IRLS optimization in Fourier space.
 
@@ -142,7 +143,8 @@ class JointIRLSFourier:
             Variance of the Fourier transform modulus of input images.
             Can be a tensor matching ``image_shape`` (per-coefficient variance) or a
             scalar (global image variance).
-            Defaults to ``fourier_images.abs().var(dim=0)``.
+            Defaults to the sample variance per coefficient, or zero before
+            clamping when there is only one image.
         image_std : torch.Tensor, optional
             Standard deviation of the Fourier transform modulus. Pre-calculated square
             root of ``image_variance`` to avoid redundant computation.
@@ -156,7 +158,7 @@ class JointIRLSFourier:
             Prior mean in the same domain as ``images``.
             Cannot be provided without also providing a value for ``prior_variance``.
             If not provided, no regularization will be applied.
-        prior_variance : torch.Tensor, optional
+        prior_variance : torch.Tensor or float, optional
             Prior variance for the estimator. This effectively controls the strength
             of the regularization imposed by the prior mean. A higher value of the
             prior variance means a *weaker* regularization.
@@ -202,6 +204,11 @@ class JointIRLSFourier:
             if reference is not None:
                 reference = torch.fft.rfft2(reference)
 
+        # Keep the full variance for reconstruction with a prior.
+        image_variance, image_std = self._get_safe_variance(
+            fourier_images, image_variance, image_std
+        )
+
         (
             fourier_images_masked,
             image_variance_masked,
@@ -219,11 +226,6 @@ class JointIRLSFourier:
             prior_mean=prior_mean,
             prior_variance=prior_variance,
             mask=mask,
-        )
-
-        # Make sure image variance and std are initialized from the complex modulus
-        image_variance_masked, image_std_masked = self._get_safe_variance(
-            fourier_images_masked, image_variance_masked, image_std_masked
         )
 
         # Use the IRLS solver to perform the estimation
@@ -264,16 +266,16 @@ class JointIRLSFourier:
         self,
         images: torch.Tensor,
         *,
-        image_variance: Optional[torch.Tensor] = None,
-        image_std: Optional[torch.Tensor] = None,
-        ctf: Optional[torch.Tensor] = None,
-        reference: Optional[torch.Tensor] = None,
-        prior_mean: Optional[torch.Tensor] = None,
-        prior_variance: Optional[torch.Tensor] = None,
-        max_iter_override: Optional[int] = None,
+        image_variance: torch.Tensor | None = None,
+        image_std: torch.Tensor | None = None,
+        ctf: torch.Tensor | None = None,
+        reference: torch.Tensor | None = None,
+        prior_mean: torch.Tensor | None = None,
+        prior_variance: torch.Tensor | float | None = None,
+        max_iter_override: int | None = None,
         fourier_transform_images: bool = True,
-        mask: Optional[torch.Tensor] = None,
-        real_shape: Optional[Tuple[int, int]] = None
+        mask: torch.Tensor | None = None,
+        real_shape: tuple[int, int] | None = None,
     ) -> EstimatorResult:
         """
         Executes Fourier-domain IRLS optimization and returns a real-space EstimatorResult.
@@ -292,7 +294,7 @@ class JointIRLSFourier:
             See ``JointIRLSFourier.solve()``.
         prior_mean : torch.Tensor, optional
             See ``JointIRLSFourier.solve()``.
-        prior_variance : torch.Tensor, optional
+        prior_variance : torch.Tensor or float, optional
             See ``JointIRLSFourier.solve()``.
         max_iter_override : int, optional
             See ``JointIRLSFourier.solve()``.

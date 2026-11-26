@@ -1,46 +1,33 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 
-import os
 import argparse
-from pathlib import Path
 import warnings
-from typing import Tuple, Union, Optional, Dict, Literal, get_args, Any, Iterable
+from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from functools import partial
+from pathlib import Path
+from typing import Any, Literal, TypeAlias, get_args
 
 import mrcfile
 import numpy as np
+import pandas as pd
 import starfile
 import torch
-import pandas as pd
-
+from xmippPyModules.gmmAverageTools.admm_estimator import ADMMEstimator
 from xmippPyModules.gmmAverageTools.data import (
-    read_images,
-    MDL_REF_COLUMN,
     MDL_ITEM_ID_COLUMN,
+    MDL_REF_COLUMN,
+    read_images,
 )
-
-from xmippPyModules.gmmAverageTools.results import GMMDiagnostics
-
-# Import estimator types
-from xmippPyModules.gmmAverageTools.gmm_estimator import RecursiveGMMEstimator
-from xmippPyModules.gmmAverageTools.noise_corrected_cosine_estimator import (
-    NoiseCorrectedCosineEstimator,
-)
-from xmippPyModules.gmmAverageTools.irls_estimator import IRLSMEstimator
 from xmippPyModules.gmmAverageTools.fourier_irls_estimator import (
     JointIRLSFourier,
     WeightApproach,
 )
-from xmippPyModules.gmmAverageTools.admm_estimator import ADMMEstimator
 
-# Import weight and distance functions
-from xmippPyModules.gmmAverageTools.weights import (
-    calculate_beta_auto,
-    tagare_weight_precomputed,
-    smooth_redescending_weights_modulus,
-    smooth_redescending_weights_norm,
-)
+# Import estimator types
+from xmippPyModules.gmmAverageTools.gmm_estimator import RecursiveGMMEstimator
+from xmippPyModules.gmmAverageTools.irls_estimator import IRLSMEstimator
 
 # Utilities: masks, weighted averages
 from xmippPyModules.gmmAverageTools.masks import (
@@ -49,24 +36,28 @@ from xmippPyModules.gmmAverageTools.masks import (
 )
 from xmippPyModules.gmmAverageTools.utils import weighted_average
 
-Estimator = Union[
-    RecursiveGMMEstimator,
-    ADMMEstimator,
-    JointIRLSFourier,
-    IRLSMEstimator,
-    NoiseCorrectedCosineEstimator,
-]
-EstimatorType = Literal["irls", "fourier_irls", "admm", "noise_corrected_cosine"]
-ESTIMATOR_TYPES: Tuple[str, ...] = get_args(EstimatorType)
+# Import weight and distance functions
+from xmippPyModules.gmmAverageTools.weights import (
+    calculate_beta_auto,
+    smooth_redescending_weights_modulus,
+    smooth_redescending_weights_norm,
+    tagare_weight_precomputed,
+)
+
+Estimator: TypeAlias = (
+    RecursiveGMMEstimator | ADMMEstimator | JointIRLSFourier | IRLSMEstimator
+)
+EstimatorType = Literal["irls", "fourier_irls", "admm"]
+ESTIMATOR_TYPES: tuple[str, ...] = get_args(EstimatorType)
 
 UNASSIGNED_GROUP_VALUE = -1
 
-DEFAULT_SMOOTH_DELTA: Dict[WeightApproach, float] = {
+DEFAULT_SMOOTH_DELTA: dict[WeightApproach, float] = {
     "per-image": 1.5,
     "per-coefficient": 1.5,
 }
 
-DEFAULT_MAX_ITERATIONS: Dict[EstimatorType, int] = {
+DEFAULT_MAX_ITERATIONS: dict[EstimatorType, int] = {
     "irls": 50,
     "fourier_irls": 50,
     "admm": 30,
@@ -81,30 +72,34 @@ GMM_WEIGHT_COL = "wRobustGmm"
 
 DEFAULT_OUTLIER_PROPORTION_FOR_AVERAGES = 0.1
 
+AVERAGE_STACK_OUTPUTS = (
+    ("out_corrected_avgs", "unmasked_corrected_average"),
+    ("out_original_avgs", "unmasked_original_average"),
+    ("out_low_weight_avgs", "unmasked_low_weight_average"),
+    ("out_high_weight_avgs", "unmasked_high_weight_average"),
+)
+
 
 @dataclass
 class IOConfig:
     input_xmd: Path
     base_xmd: Path
-    out_star: Optional[Path] = None
-    out_corrected_avgs: Optional[Path] = None
-    out_original_avgs: Optional[Path] = None
-    out_difference_avgs: Optional[Path] = None
-    out_low_weight_avgs: Optional[Path] = None
-    out_high_weight_avgs: Optional[Path] = None
+    out_star: Path | None = None
+    out_corrected_avgs: Path | None = None
+    out_original_avgs: Path | None = None
+    out_low_weight_avgs: Path | None = None
+    out_high_weight_avgs: Path | None = None
     outlier_proportion_for_avgs: float = DEFAULT_OUTLIER_PROPORTION_FOR_AVERAGES
     group_by_column: str = MDL_REF_COLUMN
-    out_gmm_diagnostics: Optional[Path] = None
+    overwrite: bool = False
 
 
 @dataclass
 class GMMConfig:
     external_max_iter: int
     internal_max_iter: int
-    standardize_distances: bool
-    initialize_params: bool
-    initial_bad_weight: Optional[float]
-    initial_bad_quantile: Optional[float]
+    initial_bad_weight: float
+    initial_bad_quantile: float
     check_degenerate: bool
     min_component_separation: float
     min_good_component_weight: float
@@ -115,9 +110,7 @@ class EstimatorConfig:
     estimator_type: EstimatorType
     max_iter: int
     tolerance: float
-    random_state: int
-    damping_coef: float = 0.0
-    params: Dict[str, Any] = field(default_factory=dict)
+    params: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -125,7 +118,36 @@ class PipelineConfig:
     device: str
     io: IOConfig
     estimator: EstimatorConfig
-    gmm: Optional[GMMConfig] = None
+    gmm: GMMConfig | None = None
+
+
+@dataclass(frozen=True)
+class FourierOptions:
+    weight_approach: WeightApproach
+    delta: float
+    lowpass_mask_cutoff: float | None
+
+
+def _resolve_fourier_options(
+    *,
+    weight_approach: WeightApproach,
+    delta: float | None,
+    lowpass_mask: bool,
+    lowpass_mask_cutoff: float | None,
+) -> FourierOptions:
+    if delta is None:
+        delta = DEFAULT_SMOOTH_DELTA[weight_approach]
+
+    if not lowpass_mask:
+        lowpass_mask_cutoff = None
+    elif lowpass_mask_cutoff is None:
+        lowpass_mask_cutoff = DEFAULT_LOWPASS_MASK_CUTOFF
+
+    return FourierOptions(
+        weight_approach=weight_approach,
+        delta=delta,
+        lowpass_mask_cutoff=lowpass_mask_cutoff,
+    )
 
 
 @dataclass
@@ -147,21 +169,17 @@ class ClassProcessingResults:
     gmm_weights : np.ndarray, optional
         Array of shape ``(n,)`` containing the weight each image received after
         GMM reweighting. Set to None for non-GMM estimators. Default is None.
-    gmm_diagnostics : GMMDiagnostics, optional
-        Diagnostics object for assessing the GMM fit.
-        Set to None for non-GMM estimators. Default is None.
     unmasked_low_weight_average, unmkased_high_weight_average : np.ndarray, optional
         The (unweighted) averages of the 10 percent of images with lowest
         and highest weights, respectively.
         These can be None if said subsets are not well-defined (e.g., because the
-        estimator produced constant weights).
+        estimator produced constant weights), or if they have not been requested.
     """
 
     unmasked_corrected_average: np.ndarray
     unmasked_original_average: np.ndarray
     robust_weights: np.ndarray
-    gmm_weights: Optional[np.ndarray] = None
-    gmm_diagnostics: Optional[GMMDiagnostics] = None
+    gmm_weights: np.ndarray | None = None
     unmasked_low_weight_average: np.ndarray | None = None
     unmasked_high_weight_average: np.ndarray | None = None
 
@@ -217,11 +235,6 @@ def build_argument_parser() -> argparse.ArgumentParser:
         help="Path to output .mrcs file for original class averages",
     )
     io_group.add_argument(
-        "--out-difference-avgs",
-        type=Path,
-        help="Path to output .mrcs file for the differences between original class averages and corrected class averages",
-    )
-    io_group.add_argument(
         "--out-low-weight-avgs",
         type=Path,
         help="Path to output .mrcs file for the average of the images with lowest weights in each class",
@@ -244,19 +257,14 @@ def build_argument_parser() -> argparse.ArgumentParser:
         help=f"Column by which images are grouped (default: '{MDL_REF_COLUMN}')",
     )
     io_group.add_argument(
-        "--out-gmm-diagnostics",
-        type=Path,
-        help="Path to a directory where the information about GMM fits will be stored.",
+        "--overwrite",
+        action=argparse.BooleanOptionalAction,
+        help="Overwrite image stacks if they already exist on the requested paths.",
+        default=False,
     )
 
     # Shared estimator hyperparameters
     estimator_group = parser.add_argument_group("Shared estimator options")
-    estimator_group.add_argument(
-        "--estimator-random-state",
-        type=int,
-        default=42,
-        help="Random seed for estimator initialization",
-    )
     estimator_group.add_argument(
         "--estimator-tolerance",
         type=float,
@@ -275,7 +283,6 @@ def build_argument_parser() -> argparse.ArgumentParser:
             "this means the number of iterations for the most external GMM layer."
         ),
     )
-    estimator_group.add_argument("--damping-coef", type=float, default=0.0)
 
     # GMM options
     gmm_group = parser.add_argument_group("GMM reweighting options")
@@ -295,18 +302,6 @@ def build_argument_parser() -> argparse.ArgumentParser:
             "Number of iterations used to fit the internal GMM model on each "
             "external iteration."
         ),
-    )
-    gmm_group.add_argument(
-        "--gmm-standardize-distances",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Standardize the distances before fitting the GMM model to them.",
-    )
-    gmm_group.add_argument(
-        "--gmm-initialize-params",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="For each image class, initialize the GMM model's means and weights to default values.",
     )
     gmm_group.add_argument(
         "--gmm-initial-bad-weight",
@@ -349,7 +344,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
     )
 
     # IRLS options
-    irls_parser = subparsers.add_parser("irls", help="Standard IRLS procedure")
+    subparsers.add_parser("irls", help="Standard IRLS procedure")
 
     # ADMM options
     admm_parser = subparsers.add_parser("admm", help="ADMM optimization procedure")
@@ -479,70 +474,36 @@ def parse_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
         out_star=args.out_star,
         out_corrected_avgs=args.out_corrected_avgs,
         out_original_avgs=args.out_original_avgs,
-        out_difference_avgs=args.out_difference_avgs,
         out_low_weight_avgs=args.out_low_weight_avgs,
         out_high_weight_avgs=args.out_high_weight_avgs,
         outlier_proportion_for_avgs=args.outlier_proportion_for_avgs,
         group_by_column=args.group_by_column,
-        out_gmm_diagnostics=args.out_gmm_diagnostics,
+        overwrite=args.overwrite,
     )
 
-    if args.estimator_type == "noise_corrected_cosine":
-        if args.gmm:
-            raise ValueError(
-                "Use noise_corrected_cosine --weighting gmm, without --gmm; "
-                "the new estimator already owns its GMM loop"
+    if args.estimator_type == "fourier_irls":
+        method_params = {
+            "fourier_options": _resolve_fourier_options(
+                weight_approach=args.weight_approach,
+                delta=args.delta,
+                lowpass_mask=args.lowpass_mask,
+                lowpass_mask_cutoff=args.lowpass_mask_cutoff,
             )
-        if args.damping_coef != 0:
-            raise ValueError("Noise-corrected cosine currently requires damping-coef=0")
-        method_params = {
-            "weighting": args.weighting,
-            "weight_power": args.weight_power,
-            "metric_params": {
-                "noise_variance": (
-                    "auto" if args.noise_variance is None else args.noise_variance
-                ),
-                "pool_noise": args.pool_noise,
-                "clip": args.clip_cosine,
-                "min_signal_fraction": args.min_signal_fraction,
-                "batch_size": args.cache_batch_size,
-                "filter_sigma": args.filter_sigma,
-                "min_frequency": args.min_frequency,
-                "max_frequency": args.max_frequency,
-            },
-        }
-    elif args.estimator_type == "fourier_irls":
-        if args.lowpass_mask and args.lowpass_mask_cutoff is None:
-            args.lowpass_mask_cutoff = DEFAULT_LOWPASS_MASK_CUTOFF
-        method_params = {
-            "delta": args.delta,
-            "weight_approach": args.weight_approach,
-            "lowpass_mask": args.lowpass_mask,
-            "lowpass_mask_cutoff": args.lowpass_mask_cutoff,
         }
     elif args.estimator_type == "admm":
-        if args.fourier_lowpass_mask and args.fourier_lowpass_mask_cutoff is None:
-            args.fourier_lowpass_mask_cutoff = DEFAULT_LOWPASS_MASK_CUTOFF
         method_params = {
             "initial_mu": args.initial_mu,
             "fourier_multiplier": args.fourier_multiplier,
             "internal_max_iter": args.internal_max_iter,
-            "fourier_delta": args.fourier_delta,
-            "fourier_weight_approach": args.fourier_weight_approach,
-            "fourier_lowpass_mask": args.fourier_lowpass_mask,
-            "fourier_lowpass_mask_cutoff": args.fourier_lowpass_mask_cutoff,
+            "fourier_options": _resolve_fourier_options(
+                weight_approach=args.fourier_weight_approach,
+                delta=args.fourier_delta,
+                lowpass_mask=args.fourier_lowpass_mask,
+                lowpass_mask_cutoff=args.fourier_lowpass_mask_cutoff,
+            ),
         }
     else:
         method_params = {}
-
-    # Resolve dynamic default for 'delta' and 'fourier_delta'
-    for param_prefix in ["", "fourier_"]:
-        param_name = param_prefix + "delta"
-        if method_params.get(param_name) is None:
-            weight_approach_name = param_prefix + "weight_approach"
-            approach = method_params.get(weight_approach_name)
-            if approach in DEFAULT_SMOOTH_DELTA:
-                method_params[param_name] = DEFAULT_SMOOTH_DELTA[approach]
 
     # Resolve dynamic default for max_iter
     max_iter = args.estimator_max_iter
@@ -553,8 +514,6 @@ def parse_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
         estimator_type=args.estimator_type,
         max_iter=max_iter,
         tolerance=args.estimator_tolerance,
-        random_state=args.estimator_random_state,
-        damping_coef=args.damping_coef,
         params=method_params,
     )
 
@@ -565,8 +524,6 @@ def parse_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
         gmm_cfg = GMMConfig(
             external_max_iter=args.gmm_external_max_iter,
             internal_max_iter=args.gmm_internal_max_iter,
-            standardize_distances=args.gmm_standardize_distances,
-            initialize_params=args.gmm_initialize_params,
             initial_bad_weight=args.gmm_initial_bad_weight,
             # GMM works with distances internally, so the quantile has to be flipped
             initial_bad_quantile=(
@@ -601,12 +558,12 @@ def validate_item_ids(data: pd.DataFrame, name: str) -> None:
 
     if data[MDL_ITEM_ID_COLUMN].duplicated().any():
         raise ValueError(
-            f"{name} metadata contains duplicated " f"'{MDL_ITEM_ID_COLUMN}' values."
+            f"{name} metadata contains duplicated '{MDL_ITEM_ID_COLUMN}' values."
         )
 
 
-def validate_assignments(data: pd.DataFrame, group_by_column: str) -> None:
-    """Validate particle IDs, nonnegative integer groups, and unique assignments."""
+def validate_assignments(data: pd.DataFrame, group_by_column: str) -> pd.Series:
+    """Validate particle assignments and return the group IDs as integers."""
     keys = [MDL_ITEM_ID_COLUMN, group_by_column]
 
     missing_columns = [key for key in keys if key not in data.columns]
@@ -639,6 +596,8 @@ def validate_assignments(data: pd.DataFrame, group_by_column: str) -> None:
             "within the same group."
         )
 
+    return pairs[group_by_column].astype(np.int64)
+
 
 def _initialize_irls(
     config: EstimatorConfig, unmasked_images: torch.Tensor, masked_images: torch.Tensor
@@ -669,42 +628,54 @@ def _initialize_irls(
         weight_function=tagare_weight_function,
         max_iter=config.max_iter,
         tol=config.tolerance,
-        damping_coef=config.damping_coef,
+    )
+
+
+def _build_fourier_irls(
+    options: FourierOptions,
+    *,
+    image_shape: torch.Size,
+    device: torch.device,
+    max_iter: int,
+    tolerance: float,
+) -> JointIRLSFourier:
+    if options.weight_approach == "per-coefficient":
+        weight_function = partial(
+            smooth_redescending_weights_modulus, delta=options.delta
+        )
+    else:
+        weight_function = partial(smooth_redescending_weights_norm, delta=options.delta)
+
+    mask = None
+    if options.lowpass_mask_cutoff is not None:
+        mask_np = create_lowpass_rfft_mask(
+            image_shape=image_shape,
+            cutoff=options.lowpass_mask_cutoff,
+            unit="normalized",
+        )
+        mask = torch.as_tensor(mask_np, device=device)
+
+    solver = IRLSMEstimator(
+        weight_function=weight_function,
+        max_iter=max_iter,
+        tol=tolerance,
+    )
+    return JointIRLSFourier(
+        irls_solver=solver,
+        weight_approach=options.weight_approach,
+        mask=mask,
     )
 
 
 def _initialize_fourier_irls(
     config: EstimatorConfig, unmasked_images: torch.Tensor, masked_images: torch.Tensor
 ) -> JointIRLSFourier:
-    params = config.params
-
-    if params["weight_approach"] == "per-coefficient":
-        weight_function = partial(
-            smooth_redescending_weights_modulus, delta=params["delta"]
-        )
-    else:
-        weight_function = partial(
-            smooth_redescending_weights_norm, delta=params["delta"]
-        )
-
-    use_mask = params.get("lowpass_mask")
-    mask = None
-    if use_mask:
-        mask = create_lowpass_rfft_mask(
-            image_shape=unmasked_images.shape[1:],
-            cutoff=params["lowpass_mask_cutoff"],
-            unit="normalized",
-        )
-
-    irls_solver = IRLSMEstimator(
-        weight_function=weight_function,
+    return _build_fourier_irls(
+        options=config.params["fourier_options"],
+        image_shape=unmasked_images.shape[1:],
+        device=unmasked_images.device,
         max_iter=config.max_iter,
-        tol=config.tolerance,
-        damping_coef=config.damping_coef,
-    )
-
-    return JointIRLSFourier(
-        irls_solver=irls_solver, weight_approach=params["weight_approach"], mask=mask
+        tolerance=config.tolerance,
     )
 
 
@@ -715,18 +686,12 @@ def _initialize_admm(
 
     real_irls_config = replace(config, max_iter=params["internal_max_iter"])
     real_irls = _initialize_irls(real_irls_config, unmasked_images, masked_images)
-
-    fourier_params = {
-        "delta": params["fourier_delta"],
-        "weight_approach": params["fourier_weight_approach"],
-        "lowpass_mask": params["fourier_lowpass_mask"],
-        "lowpass_mask_cutoff": params["fourier_lowpass_mask_cutoff"],
-    }
-    fourier_irls_config = replace(
-        config, max_iter=params["internal_max_iter"], params=fourier_params
-    )
-    fourier_irls = _initialize_fourier_irls(
-        fourier_irls_config, unmasked_images, masked_images
+    fourier_irls = _build_fourier_irls(
+        options=params["fourier_options"],
+        image_shape=unmasked_images.shape[1:],
+        device=unmasked_images.device,
+        max_iter=params["internal_max_iter"],
+        tolerance=config.tolerance,
     )
 
     return ADMMEstimator(
@@ -794,64 +759,12 @@ def initialize_estimator(
         distance_function=distance_function,
         max_iter=gmm_config.external_max_iter,
         tol=estimator_config.tolerance,
-        standardize_distances=gmm_config.standardize_distances,
-        initialize_params=gmm_config.initialize_params,
         initial_bad_mean_quantile=gmm_config.initial_bad_quantile,
         initial_bad_weight=gmm_config.initial_bad_weight,
-        random_state=estimator_config.random_state,
         gmm_max_iter=gmm_config.internal_max_iter,
         check_degenerate_model=gmm_config.check_degenerate,
         min_component_separation=gmm_config.min_component_separation,
         min_good_component_weight=gmm_config.min_good_component_weight,
-    )
-
-
-def fit_estimator(
-    estimator: Estimator,
-    masked_images: torch.Tensor,
-    unmasked_images: torch.Tensor,
-    reference: torch.Tensor,
-    reference_weights: Optional[torch.Tensor] = None,
-) -> Tuple[np.ndarray, Optional[np.ndarray], np.ndarray, Optional[GMMDiagnostics]]:
-    """
-    Fit the estimator and return a set of per-image weights and an optional set of
-    per-image GMM weights for GMM-type estimators.
-    Also returns an estimate using the unmasked images and the estimator's weights.
-    """
-    # Estimators return an EstimatorResult object with estimate, weights, gmm_diagnostics
-    if isinstance(estimator, NoiseCorrectedCosineEstimator):
-        result = estimator.fit(
-            images=masked_images,
-            reference=reference,
-            reference_weights=reference_weights,
-        )
-    else:
-        result = estimator.fit(images=masked_images, reference=reference)
-
-    if result.gmm_diagnostics is not None:
-        robust_weights = (
-            (1 - result.gmm_diagnostics.distances)
-            if isinstance(estimator, NoiseCorrectedCosineEstimator)
-            else -result.gmm_diagnostics.distances
-        )
-        gmm_weights = result.weights
-        weights = gmm_weights
-    else:
-        robust_weights = result.weights
-        gmm_weights = None
-        weights = robust_weights
-
-    unmasked_new_average = weighted_average(
-        unmasked_images,
-        weights,
-        eps=0.0 if isinstance(estimator, NoiseCorrectedCosineEstimator) else 1.0e-6,
-    )
-
-    return (
-        robust_weights.detach().cpu().numpy().reshape(-1),
-        None if gmm_weights is None else gmm_weights.detach().cpu().numpy().reshape(-1),
-        unmasked_new_average.detach().cpu().numpy(),
-        result.gmm_diagnostics,
     )
 
 
@@ -894,34 +807,43 @@ def process_class(
     )
     reference = masked_images.mean(dim=0)
 
-    robust_weights_np, gmm_weights_np, unmasked_corrected_average, gmm_diagnostics = (
-        fit_estimator(
-            estimator,
-            masked_images=masked_images,
-            unmasked_images=images,
-            reference=reference,
-            reference_weights=images.new_full((len(images),), 1.0 / len(images)),
-        )
+    result = estimator.fit(images=masked_images, reference=reference)
+    fit_weights_np = result.weights.detach().cpu().numpy().reshape(-1)
+
+    gmm_distances = result.gmm_distances
+    if gmm_distances is None:
+        robust_weights_np = fit_weights_np
+        gmm_weights_np = None
+    else:
+        robust_weights_np = -gmm_distances.detach().cpu().numpy().reshape(-1)
+        gmm_weights_np = fit_weights_np
+
+    io = pipeline_config.io
+
+    unmasked_corrected_average = (
+        weighted_average(images, result.weights).detach().cpu().numpy()
     )
     unmasked_original_average = images.mean(dim=0).detach().cpu().numpy()
 
-    weights = gmm_weights_np if gmm_weights_np is not None else robust_weights_np
+    weights = fit_weights_np
 
-    outlier_proportion = pipeline_config.io.outlier_proportion_for_avgs
-    bottom_weight = np.quantile(weights, outlier_proportion)
-    top_weight = np.quantile(weights, 1.0 - outlier_proportion)
+    high_weight_average = None
+    if io.out_high_weight_avgs:
+        outlier_proportion = io.outlier_proportion_for_avgs
+        top_weight = np.quantile(weights, 1.0 - outlier_proportion)
+        high_mask = weights >= top_weight
 
-    low_mask = weights <= bottom_weight
-    high_mask = weights >= top_weight
+        if high_mask.any():
+            high_weight_average = images[high_mask].mean(dim=0).detach().cpu().numpy()
 
-    low_weight_average = (
-        images[low_mask].mean(dim=0).detach().cpu().numpy() if low_mask.any() else None
-    )
-    high_weight_average = (
-        images[high_mask].mean(dim=0).detach().cpu().numpy()
-        if high_mask.any()
-        else None
-    )
+    low_weight_average = None
+    if io.out_low_weight_avgs:
+        outlier_proportion = io.outlier_proportion_for_avgs
+        bottom_weight = np.quantile(weights, outlier_proportion)
+        low_mask = weights <= bottom_weight
+
+        if low_mask.any():
+            low_weight_average = images[low_mask].mean(dim=0).detach().cpu().numpy()
 
     return ClassProcessingResults(
         unmasked_corrected_average=unmasked_corrected_average,
@@ -930,20 +852,22 @@ def process_class(
         unmasked_high_weight_average=high_weight_average,
         robust_weights=robust_weights_np,
         gmm_weights=gmm_weights_np,
-        gmm_diagnostics=gmm_diagnostics,
     )
 
 
 def write_weights_to_dataframe(
     write_metadata: pd.DataFrame,
     robust_weights_np: np.ndarray,
-    gmm_weights_np: Optional[np.ndarray],
+    gmm_weights_np: np.ndarray | None,
     item_ids: np.ndarray,
     group_by_column: str,
     group_by_value: int,
     eps_std: float = 1.0e-6,
 ) -> None:
-    """Accumulate maximum weights and retain the best-weight group per particle."""
+    """
+    Store each particle's group and all weights from its best assignment.
+    The input ``write_metadata`` should be indexed by ``MDL_ITEM_ID_COLUMN``.
+    """
     std = robust_weights_np.std()
     standardized_weights = (
         (robust_weights_np - robust_weights_np.mean()) / std
@@ -965,75 +889,60 @@ def write_weights_to_dataframe(
             )
 
     primary_column = GMM_WEIGHT_COL if gmm_weights_np is not None else ROBUST_WEIGHT_COL
-    output_ids = write_metadata[MDL_ITEM_ID_COLUMN]
-    class_mask = output_ids.isin(item_ids)
+    incoming = pd.DataFrame(weights_by_column, index=item_ids)
+    previous_primary = write_metadata.loc[incoming.index, primary_column]
 
-    incoming_primary = output_ids.map(
-        pd.Series(weights_by_column[primary_column], index=item_ids)
+    better_group = previous_primary.isna() | (
+        incoming[primary_column] > previous_primary
     )
-    current_primary = write_metadata[primary_column]
+    winners = incoming.loc[better_group]
 
-    # Calculate this before updating the stored maxima.
-    better_group = class_mask & (
-        current_primary.isna() | (incoming_primary > current_primary)
-    )
-
-    for column, values in weights_by_column.items():
-        incoming = output_ids.loc[class_mask].map(pd.Series(values, index=item_ids))
-        previous = write_metadata.loc[class_mask, column]
-
-        write_metadata.loc[class_mask, column] = np.fmax(
-            previous.to_numpy(),
-            incoming.to_numpy(),
-        )
-
-    write_metadata.loc[better_group, group_by_column] = group_by_value
+    write_metadata.loc[winners.index, list(weights_by_column)] = winners
+    write_metadata.loc[winners.index, group_by_column] = group_by_value
 
 
-def get_output_buffers(
+def prepare_output_metadata(
     io_config: IOConfig,
     input_metadata_df: pd.DataFrame,
     weight_columns: Iterable[str],
+) -> pd.DataFrame | None:
+    if not io_config.out_star:
+        return None
+
+    # Metadata files can be large, avoid reading the same file twice if possible
+    if io_config.base_xmd != io_config.input_xmd:
+        write_metadata = pd.DataFrame(starfile.read(io_config.base_xmd))
+    else:
+        write_metadata = input_metadata_df.copy()
+
+    validate_item_ids(write_metadata, name="Base")
+
+    input_ids = pd.Index(input_metadata_df[MDL_ITEM_ID_COLUMN].unique())
+    base_ids = pd.Index(write_metadata[MDL_ITEM_ID_COLUMN])
+
+    missing_ids = input_ids.difference(base_ids)
+    if len(missing_ids):
+        raise ValueError(
+            f"{len(missing_ids)} input particles are absent from the base metadata."
+        )
+
+    # Filter out particles not present in input xmd
+    write_metadata = write_metadata.loc[
+        write_metadata[MDL_ITEM_ID_COLUMN].isin(input_ids)
+    ].set_index(MDL_ITEM_ID_COLUMN, drop=False)
+
+    # Initialize the weight to nan to later catch particles without weights
+    for column in weight_columns:
+        write_metadata[column] = np.nan
+    write_metadata[io_config.group_by_column] = UNASSIGNED_GROUP_VALUE
+    return write_metadata
+
+
+def allocate_average_stacks(
+    io_config: IOConfig,
+    input_metadata_df: pd.DataFrame,
     n_classes: int,
-) -> Tuple[
-    Optional[pd.DataFrame],
-    Optional[np.ndarray],
-    Optional[np.ndarray],
-    Optional[np.ndarray],
-    Optional[np.ndarray],
-    Optional[np.ndarray],
-]:
-    group_by_column = io_config.group_by_column
-
-    write_metadata = None
-    if io_config.out_star:
-        # Metadata files can be large, avoid reading the same file twice if possible
-        if io_config.base_xmd != io_config.input_xmd:
-            write_metadata = pd.DataFrame(starfile.read(io_config.base_xmd))
-        else:
-            write_metadata = input_metadata_df.copy()
-
-        validate_item_ids(write_metadata, name="Base")
-
-        input_ids = pd.Index(input_metadata_df[MDL_ITEM_ID_COLUMN].unique())
-        base_ids = pd.Index(write_metadata[MDL_ITEM_ID_COLUMN])
-
-        missing_ids = input_ids.difference(base_ids)
-        if len(missing_ids):
-            raise ValueError(
-                f"{len(missing_ids)} input particles are absent from the base metadata."
-            )
-
-        # Filter out particles not present in input xmd
-        write_metadata = write_metadata.loc[
-            write_metadata[MDL_ITEM_ID_COLUMN].isin(input_ids)
-        ].copy()
-
-        # Initialize the weight to nan to later catch particles without weights
-        for column in weight_columns:
-            write_metadata[column] = np.nan
-        write_metadata[group_by_column] = UNASSIGNED_GROUP_VALUE
-
+) -> dict[str, tuple[Path, np.ndarray]]:
     stack_path = Path(
         str(input_metadata_df["image"].to_numpy()[0]).split("@", maxsplit=1)[1]
     )
@@ -1042,35 +951,18 @@ def get_output_buffers(
         nx = mrc.header.nx
         ny = mrc.header.ny
 
+    average_stacks: dict[str, tuple[Path, np.ndarray]] = {}
     average_stacks_shape = (n_classes, ny, nx)
-    corrected_averages = None
-    if io_config.out_corrected_avgs:
-        corrected_averages = np.empty(shape=average_stacks_shape, dtype=np.float32)
 
-    original_averages = None
-    if io_config.out_original_avgs:
-        original_averages = np.empty(shape=average_stacks_shape, dtype=np.float32)
+    for path_field, result_field in AVERAGE_STACK_OUTPUTS:
+        path = getattr(io_config, path_field)
+        if path:
+            average_stacks[result_field] = (
+                path,
+                np.empty(average_stacks_shape, dtype=np.float32),
+            )
 
-    low_weight_averages = None
-    if io_config.out_low_weight_avgs:
-        low_weight_averages = np.empty(shape=average_stacks_shape, dtype=np.float32)
-
-    high_weight_averages = None
-    if io_config.out_high_weight_avgs:
-        high_weight_averages = np.empty(shape=average_stacks_shape, dtype=np.float32)
-
-    difference_avgs = None
-    if io_config.out_difference_avgs:
-        difference_avgs = np.empty(shape=average_stacks_shape, dtype=np.float32)
-
-    return (
-        write_metadata,
-        corrected_averages,
-        original_averages,
-        low_weight_averages,
-        high_weight_averages,
-        difference_avgs,
-    )
+    return average_stacks
 
 
 def get_weight_columns(pipeline_config: PipelineConfig):
@@ -1085,52 +977,34 @@ def main() -> None:
     args = parser.parse_args()
     pipeline_config = parse_pipeline_config(args)
 
-    group_by_column = pipeline_config.io.group_by_column
     input_metadata_df = pd.DataFrame(starfile.read(pipeline_config.io.input_xmd))
 
-    validate_assignments(input_metadata_df, group_by_column)
-
-    input_metadata_df[group_by_column] = pd.to_numeric(
-        input_metadata_df[group_by_column], errors="raise"
-    ).astype(np.int64)
-
-    group_by_values: Iterable[int] = sorted(input_metadata_df[group_by_column].unique())
+    group_by_column = pipeline_config.io.group_by_column
+    input_metadata_df[group_by_column] = validate_assignments(
+        input_metadata_df, group_by_column
+    )
+    groups = input_metadata_df.groupby(group_by_column, sort=True)
 
     weight_columns = get_weight_columns(pipeline_config)
-    out_md, robust_avgs, original_avgs, low_w_avgs, high_w_avgs, diff_avgs = (
-        get_output_buffers(
-            io_config=pipeline_config.io,
-            input_metadata_df=input_metadata_df,
-            weight_columns=weight_columns,
-            n_classes=len(group_by_values),
-        )
+    out_md = prepare_output_metadata(
+        io_config=pipeline_config.io,
+        input_metadata_df=input_metadata_df,
+        weight_columns=weight_columns,
+    )
+    average_stacks = allocate_average_stacks(
+        io_config=pipeline_config.io,
+        input_metadata_df=input_metadata_df,
+        n_classes=groups.ngroups,
     )
 
-    gmm_fits_info = []
-    distances_dict = {}
-    gmm_weights_dict = {}
-    gmm_raw_responsibilities_dict = {}
-    gmm_peak_weights_dict = {}
-    gmm_cummin_weights_dict = {}
-
-    gmm_out_path = pipeline_config.io.out_gmm_diagnostics
-    if gmm_out_path is not None:
-        gmm_out_path.mkdir(exist_ok=True)
-
-    for index, class_value in enumerate(group_by_values):
-        class_rows = input_metadata_df[group_by_column] == class_value
-        class_data = input_metadata_df[class_rows]
-
+    for index, (class_value, class_data) in enumerate(groups):
         class_results = process_class(
-            class_data=class_data,
-            pipeline_config=pipeline_config,
+            class_data=class_data, pipeline_config=pipeline_config
         )
 
-        if robust_avgs is not None:
-            robust_avgs[index] = class_results.unmasked_corrected_average
-
-        if original_avgs is not None:
-            original_avgs[index] = class_results.unmasked_original_average
+        for result_field, (_, stack) in average_stacks.items():
+            average = getattr(class_results, result_field)
+            stack[index] = 0.0 if average is None else average
 
         if diff_avgs is not None:
             diff_avgs[index] = (
@@ -1162,45 +1036,8 @@ def main() -> None:
                 gmm_weights_np=class_results.gmm_weights,
             )
 
-        diagnostics = class_results.gmm_diagnostics
-        if gmm_out_path is not None and diagnostics is not None:
-            fit_info = diagnostics.get_fit_info_dict()
-            distances = diagnostics.distances.detach().cpu().numpy().reshape(-1)
-
-            dict_key = str(class_value)
-            distances_dict[dict_key] = distances
-
-            # A fallback before a valid GMM fit has no posterior to compare.
-            if diagnostics.weights is not None:
-                gmm_weights_dict[dict_key] = (
-                    diagnostics.weights.detach().cpu().numpy().reshape(-1)
-                )
-            if diagnostics.cummin_weights is not None:
-                gmm_cummin_weights_dict[dict_key] = (
-                    diagnostics.cummin_weights.detach().cpu().numpy().reshape(-1)
-                )
-            if diagnostics.raw_responsibilities is not None:
-                gmm_raw_responsibilities_dict[dict_key] = (
-                    diagnostics.raw_responsibilities.detach().cpu().numpy().reshape(-1)
-                )
-            if diagnostics.peak_weights is not None:
-                gmm_peak_weights_dict[dict_key] = (
-                    diagnostics.peak_weights.detach().cpu().numpy().reshape(-1)
-                )
-
-            fit_info["class_id"] = class_value
-            gmm_fits_info.append(fit_info)
-
-    if robust_avgs is not None:
-        mrcfile.write(name=pipeline_config.io.out_corrected_avgs, data=robust_avgs)
-    if original_avgs is not None:
-        mrcfile.write(name=pipeline_config.io.out_original_avgs, data=original_avgs)
-    if diff_avgs is not None:
-        mrcfile.write(name=pipeline_config.io.out_difference_avgs, data=diff_avgs)
-    if low_w_avgs is not None:
-        mrcfile.write(name=pipeline_config.io.out_low_weight_avgs, data=low_w_avgs)
-    if high_w_avgs is not None:
-        mrcfile.write(name=pipeline_config.io.out_high_weight_avgs, data=high_w_avgs)
+    for path, stack in average_stacks.values():
+        mrcfile.write(name=path, data=stack, overwrite=pipeline_config.io.overwrite)
 
     if out_md is not None:
         if out_md[weight_columns].isna().any().any():
@@ -1211,23 +1048,8 @@ def main() -> None:
             raise RuntimeError("Some particles were not assigned a valid group.")
 
         out_md[group_by_column] = output_groups.astype(np.int64)
-        
-        starfile.write(data=out_md, filename=args.out_star)
 
-    if gmm_out_path is not None and gmm_fits_info:
-        np.savez_compressed(gmm_out_path / "distances.npz", **distances_dict)
-        np.savez_compressed(gmm_out_path / "gmmWeights.npz", **gmm_weights_dict)
-        np.savez_compressed(
-            gmm_out_path / "gmmPeakWeights.npz", **gmm_peak_weights_dict
-        )
-        np.savez_compressed(
-            gmm_out_path / "gmmRawResponsibilities.npz", **gmm_raw_responsibilities_dict
-        )
-        np.savez_compressed(
-            gmm_out_path / "gmmCumminWeights.npz", **gmm_cummin_weights_dict
-        )
-        gmm_df = pd.DataFrame(gmm_fits_info)
-        gmm_df.to_csv(gmm_out_path / "gmmFits.csv", index=False)
+        starfile.write(data=out_md, filename=args.out_star)
 
 
 if __name__ == "__main__":
