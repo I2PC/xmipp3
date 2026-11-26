@@ -108,6 +108,47 @@ class GmmAverageScriptTest(unittest.TestCase):
                     atol=1e-6,
                 )
 
+    def test_cli_writes_weights_for_each_class_membership(self):
+        import mrcfile
+        import numpy as np
+        import pandas as pd
+        import starfile
+
+        shared_image = np.zeros((5, 5), dtype=np.float32)
+        shared_image[2, 2] = 1.0
+        other_image = np.zeros_like(shared_image)
+        other_image[2, 3] = 1.0
+        memberships = [(42, 9), (43, 2), (44, 9), (42, 2), (45, 9)]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            stack = Path(tmpdir) / "particles.mrcs"
+            metadata = Path(tmpdir) / "particles.xmd"
+            output = Path(tmpdir) / "weights.star"
+            mrcfile.write(stack, np.stack([shared_image, other_image]))
+            starfile.write(
+                pd.DataFrame(
+                    {
+                        "image": [f"{index}@{stack}" for index in (1, 1, 2, 1, 2)],
+                        "itemId": [item_id for item_id, _ in memberships],
+                        "ref": [class_id for _, class_id in memberships],
+                    }
+                ),
+                metadata,
+            )
+
+            self.run_cli("--input-xmd", str(metadata), "--out-star", str(output), "irls")
+            weights = starfile.read(output)
+
+        self.assertCountEqual(
+            weights.columns, ["itemId", "ref", "wRobust", "wRobustStd"]
+        )
+        weights = weights.set_index(["itemId", "ref"])
+        self.assertCountEqual(weights.index.to_list(), memberships)
+        self.assertTrue(np.isfinite(weights.to_numpy()).all())
+        self.assertGreater(
+            weights.loc[(42, 2), "wRobust"], weights.loc[(42, 9), "wRobust"]
+        )
+
     def test_cli_lowpass_mask_preserves_identical_particles(self):
         import mrcfile
         import numpy as np
@@ -200,7 +241,7 @@ class GmmAverageScriptTest(unittest.TestCase):
                     averages.data.reshape(expected.shape), expected, rtol=1e-5, atol=1e-6
                 )
 
-    def test_metadata_keeps_all_weights_from_each_gmm_winner(self):
+    def test_metadata_keeps_all_weights_for_each_gmm_membership(self):
         import numpy as np
         import pandas as pd
 
@@ -209,19 +250,18 @@ class GmmAverageScriptTest(unittest.TestCase):
 
         output = pd.DataFrame(
             {
-                "itemId": [17, 42],
-                "ref": [-1, -1],
+                "itemId": [42, 17, 17, 42],
+                "ref": [9, 2, 9, 2],
                 "wRobust": np.nan,
                 "wRobustStd": np.nan,
                 "wRobustGmm": np.nan,
             }
-        ).set_index("itemId", drop=False)
-        # The raw robust scores and GMM scores rank the assignments oppositely.
+        )
         write_weights_to_dataframe(
             output,
             robust_weights_np=np.array([0.90, 0.20]),
             gmm_weights_np=np.array([0.25, 0.75]),
-            item_ids=np.array([42, 17]),
+            row_index=pd.Index([3, 1]),
             group_by_column="ref",
             group_by_value=2,
         )
@@ -229,29 +269,18 @@ class GmmAverageScriptTest(unittest.TestCase):
             output,
             robust_weights_np=np.array([0.95, 0.35]),
             gmm_weights_np=np.array([0.20, 0.85]),
-            item_ids=np.array([17, 42]),
+            row_index=pd.Index([2, 0]),
             group_by_column="ref",
             group_by_value=9,
         )
-        # Equal GMM scores keep the earlier assignment and its weights.
-        write_weights_to_dataframe(
-            output,
-            robust_weights_np=np.array([0.99, 0.45]),
-            gmm_weights_np=np.array([0.85, 0.75]),
-            item_ids=np.array([42, 17]),
-            group_by_column="ref",
-            group_by_value=12,
-        )
-
         expected = pd.DataFrame(
             {
-                "itemId": [17, 42],
-                "ref": [2, 9],
-                "wRobust": [0.20, 0.35],
-                "wRobustStd": [-1.0, -1.0],
-                "wRobustGmm": [0.75, 0.85],
-            },
-            index=pd.Index([17, 42], name="itemId"),
+                "itemId": [42, 17, 17, 42],
+                "ref": [9, 2, 9, 2],
+                "wRobust": [0.35, 0.20, 0.95, 0.90],
+                "wRobustStd": [-1.0, -1.0, 1.0, 1.0],
+                "wRobustGmm": [0.85, 0.75, 0.20, 0.25],
+            }
         )
         pd.testing.assert_frame_equal(output, expected, check_dtype=False)
 
