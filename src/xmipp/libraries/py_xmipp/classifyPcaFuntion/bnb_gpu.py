@@ -294,27 +294,18 @@ class BnBgpu(Split):
                        classes, final_classes, freqBn, coef, cvecs, mask, sigma, sampling,
                        cycles, last_iter=17):
  
-        # ---- calendario: del IterationPlan si existe (bnb.plan), si no el fijo de siempre ----
-        plan = getattr(self, 'plan', None)
-        if plan is not None:
-            iterSplit = plan.split_end      # primera iteración SIN splits
-            st = plan.starts                # inicio de cada etapa
-            last_iter = plan.niter - 1
-        else:
-            iterSplit = 7
-            st = [0, 4, 7, 10, 13]
+        # ---- calendario original: 18 iteraciones (0-17) ----
+        # etapas: 0-3, 4-6, 7-9, 10-12, 13-17 (las mismas que en determine_ROTandSHIFT)
+        iterSplit = 7                   # primera iteración SIN splits
+        st = [0, 4, 7, 10, 13]          # inicio de cada etapa
         split_every = 1         # 1 = dividir en cada iteración; 2 = una sí y otra no (entre medias se refina)
  
         # ---- parámetros de la estrategia ----
         junk_iters = (3, st[3])     # iteraciones en las que se marcan partículas malas
         junk_max_frac = 0.06        # tope de clases basura (fracción de final_classes)
         pool_cap = 20000            # máximo de partículas malas que se guardan en GPU
-        min_productive = 1          # splits mínimos en la última iteración para alargar la etapa
  
         is_split_iter = 2 <= iter < iterSplit and (iter - 2) % split_every == 0
-        # el cluster de averages se hace justo ANTES de una iteración de split, para que los
-        # huecos que libere se rellenen con splits; y siempre después de al menos una iteración de refinado
-        merge_now = iter >= 2 and (iter + 1) < iterSplit and (iter + 1 - 2) % split_every == 0
         fill_iter = max(i for i in range(2, iterSplit) if (i - 2) % split_every == 0)   # última con huecos
  
         if iter == 2:
@@ -469,37 +460,27 @@ class BnBgpu(Split):
             for n, dst, sc, a, b in split_done[:10]:
                 print(f"        clase {n} ({a + b} part.) -> {a} + {b} (nueva en {dst}) | score {sc:.1f}", flush=True)
  
-        # ---- ¿alargar la etapa de splits? ----
-        # Última iteración con huecos, aún faltan clases y este split fue productivo: hay más estructura
-        # que separar (típico con datasets enormes). En vez de rellenar con basura, se añade una iteración.
-        if (plan is not None and iter == fill_iter and split_slots
-                and len(split_done) >= min_productive and plan.can_extend()):
-            plan.extend(1)
-            iterSplit = plan.split_end
-            st = plan.starts
-            last_iter = plan.niter - 1
-            merge_now = iter >= 2 and (iter + 1) < iterSplit and (iter + 1 - 2) % split_every == 0
-            fill_iter = max(i for i in range(2, iterSplit) if (i - 2) % split_every == 0)
-            if self.verbose:
-                print(f"[plan] iter {iter}: aún faltan {len(split_slots)} clases y se dividieron {len(split_done)}"
-                      f" -> se alarga la etapa de splits | {plan}", flush=True)
+        # ---- cuándo se hace el cluster de averages ----
+        # - antes de una iteración de split (los huecos que libere se rellenan con splits; las clases recién
+        #   divididas están protegidas para no deshacer el split en la misma iteración), y
+        # - en la última iteración con huecos (at_fill): cluster de TODO, sin proteger las del split.
+        #   Los huecos que queden (los que sobraron más los que libera el cluster) se rellenan con basura.
+        at_fill = (iter == fill_iter)
+        merge_now = at_fill or (iter >= 2 and (iter + 1) < iterSplit and (iter + 1 - 2) % split_every == 0)
  
         # ---- clases basura ----
-        # Antes de fill_iter las partículas malas solo se excluyen de los averages (el pool se descarta).
-        # En fill_iter, los huecos que sobran tras dividir se rellenan con ellas (hasta el tope).
-        # Después, las clases basura ya existentes se reconstruyen cada iteración con lo que les llega.
+        # Antes de at_fill las partículas malas solo se excluyen de los averages (el pool se descarta).
+        # En at_fill las clases basura se crean DESPUÉS del cluster (más abajo), con los huecos que queden.
+        # Después de at_fill, las clases basura existentes se reconstruyen cada iteración con lo que les llega.
+        # Desde st[3] (use_junk False) no se marca nada: cada partícula va a la clase que elige el matching.
         if use_junk:
             prev_idx = torch.where(prev_junk)[0].tolist()       # sus partículas ya están en el pool
-            extra = split_slots[:room] if iter == fill_iter else []   # huecos que sobran tras dividir
-            slots = prev_idx + extra
-            used = self.seed_junk_classes(newCL, pool_imgs, pool_proj, cvecs, slots) if slots else []
+            used = self.seed_junk_classes(newCL, pool_imgs, pool_proj, cvecs, prev_idx) if prev_idx else []
             if used:
                 junk_flags[used] = True
-            if self.verbose and (iter == fill_iter or prev_idx):
-                print(f"[junk] iter {iter}: huecos libres tras dividir {len(split_slots)} | pool {pool_n}"
-                      f" | clases basura creadas {len(used)} (previas {len(prev_idx)}, tope {max_junk})"
-                      f" | tamaños {[int(newCL[s].shape[0]) for s in used]}", flush=True)
-        del pool_imgs, pool_proj
+            if self.verbose and prev_idx:
+                print(f"[junk] iter {iter}: pool {pool_n} | clases basura reconstruidas {len(used)}"
+                      f" de {len(prev_idx)} | tamaños {[int(newCL[s].shape[0]) for s in used]}", flush=True)
  
         # ---- averages ----
         if iter == last_iter:
@@ -517,7 +498,7 @@ class BnBgpu(Split):
             boost = None
             clk = self.highpass_cosine_sharpen(clk, res_classes, sampling, factorR=boost)
  
-        if iter < (iterSplit + 1):  # eliminar vacías y ordenar por tamaño
+        if iter < max(iterSplit + 1, st[3]):  # eliminar vacías y ordenar por tamaño (también durante la ventana de basura)
  
             lengths = torch.tensor([len(cls) for cls in newCL], device=clk.device)
             valid_mask = lengths > 0
@@ -546,17 +527,42 @@ class BnBgpu(Split):
         # ---- cluster de averages iguales (referencias de la siguiente iteración) ----
         n_before_merge = clk.shape[0]
         if merge_now:
-            keep = self.select_distinct_averages(clk, sizes, sampling, protect=(fresh | junk_flags))
+            # en at_fill se agrupa TODO (las clases del split no se protegen); antes, las recién divididas sí
+            protect = junk_flags if at_fill else (fresh | junk_flags)
+            keep = self.select_distinct_averages(clk, sizes, sampling, protect=protect)
             clk = clk[keep]
+            sizes = sizes[keep]
             junk_flags = junk_flags[keep]
+        n_merged = n_before_merge - clk.shape[0]
+ 
+        # ---- at_fill: los huecos (los que sobraron más los que libera el cluster) se rellenan con basura ----
+        n_junk_new = 0
+        if use_junk and at_fill and pool_imgs:
+            n_holes = max(0, final_classes - clk.shape[0])
+            n_new = min(n_holes, room)
+            if n_new > 0:
+                j_avg, j_size = self.make_junk_classes(pool_imgs, pool_proj, cvecs, n_new, sampling)
+                if j_avg is not None:
+                    clk = torch.cat([clk, j_avg])
+                    sizes = torch.cat([sizes, j_size.to(sizes.dtype)])
+                    junk_flags = torch.cat([junk_flags, torch.ones(j_avg.shape[0], dtype=torch.bool,
+                                                                   device=junk_flags.device)])
+                    n_junk_new = j_avg.shape[0]
+            if self.verbose:
+                print(f"[junk] iter {iter}: huecos tras el cluster {n_holes} | pool {pool_n}"
+                      f" | clases basura creadas {n_junk_new} (tope {max_junk})"
+                      f" | tamaños {[int(s) for s in sizes[clk.shape[0] - n_junk_new:]] if n_junk_new else []}",
+                      flush=True)
+        del pool_imgs, pool_proj
  
         if self.verbose:
             print(f"[iter {iter:2d}] clases {classes} -> {clk.shape[0]} | divididas {len(split_done)}"
-                  f" | fusionadas {n_before_merge - clk.shape[0]} | clases basura {int(junk_flags.sum())}"
-                  f" | partículas en pool {pool_n}", flush=True)
+                  f" | fusionadas {n_merged} | clases basura {int(junk_flags.sum())}"
+                  f" (nuevas {n_junk_new}) | partículas en pool {pool_n}", flush=True)
  
         self.junk_cls = junk_flags          # alineado con el cl que se devuelve
         return (clk, tMatrix, batch_projExp_cpu)
+ 
     
     
     def align_particles_to_classes(self, data, cl, tMatrix, iter, expBatchSize, matches, vectorshift, classes, freqBn, coef, cvecs, mask, sigma, sampling):
@@ -626,8 +632,6 @@ class BnBgpu(Split):
     @torch.no_grad()
     def select_distinct_averages(self, clk, sizes, sampling, protect=None,
                                  threshold=0.93, min_n=10, lowpass=20.0, verbose=True):
-        # Ajusta la ruta al fichero donde guardes TwoDClassAverageClusterer
-        from xmippPyModules.classifyPcaFuntion.class_clustering import TwoDClassAverageClusterer
  
         K = clk.shape[0]
         if protect is None:
@@ -637,7 +641,7 @@ class BnBgpu(Split):
         if ok.numel() < 3:
             return torch.arange(K, device=clk.device)
  
-        clusterer = clusterer(threshold=threshold, device=clk.device,
+        clusterer = Clusterer(threshold=threshold, device=clk.device,
                                               apix=sampling, lowpass=lowpass)
         clusterer.fit(clk[ok])
  
