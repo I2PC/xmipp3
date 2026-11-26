@@ -1064,12 +1064,21 @@ def build_argument_parser() -> argparse.ArgumentParser:
 def main():
     parser = build_argument_parser()
     args = parser.parse_args()
+    if args.n_groups <= 0:
+        parser.error("--n-groups must be positive")
+    if args.grouping_batch_size <= 0:
+        parser.error("--grouping-batch-size must be positive")
+
     if args.grouping_mode == "nearest" and (
         args.angular_radius_deg is not None or args.unassigned_policy != "error"
     ):
         parser.error("--angular-radius-deg and nearest fallback require threshold mode")
-    if args.grouping_batch_size <= 0:
-        parser.error("--grouping-batch-size must be positive")
+    if args.grouping_mode == "threshold":
+        radius = args.angular_radius_deg
+        if radius is None:
+            parser.error("--angular-radius-deg is required in threshold mode")
+        if not math.isfinite(radius) or not 0 <= radius <= 90:
+            parser.error("--angular-radius-deg must be finite and between 0 and 90")
 
     symmetries = generate_symmetries(sym=args.symmetry_group)
 
