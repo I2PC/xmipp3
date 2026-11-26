@@ -106,27 +106,27 @@ file(
 )
 
 # Compile FRM
-# add_library(swig_frm MODULE ${FRM_SOURCES})
-# set_target_properties(swig_frm PROPERTIES PREFIX "_")
-# target_link_libraries(
-# 	swig_frm
-#	PUBLIC
-#		Python3::Python
-#		Python3::NumPy
-#		XmippCore
-#)
-#install(
-#	TARGETS swig_frm
-#	LIBRARY DESTINATION bindings/python
-#)
-#install(
-#	DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/external/sh_alignment/python/
-#	DESTINATION bindings/python/sh_alignment
-#)
-#install(
-#	FILES ${CMAKE_CURRENT_SOURCE_DIR}/external/sh_alignment/swig_frm.py
-#	DESTINATION bindings/python/sh_alignment
-#)
+add_library(swig_frm MODULE ${FRM_SOURCES})
+set_target_properties(swig_frm PROPERTIES PREFIX "_")
+target_link_libraries(
+	swig_frm
+	PUBLIC
+		Python3::Python
+		Python3::NumPy
+		XmippCore
+)
+install(
+	TARGETS swig_frm
+	LIBRARY DESTINATION bindings/python
+)
+install(
+	DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/external/sh_alignment/python/
+	DESTINATION bindings/python/sh_alignment
+)
+install(
+	FILES ${CMAKE_CURRENT_SOURCE_DIR}/external/sh_alignment/swig_frm.py
+	DESTINATION bindings/python/sh_alignment
+)
 
 # Create the shared library
 add_library(Xmipp SHARED ${SOURCES})
