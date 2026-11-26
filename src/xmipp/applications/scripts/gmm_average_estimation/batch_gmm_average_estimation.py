@@ -258,7 +258,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
     io_group.add_argument(
         "--overwrite",
         action=argparse.BooleanOptionalAction,
-        help="Overwrite image stacks if they already exist on the requested paths.",
+        help="Overwrite image stacks and star files if they already exist on the requested paths.",
         default=False,
     )
 
@@ -952,7 +952,9 @@ def main() -> None:
 
         out_md[group_by_column] = output_groups.astype(np.int64)
 
-        starfile.write(data=out_md, filename=args.out_star)
+        starfile.write(
+            data=out_md, filename=args.out_star, overwrite=pipeline_config.io.overwrite
+        )
 
 
 if __name__ == "__main__":
