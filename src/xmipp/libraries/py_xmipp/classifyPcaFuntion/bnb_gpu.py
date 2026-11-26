@@ -302,7 +302,7 @@ class BnBgpu(Split):
  
         # ---- parámetros de la estrategia ----
         junk_iters = (3, st[3])     # iteraciones en las que se marcan partículas malas
-        # junk_max_frac = 0.06        # tope de clases basura (fracción de final_classes)
+        junk_max_frac = 0.06        # tope de clases basura (fracción de final_classes)
         pool_cap = 20000            # máximo de partículas malas que se guardan en GPU
  
         is_split_iter = 2 <= iter < iterSplit and (iter - 2) % split_every == 0
@@ -419,8 +419,8 @@ class BnBgpu(Split):
  
         # ---- huecos: para dividir y para clases basura ----
         free_slots = list(range(classes, total_slots))
-        # max_junk = max(1, round(junk_max_frac * final_classes))
-        max_junk = max(1, split)
+        max_junk = max(1, round(junk_max_frac * final_classes))
+        # max_junk = max(1, split)
         room = max(0, max_junk - int(prev_junk.sum()))          # clases basura nuevas permitidas
         split_slots = list(free_slots)  # todos los huecos son para dividir; lo que sobre se decide después
  
@@ -538,8 +538,7 @@ class BnBgpu(Split):
  
         # ---- at_fill: los huecos (los que sobraron más los que libera el cluster) se rellenan con basura ----
         n_junk_new = 0
-        # if use_junk and at_fill and pool_imgs:
-        if use_junk and pool_imgs:
+        if use_junk and at_fill and pool_imgs:
             n_holes = max(0, final_classes - clk.shape[0])
             n_new = min(n_holes, room)
             if n_new > 0:
