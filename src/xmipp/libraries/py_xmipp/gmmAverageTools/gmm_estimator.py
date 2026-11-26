@@ -45,9 +45,6 @@ class RecursiveGMMEstimator:
         )
 
         self.distance_function = distance_function
-        # Optional covariance-aware distances can track the exact coefficients
-        # of each reference. Existing distance functions need no change.
-        self.reference_weights_callback = reference_weights_callback
         self.max_iter = max_iter
         self.tol = tol
 
@@ -311,10 +308,6 @@ class RecursiveGMMEstimator:
         self.model = self._new_model()
 
         # Get initial reference
-        if self.reference_weights_callback is not None:
-            if reference is None:
-                reference_weights = images.new_full((len(images),), 1.0 / len(images))
-            self.reference_weights_callback(reference_weights)
         reference = (
             images.mean(dim=0) if reference is None else reference.to(images.device)
         )
@@ -342,8 +335,6 @@ class RecursiveGMMEstimator:
                 distances = exc.distances
                 weights = torch.ones_like(weights)
                 reference = images.mean(dim=0)
-                if self.reference_weights_callback is not None:
-                    self.reference_weights_callback(weights.reshape(-1) / weights.sum())
                 break
 
             if converged:
