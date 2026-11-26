@@ -10,7 +10,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import starfile
-
 from xmippPyModules.coneGroupingTools.cone_grouping import (
     Assignments,
     EulerAngles,
@@ -18,9 +17,12 @@ from xmippPyModules.coneGroupingTools.cone_grouping import (
     deduplicate_with_symmetry,
     euler_zyz_to_matrix,
     generate_reference_orientations,
-    generate_symmetries,
     group_projection_directions,
     min_distance_between_directions,
+)
+from xmippPyModules.coneGroupingTools.symmetry import (
+    SUPPORTED_SYMMETRIES,
+    generate_symmetries,
 )
 
 MDL_ANGLE_PSI = "anglePsi"
@@ -142,7 +144,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
         "--symmetry-group",
         type=str,
         default="c1",
-        help="Symbol for the symmetry group of the volume. Currently only cn and dn are supported",
+        help=f"Symmetry group of the volume. Supported groups: {SUPPORTED_SYMMETRIES}.",
     )
     parser.add_argument(
         "--deduplicate-references",
@@ -199,7 +201,10 @@ def main():
         if not math.isfinite(radius) or not 0 <= radius <= 90:
             parser.error("--angular-radius-deg must be finite and between 0 and 90")
 
-    symmetries = generate_symmetries(sym=args.symmetry_group)
+    try:
+        symmetries = generate_symmetries(sym=args.symmetry_group)
+    except (ValueError, RuntimeError) as exc:
+        parser.error(str(exc))
 
     reference_angles, reference_matrices = generate_reference_orientations(
         n=args.n_groups

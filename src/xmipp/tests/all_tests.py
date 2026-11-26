@@ -27,7 +27,12 @@
 # **************************************************************************
 
 from test_binding import *
-from test_cone_grouping import ConeGroupingScriptTest, ConeGroupingTest
+from test_cone_grouping import (
+    ConeGroupingScriptTest,
+    ConeGroupingTest,
+    XmippConeGeometryTest,
+    XmippConeSymmetryTest,
+)
 from test_gmm_average_estimation import (
     AdmmSolverTest,
     GmmAverageScriptTest,
