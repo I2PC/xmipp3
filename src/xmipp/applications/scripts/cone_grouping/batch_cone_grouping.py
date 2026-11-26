@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-import math
 import argparse
+import math
 import sys
-from pathlib import Path
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
-import starfile
 import pandas as pd
+import starfile
 
 MDL_ANGLE_PSI = "anglePsi"
 MDL_FLIP = "flip"
