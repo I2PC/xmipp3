@@ -296,13 +296,13 @@ class BnBgpu(Split):
  
         # ---- calendario original: 18 iteraciones (0-17) ----
         # etapas: 0-3, 4-6, 7-9, 10-12, 13-17 (las mismas que en determine_ROTandSHIFT)
-        iterSplit = 7                   # primera iteración SIN splits
+        iterSplit = 9 #7                   # primera iteración SIN splits
         st = [0, 4, 7, 10, 13]          # inicio de cada etapa
         split_every = 1         # 1 = dividir en cada iteración; 2 = una sí y otra no (entre medias se refina)
  
         # ---- parámetros de la estrategia ----
         junk_iters = (3, st[3])     # iteraciones en las que se marcan partículas malas
-        junk_max_frac = 0.06        # tope de clases basura (fracción de final_classes)
+        # junk_max_frac = 0.06        # tope de clases basura (fracción de final_classes)
         pool_cap = 20000            # máximo de partículas malas que se guardan en GPU
  
         is_split_iter = 2 <= iter < iterSplit and (iter - 2) % split_every == 0
@@ -419,7 +419,8 @@ class BnBgpu(Split):
  
         # ---- huecos: para dividir y para clases basura ----
         free_slots = list(range(classes, total_slots))
-        max_junk = max(1, round(junk_max_frac * final_classes))
+        # max_junk = max(1, round(junk_max_frac * final_classes))
+        max_junk = max(1, split)
         room = max(0, max_junk - int(prev_junk.sum()))          # clases basura nuevas permitidas
         split_slots = list(free_slots)  # todos los huecos son para dividir; lo que sobre se decide después
  
