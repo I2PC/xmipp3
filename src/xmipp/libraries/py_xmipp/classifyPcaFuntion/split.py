@@ -111,6 +111,41 @@ class Split:
                 newCL[slots[k]] = Pi[sel]
                 used.append(slots[k])
         return used
+    
+    @torch.no_grad()
+    def make_junk_classes(self, pool_imgs, pool_proj, cvecs, n_new, sampling, min_per_class=50):
+        """
+        Crea hasta n_new clases basura directamente como averages (k-means del pool en el espacio PCA
+        normalizado) con el mismo filtrado que el resto de clases. Se usa tras el cluster, cuando ya se
+        sabe cuántos huecos quedan. Devuelve (averages (m,H,W), tamaños (m,)) o (None, None).
+        """
+        if not pool_imgs:
+            return None, None
+        Pi = torch.cat(pool_imgs)
+        Pp = torch.cat(pool_proj).float()
+        Pp = Pp / Pp.norm(dim=1, keepdim=True).clamp_min(1e-8)
+        N = Pi.shape[0]
+ 
+        m = min(n_new, N // min_per_class)
+        if m < 1:
+            return None, None
+ 
+        if m == 1:
+            lab = torch.zeros(N, dtype=torch.long, device=Pi.device)
+        else:
+            _, lab = self.kmeans_pytorch_for_averages(Pi, Pp, cvecs, num_clusters=m)
+ 
+        groups = [Pi[lab == k] for k in range(m) if bool((lab == k).any())]
+        if not groups:
+            return None, None
+ 
+        avg = torch.stack([g.mean(dim=0) for g in groups])
+        res = self.frc_resolution_tensor(groups, sampling, fallback_res=50, rcut=50)
+        avg = self.gaussian_lowpass_filter_2D_adaptive(avg, res, sampling)
+        avg = self.highpass_cosine_sharpen(avg, res, sampling, factorR=None)
+        avg = avg * self.create_circular_mask(avg)
+        sizes = torch.tensor([g.shape[0] for g in groups], device=avg.device)
+        return avg, sizes
  
     @torch.no_grad()
     def route_junk(self, matches, proj_raw, cl, freqBn, coef, cvecs,
