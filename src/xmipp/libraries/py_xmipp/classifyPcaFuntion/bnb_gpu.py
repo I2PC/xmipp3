@@ -292,19 +292,34 @@ class BnBgpu(Split):
     @torch.no_grad()
     def create_classes(self, mmap, tMatrix, iter, nExp, expBatchSize, matches, vectorshift,
                        classes, final_classes, freqBn, coef, cvecs, mask, sigma, sampling,
-                       cycles, last_iter=17, verbose = True):
+                       cycles, last_iter=17):
  
-        iterSplit = 7
+        # ---- calendario: del IterationPlan si existe (bnb.plan), si no el fijo de siempre ----
+        plan = getattr(self, 'plan', None)
+        if plan is not None:
+            iterSplit = plan.split_end      # primera iteración SIN splits
+            st = plan.starts                # inicio de cada etapa
+            last_iter = plan.niter - 1
+        else:
+            iterSplit = 7
+            st = [0, 4, 7, 10, 13]
+        split_every = 1         # 1 = dividir en cada iteración; 2 = una sí y otra no (entre medias se refina)
  
         # ---- parámetros de la estrategia ----
-        junk_iters = (3, 10)        # iteraciones en las que se marcan partículas malas
-        junk_reserve_frac = 0.03    # fracción de final_classes reservada para clases basura
+        junk_iters = (3, st[3])     # iteraciones en las que se marcan partículas malas
+        junk_max_frac = 0.06        # tope de clases basura (fracción de final_classes)
         pool_cap = 20000            # máximo de partículas malas que se guardan en GPU
-        merge_iters = (2, iterSplit - 2)   # iteraciones en las que se hace cluster de averages
+        min_productive = 1          # splits mínimos en la última iteración para alargar la etapa
+ 
+        is_split_iter = 2 <= iter < iterSplit and (iter - 2) % split_every == 0
+        # el cluster de averages se hace justo ANTES de una iteración de split, para que los
+        # huecos que libere se rellenen con splits; y siempre después de al menos una iteración de refinado
+        merge_now = iter >= 2 and (iter + 1) < iterSplit and (iter + 1 - 2) % split_every == 0
+        fill_iter = max(i for i in range(2, iterSplit) if (i - 2) % split_every == 0)   # última con huecos
  
         if iter == 2:
             split = max(0, (final_classes - classes) * 60 // 100)
-        elif 3 <= iter < iterSplit and final_classes > classes:
+        elif 3 <= iter < iterSplit and is_split_iter and final_classes > classes:
             split = final_classes - classes
         else:
             split = 0
@@ -342,7 +357,7 @@ class BnBgpu(Split):
                 rotBatch[initBatch:endBatch], translations[initBatch:endBatch], centerxy)
  
             if mask:
-                sigma_gauss = (0.75 * sigma) if (iter < 10 and iter % 2 == 1) else sigma
+                sigma_gauss = (0.75 * sigma) if (iter < st[3] and iter % 2 == 1) else sigma
                 transforIm = transforIm * self.create_gaussian_mask(transforIm, sigma_gauss)
             else:
                 transforIm = transforIm * self.create_circular_mask(transforIm)
@@ -413,16 +428,15 @@ class BnBgpu(Split):
  
         # ---- huecos: para dividir y para clases basura ----
         free_slots = list(range(classes, total_slots))
-        n_res = 0
-        if use_junk and free_slots:
-            n_res = min(max(1, round(junk_reserve_frac * final_classes)), len(free_slots))
-        split_slots = free_slots[:len(free_slots) - n_res]
-        junk_slots = free_slots[len(free_slots) - n_res:]
+        max_junk = max(1, round(junk_max_frac * final_classes))
+        room = max(0, max_junk - int(prev_junk.sum()))          # clases basura nuevas permitidas
+        split_slots = list(free_slots)  # todos los huecos son para dividir; lo que sobre se decide después
  
         # ---- split de clases buenas por exceso de varianza ----
         split_done = []
         n_slots_split = len(split_slots)
-        n_big = sum(1 for P in newProj[:classes] if P is not None and P.shape[0] >= 3 * P.shape[1])
+        n_big = sum(1 for P in newProj[:classes]
+                    if P is not None and P.shape[0] >= 3 * min(P.shape[1], self.split_dims))
         n_pos, max_score, no_cut = 0, 0.0, 0
  
         if 2 <= iter < iterSplit and split_slots:
@@ -448,23 +462,43 @@ class BnBgpu(Split):
                     fresh_mask[dst] = True
                     split_done.append((n, dst, sc, int((labels == 0).sum()), int((labels == 1).sum())))
  
-        if verbose and 2 <= iter < iterSplit:
+        if self.verbose and is_split_iter:
             print(f"[split] iter {iter}: huecos {n_slots_split} | clases con partículas suficientes {n_big}"
                   f" | con exceso de varianza {n_pos} (score máx {max_score:.1f}) | divididas {len(split_done)}"
                   f"{' | sin corte válido ' + str(no_cut) if no_cut else ''}", flush=True)
             for n, dst, sc, a, b in split_done[:10]:
                 print(f"        clase {n} ({a + b} part.) -> {a} + {b} (nueva en {dst}) | score {sc:.1f}", flush=True)
  
-        # ---- clases basura: slots de clases basura previas + huecos sin usar ----
+        # ---- ¿alargar la etapa de splits? ----
+        # Última iteración con huecos, aún faltan clases y este split fue productivo: hay más estructura
+        # que separar (típico con datasets enormes). En vez de rellenar con basura, se añade una iteración.
+        if (plan is not None and iter == fill_iter and split_slots
+                and len(split_done) >= min_productive and plan.can_extend()):
+            plan.extend(1)
+            iterSplit = plan.split_end
+            st = plan.starts
+            last_iter = plan.niter - 1
+            merge_now = iter >= 2 and (iter + 1) < iterSplit and (iter + 1 - 2) % split_every == 0
+            fill_iter = max(i for i in range(2, iterSplit) if (i - 2) % split_every == 0)
+            if self.verbose:
+                print(f"[plan] iter {iter}: aún faltan {len(split_slots)} clases y se dividieron {len(split_done)}"
+                      f" -> se alarga la etapa de splits | {plan}", flush=True)
+ 
+        # ---- clases basura ----
+        # Antes de fill_iter las partículas malas solo se excluyen de los averages (el pool se descarta).
+        # En fill_iter, los huecos que sobran tras dividir se rellenan con ellas (hasta el tope).
+        # Después, las clases basura ya existentes se reconstruyen cada iteración con lo que les llega.
         if use_junk:
             prev_idx = torch.where(prev_junk)[0].tolist()       # sus partículas ya están en el pool
-            used = self.seed_junk_classes(newCL, pool_imgs, pool_proj, cvecs,
-                                          prev_idx + split_slots + junk_slots)
+            extra = split_slots[:room] if iter == fill_iter else []   # huecos que sobran tras dividir
+            slots = prev_idx + extra
+            used = self.seed_junk_classes(newCL, pool_imgs, pool_proj, cvecs, slots) if slots else []
             if used:
                 junk_flags[used] = True
-            if verbose:
-                print(f"[junk] iter {iter}: pool {pool_n} | clases basura sembradas {len(used)}"
-                      f" (tamaños {[int(newCL[s].shape[0]) for s in used]})", flush=True)
+            if self.verbose and (iter == fill_iter or prev_idx):
+                print(f"[junk] iter {iter}: huecos libres tras dividir {len(split_slots)} | pool {pool_n}"
+                      f" | clases basura creadas {len(used)} (previas {len(prev_idx)}, tope {max_junk})"
+                      f" | tamaños {[int(newCL[s].shape[0]) for s in used]}", flush=True)
         del pool_imgs, pool_proj
  
         # ---- averages ----
@@ -496,14 +530,14 @@ class BnBgpu(Split):
             fresh = fresh_mask[valid_mask][order]
             junk_flags = junk_flags[valid_mask][order]
  
-        if iter in [10, 13]:
+        if iter in (st[3], st[4]):
             clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
                                                     intensity_percentile=50, smooth_sigma=1.0)
-        if 1 < iter < 7 and iter % 2 == 0:
+        if 1 < iter < st[2] and iter % 2 == 0:
             clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
                                                     intensity_percentile=50, smooth_sigma=1.0)
  
-        if iter > 2 and iter < 12:
+        if 2 < iter < st[3] + 2:
             for _ in range(2):
                 clk = self.center_by_com(clk)
  
@@ -511,12 +545,12 @@ class BnBgpu(Split):
  
         # ---- cluster de averages iguales (referencias de la siguiente iteración) ----
         n_before_merge = clk.shape[0]
-        if merge_iters[0] <= iter <= merge_iters[1]:
+        if merge_now:
             keep = self.select_distinct_averages(clk, sizes, sampling, protect=(fresh | junk_flags))
             clk = clk[keep]
             junk_flags = junk_flags[keep]
  
-        if verbose:
+        if self.verbose:
             print(f"[iter {iter:2d}] clases {classes} -> {clk.shape[0]} | divididas {len(split_done)}"
                   f" | fusionadas {n_before_merge - clk.shape[0]} | clases basura {int(junk_flags.sum())}"
                   f" | partículas en pool {pool_n}", flush=True)
@@ -591,9 +625,10 @@ class BnBgpu(Split):
     
     @torch.no_grad()
     def select_distinct_averages(self, clk, sizes, sampling, protect=None,
-                                 threshold=0.93, min_n=10, lowpass=20.0, verbose = True):
+                                 threshold=0.93, min_n=10, lowpass=20.0, verbose=True):
+        # Ajusta la ruta al fichero donde guardes TwoDClassAverageClusterer
+        from xmippPyModules.classifyPcaFuntion.class_clustering import TwoDClassAverageClusterer
  
-        
         K = clk.shape[0]
         if protect is None:
             protect = torch.zeros(K, dtype=torch.bool, device=clk.device)
@@ -602,7 +637,7 @@ class BnBgpu(Split):
         if ok.numel() < 3:
             return torch.arange(K, device=clk.device)
  
-        clusterer = Clusterer(threshold=threshold, device=clk.device,
+        clusterer = clusterer(threshold=threshold, device=clk.device,
                                               apix=sampling, lowpass=lowpass)
         clusterer.fit(clk[ok])
  
@@ -616,7 +651,7 @@ class BnBgpu(Split):
                 groups.append((int(best), [int(i) for i in idx if int(i) != int(best)]))
  
         keep = torch.cat(keep)
-        
+ 
         if verbose:
             sim = torch.from_numpy(clusterer.similarity_)
             pairs = clusterer.get_top_pairs(sim, top_k=5) if ok.numel() >= 2 else []
@@ -627,7 +662,7 @@ class BnBgpu(Split):
                 print(f"        se queda {best} (n={int(sizes[best])}) y absorbe {dropped}", flush=True)
             print("        pares más similares (i, j, sim):",
                   [(int(ok[i]), int(ok[j]), round(s, 3)) for i, j, s in pairs], flush=True)
-            
+ 
         return keep[torch.argsort(sizes[keep], descending=True)]
             
             

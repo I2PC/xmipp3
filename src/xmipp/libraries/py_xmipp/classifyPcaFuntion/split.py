@@ -26,6 +26,10 @@ import torch
 class Split:
     
 
+    verbose = True      # imprime diagnóstico de splits, clases basura y merges
+    split_dims = 100    # nº de componentes PCA (las primeras) usadas para decidir y hacer splits.
+                        # Asume cvecs ordenado por autovalor decreciente.
+ 
     # ------------------------------------------------------------------
     # Estadística robusta
     # ------------------------------------------------------------------
@@ -163,7 +167,8 @@ class Split:
         ref = next((P for P in newProj if P is not None), None)
         if ref is None:
             return None, None
-        dev, D = ref.device, ref.shape[1]
+        dev = ref.device
+        D = min(ref.shape[1], self.split_dims)      # solo las primeras componentes: el resto es ruido
  
         scores = torch.zeros(K, device=dev)
         axes = torch.zeros(K, D, device=dev)
@@ -175,7 +180,7 @@ class Split:
  
         covs, ns = [], []
         for k in idx:
-            P = newProj[k].float()
+            P = newProj[k].float()[:, :D]
             P = P / P.norm(dim=1, keepdim=True).clamp_min(1e-8)
             Pc = P - P.mean(0, keepdim=True)
             covs.append(Pc.T @ Pc)
@@ -225,7 +230,7 @@ class Split:
     @torch.no_grad()
     def _split_labels(self, P, edge_factor=1.1, max_dims=5, min_frac=0.1, iters=10):
         """Divide una clase en 2: k-means en el subespacio con señal, inicializado con Otsu."""
-        P = P.float()
+        P = P.float()[:, :self.split_dims]
         P = P / P.norm(dim=1, keepdim=True).clamp_min(1e-8)
         n, D = P.shape
         Pc = P - P.mean(0, keepdim=True)
