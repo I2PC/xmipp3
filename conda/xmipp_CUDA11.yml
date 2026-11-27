@@ -18,6 +18,5 @@ dependencies:
   - openjdk=11.0.29
   - libcxxabi
   - harfbuzz<=12.2
-  - six>=1.16.0
   - pip:
       - numpy==1.26.4
