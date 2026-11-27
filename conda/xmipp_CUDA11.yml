@@ -3,6 +3,7 @@ channels:
   - conda-forge
   - nodefaults
 dependencies:
+  - cuda-version=11.8
   - cuda-toolkit
   - gcc_linux-64
   - gxx_linux-64
@@ -16,5 +17,6 @@ dependencies:
   - libjpeg-turbo
   - openjdk=11.0.29
   - libcxxabi
+  - harfbuzz<=12.2
   - pip:
       - numpy==1.26.4

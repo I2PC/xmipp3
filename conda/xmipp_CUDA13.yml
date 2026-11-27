@@ -3,6 +3,7 @@ channels:
   - conda-forge
   - nodefaults
 dependencies:
+  - cuda-version=13.1
   - cuda-toolkit
   - gcc_linux-64
   - gxx_linux-64
