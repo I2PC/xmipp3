@@ -25,7 +25,6 @@ import torch
  
 class Split:
     
-
     verbose = True      # imprime diagnóstico de splits, clases basura y merges
     split_dims = 100    # nº de componentes PCA (las primeras) usadas para decidir y hacer splits.
                         # Asume cvecs ordenado por autovalor decreciente.
@@ -111,7 +110,7 @@ class Split:
                 newCL[slots[k]] = Pi[sel]
                 used.append(slots[k])
         return used
-    
+ 
     @torch.no_grad()
     def make_junk_classes(self, pool_imgs, pool_proj, cvecs, n_new, sampling, min_per_class=50):
         """
@@ -146,6 +145,64 @@ class Split:
         avg = avg * self.create_circular_mask(avg)
         sizes = torch.tensor([g.shape[0] for g in groups], device=avg.device)
         return avg, sizes
+ 
+    @torch.no_grad()
+    def _averages_from_groups(self, groups, sampling):
+        """Average de cada grupo de imágenes con el mismo filtrado que el resto de clases."""
+        avg = torch.stack([g.mean(dim=0) for g in groups])
+        res = self.frc_resolution_tensor(groups, sampling, fallback_res=50, rcut=50)
+        avg = self.gaussian_lowpass_filter_2D_adaptive(avg, res, sampling)
+        avg = self.highpass_cosine_sharpen(avg, res, sampling, factorR=None)
+        return avg * self.create_circular_mask(avg)
+ 
+    @torch.no_grad()
+    def fill_by_population(self, clk, sizes, junk_flags, slot_of, newCL, newProj, n_need, sampling,
+                           min_child=100, min_frac=0.3):
+        """
+        Rellena huecos dividiendo en dos las clases más pobladas (k-means en el subespacio con señal,
+        cortes equilibrados), sin exigir exceso de varianza. Cada clase se divide como mucho una vez y cada
+        hija debe tener al menos min_child partículas. Devuelve (clk, sizes, junk_flags, slot_of, n_creadas).
+ 
+        Estas clases NO son estructuras distintas: son un muestreo más fino de la variación de la clase.
+        Se crean en la última iteración con huecos, tras el cluster, para que no se deshagan.
+        """
+        cand = torch.where((slot_of >= 0) & ~junk_flags & (sizes >= 2 * min_child))[0]
+        if cand.numel() == 0:
+            return clk, sizes, junk_flags, slot_of, 0
+        cand = cand[torch.argsort(sizes[cand], descending=True)]
+ 
+        rows, groups = [], []
+        for r in cand.tolist():
+            if len(rows) >= n_need:
+                break
+            s = int(slot_of[r])
+            P = newProj[s]
+            if P is None or P.shape[0] != newCL[s].shape[0]:
+                continue
+            labels = self._split_labels(P, min_frac=min_frac)
+            if labels is None:
+                continue
+            A, B = newCL[s][labels == 0], newCL[s][labels == 1]
+            if min(A.shape[0], B.shape[0]) < min_child:
+                continue
+            rows.append(r)
+            groups += [A, B]
+ 
+        if not rows:
+            return clk, sizes, junk_flags, slot_of, 0
+ 
+        m = len(rows)
+        avg = self._averages_from_groups(groups, sampling)            # (2m,H,W): A0,B0,A1,B1,...
+        g_sizes = torch.tensor([g.shape[0] for g in groups], device=sizes.device, dtype=sizes.dtype)
+        a_rows = torch.tensor(rows, device=clk.device)
+ 
+        clk[a_rows] = avg[0::2]                                       # la hija A sustituye a la clase
+        sizes[a_rows] = g_sizes[0::2]
+        clk = torch.cat([clk, avg[1::2]])                             # la hija B es una clase nueva
+        sizes = torch.cat([sizes, g_sizes[1::2]])
+        junk_flags = torch.cat([junk_flags, torch.zeros(m, dtype=torch.bool, device=junk_flags.device)])
+        slot_of = torch.cat([slot_of, torch.full((m,), -1, dtype=slot_of.dtype, device=slot_of.device)])
+        return clk, sizes, junk_flags, slot_of, m
  
     @torch.no_grad()
     def route_junk(self, matches, proj_raw, cl, freqBn, coef, cvecs,
@@ -294,3 +351,5 @@ class Split:
                 break
             labels = new
         return labels
+    
+    

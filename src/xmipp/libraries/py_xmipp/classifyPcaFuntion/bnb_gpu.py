@@ -296,7 +296,7 @@ class BnBgpu(Split):
  
         # ---- calendario original: 18 iteraciones (0-17) ----
         # etapas: 0-3, 4-6, 7-9, 10-12, 13-17 (las mismas que en determine_ROTandSHIFT)
-        iterSplit = 9 #7                   # primera iteración SIN splits
+        iterSplit = 9                   # primera iteración SIN splits (originalmente 7)
         st = [0, 4, 7, 10, 13]          # inicio de cada etapa
         split_every = 1         # 1 = dividir en cada iteración; 2 = una sí y otra no (entre medias se refina)
  
@@ -304,6 +304,9 @@ class BnBgpu(Split):
         junk_iters = (3, st[3])     # iteraciones en las que se marcan partículas malas
         junk_max_frac = 0.06        # tope de clases basura (fracción de final_classes)
         pool_cap = 20000            # máximo de partículas malas que se guardan en GPU
+        fill_to_final = True        # en at_fill, tras cluster y basura, rellenar hasta final_classes dividiendo
+                                    # las clases más pobladas
+        min_child = 100             # mínimo de partículas por clase hija en ese relleno
  
         is_split_iter = 2 <= iter < iterSplit and (iter - 2) % split_every == 0
         fill_iter = max(i for i in range(2, iterSplit) if (i - 2) % split_every == 0)   # última con huecos
@@ -420,7 +423,6 @@ class BnBgpu(Split):
         # ---- huecos: para dividir y para clases basura ----
         free_slots = list(range(classes, total_slots))
         max_junk = max(1, round(junk_max_frac * final_classes))
-        # max_junk = max(1, split)
         room = max(0, max_junk - int(prev_junk.sum()))          # clases basura nuevas permitidas
         split_slots = list(free_slots)  # todos los huecos son para dividir; lo que sobre se decide después
  
@@ -431,13 +433,18 @@ class BnBgpu(Split):
                     if P is not None and P.shape[0] >= 3 * min(P.shape[1], self.split_dims))
         n_pos, max_score, no_cut = 0, 0.0, 0
  
-        if 2 <= iter < iterSplit and split_slots:
+        if is_split_iter:
+            # el score se evalúa siempre (da información aunque no queden huecos); solo se divide si hay huecos
             scores, axes = self.split_score(newProj)
             if scores is not None:
                 scores[:classes] = scores[:classes].masked_fill(prev_junk, 0.0)   # basura no se divide
                 n_pos = int((scores[:classes] > 0).sum())
                 max_score = float(scores[:classes].max())
-                top_sc, top_idx = torch.topk(scores[:classes], min(len(split_slots), classes))
+                k_top = min(len(split_slots), classes)
+                if k_top > 0:
+                    top_sc, top_idx = torch.topk(scores[:classes], k_top)
+                else:
+                    top_sc, top_idx = scores.new_zeros(0), scores.new_zeros(0, dtype=torch.long)
  
                 for sc, n in zip(top_sc.tolist(), top_idx.tolist()):
                     if sc <= 0 or not split_slots:
@@ -447,9 +454,9 @@ class BnBgpu(Split):
                         no_cut += 1
                         continue
                     dst = split_slots.pop(0)
-                    imgs = newCL[n]
-                    newCL[dst] = imgs[labels == 1]
-                    newCL[n] = imgs[labels == 0]
+                    imgs, Pn = newCL[n], newProj[n]
+                    newCL[dst], newProj[dst] = imgs[labels == 1], Pn[labels == 1]
+                    newCL[n], newProj[n] = imgs[labels == 0], Pn[labels == 0]
                     fresh_mask[n] = True
                     fresh_mask[dst] = True
                     split_done.append((n, dst, sc, int((labels == 0).sum()), int((labels == 1).sum())))
@@ -511,6 +518,7 @@ class BnBgpu(Split):
             sizes = sizes[order]
             fresh = fresh_mask[valid_mask][order]
             junk_flags = junk_flags[valid_mask][order]
+            slot_of = torch.where(valid_mask)[0][order]      # fila de clk -> hueco de newCL / newProj
  
         if iter in (st[3], st[4]):
             clk = clk * self.contrast_dominant_mask(clk, window=3, contrast_percentile=80,
@@ -534,6 +542,7 @@ class BnBgpu(Split):
             clk = clk[keep]
             sizes = sizes[keep]
             junk_flags = junk_flags[keep]
+            slot_of = slot_of[keep]
         n_merged = n_before_merge - clk.shape[0]
  
         # ---- at_fill: los huecos (los que sobraron más los que libera el cluster) se rellenan con basura ----
@@ -548,22 +557,50 @@ class BnBgpu(Split):
                     sizes = torch.cat([sizes, j_size.to(sizes.dtype)])
                     junk_flags = torch.cat([junk_flags, torch.ones(j_avg.shape[0], dtype=torch.bool,
                                                                    device=junk_flags.device)])
+                    slot_of = torch.cat([slot_of, torch.full((j_avg.shape[0],), -1, dtype=slot_of.dtype,
+                                                             device=slot_of.device)])
                     n_junk_new = j_avg.shape[0]
             if self.verbose:
                 print(f"[junk] iter {iter}: huecos tras el cluster {n_holes} | pool {pool_n}"
                       f" | clases basura creadas {n_junk_new} (tope {max_junk})"
                       f" | tamaños {[int(s) for s in sizes[clk.shape[0] - n_junk_new:]] if n_junk_new else []}",
                       flush=True)
+ 
+        # ---- at_fill: si aún faltan clases para final_classes, dividir las más pobladas ----
+        n_pop = 0
+        if at_fill and fill_to_final:
+            n_left = max(0, final_classes - clk.shape[0])
+            if n_left > 0:
+                clk, sizes, junk_flags, slot_of, n_pop = self.fill_by_population(
+                    clk, sizes, junk_flags, slot_of, newCL, newProj, n_left, sampling, min_child=min_child)
+            if self.verbose:
+                msg = f"[fill] iter {iter}: huecos tras cluster y basura {n_left} | clases divididas por población {n_pop}"
+                if clk.shape[0] < final_classes:
+                    msg += f" | NO se alcanza final_classes ({clk.shape[0]}/{final_classes})"
+                print(msg, flush=True)
         del pool_imgs, pool_proj
  
         if self.verbose:
             print(f"[iter {iter:2d}] clases {classes} -> {clk.shape[0]} | divididas {len(split_done)}"
                   f" | fusionadas {n_merged} | clases basura {int(junk_flags.sum())}"
-                  f" (nuevas {n_junk_new}) | partículas en pool {pool_n}", flush=True)
+                  f" (nuevas {n_junk_new}) | rellenadas {n_pop} | partículas en pool {pool_n}", flush=True)
+ 
+        # Desde st[3] no se reordena ni se eliminan clases. Una clase que se queda sin partículas conservaría
+        # una imagen de ceros, y con la distancia normalizada una referencia cero queda siempre a distancia 1
+        # de toda partícula (coseno 0.5). Se mantiene su último average.
+        n_restored = 0
+        if iter >= max(iterSplit + 1, st[3]):
+            empty = torch.tensor([len(c) for c in newCL], device=clk.device) == 0
+            prev = getattr(self, 'prev_clk', None)
+            if prev is not None and prev.shape == clk.shape and bool(empty.any()):
+                clk[empty] = prev[empty]
+                n_restored = int(empty.sum())
+                if self.verbose:
+                    print(f"[vacías] iter {iter}: {n_restored} clases sin partículas conservan su último average", flush=True)
+        self.prev_clk = clk.detach().clone()
  
         self.junk_cls = junk_flags          # alineado con el cl que se devuelve
         return (clk, tMatrix, batch_projExp_cpu)
- 
     
     
     def align_particles_to_classes(self, data, cl, tMatrix, iter, expBatchSize, matches, vectorshift, classes, freqBn, coef, cvecs, mask, sigma, sampling):
@@ -630,9 +667,13 @@ class BnBgpu(Split):
         clk = clk * self.create_circular_mask(clk)
         return clk
     
+    # ------------------------------------------------------------------
+    # Cluster de averages parecidos
+    # ------------------------------------------------------------------
     @torch.no_grad()
     def select_distinct_averages(self, clk, sizes, sampling, protect=None,
                                  threshold=0.93, min_n=10, lowpass=20.0, verbose=True):
+
  
         K = clk.shape[0]
         if protect is None:
