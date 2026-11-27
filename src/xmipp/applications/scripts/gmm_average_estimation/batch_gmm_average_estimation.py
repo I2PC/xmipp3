@@ -684,6 +684,7 @@ def initialize_estimator(
 
 def process_class(
     class_data: pd.DataFrame,
+    class_id: int,
     pipeline_config: PipelineConfig,
 ) -> ClassProcessingResults:
     """
@@ -693,6 +694,8 @@ def process_class(
     ----------
     class_data : pandas.DataFrame
         Metadata describing the preprocessed particles for the requested class.
+    class_id : int
+        Integer ID identifying the class.
     pipeline_config : PipelineConfig
         Pipeline configuration object
 
@@ -702,6 +705,8 @@ def process_class(
         Results object (see ``ClassProcessingResults`` for details)
     """
     images = read_images(data=class_data, device=pipeline_config.device)
+    if images.isnan().any():
+        raise ValueError(f"Found images with NaN values in class {class_id}")
 
     mask_np = create_circular_mask(
         image_shape=tuple(images.shape[1:]),
@@ -864,7 +869,7 @@ def main() -> None:
 
     for index, (class_value, class_data) in enumerate(groups):
         class_results = process_class(
-            class_data=class_data, pipeline_config=pipeline_config
+            class_data=class_data, class_id=class_value, pipeline_config=pipeline_config
         )
 
         for result_field, (_, stack) in average_stacks.items():
