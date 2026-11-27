@@ -17,5 +17,6 @@ dependencies:
   - libjpeg-turbo
   - openjdk=11.0.29
   - libcxxabi
+  - six>=1.16.0
   - pip:
       - numpy==1.26.4
