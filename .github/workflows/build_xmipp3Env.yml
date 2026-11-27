@@ -1,0 +1,79 @@
+
+name: Build plugin xmipp3 Environment
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      with:
+        ref: ${{ github.head_ref }}
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y git
+
+    - name: Install Miniconda
+      uses: conda-incubator/setup-miniconda@be893c923ea9cf1cf7cd510fbdde27c7e18cbdcb
+      with:
+        miniconda-version: "latest"
+        auto-update-conda: true
+        auto-activate-base: true
+        activate-environment: scipion3
+        python-version: "3.11"
+
+    - name: Install Scipion
+      working-directory: ${{ github.workspace }}/../
+      run: |
+        pip install --only-binary :all: --user "scipion-installer>=3.0"
+        python -m scipioninstaller -conda -noAsk scipion
+
+    - name: Create Xmipp Conda environment
+      run: |
+        conda create -n xmipp3 python=3.11 -y
+
+    - name: Install xmipp3-installer
+      run: |
+        git clone https://github.com/I2PC/xmipp3-installer.git
+        conda run -n xmipp3 pip install -e ./xmipp3-installer
+
+# Disabled until xmipp3-installer 2.2.0 is released
+#    - name: Install xmipp3-installer
+#      run: |
+#        conda run -n xmipp3 pip install --only-binary :all: \
+#          "xmipp3-installer>=2.2.0,<3"
+
+    - name: Clone Xmipp bundle and install sources
+      working-directory: ${{ github.workspace }}/../
+      env:
+        XMIPP3_INSTALL_CONDA_DEPENDENCIES: "ON"
+      run: |
+        git clone --branch omad_xmipp3_env \
+          https://github.com/I2PC/xmipp3.git xmipp-TestEnv
+        cd xmipp-TestEnv
+        
+         conda run --no-capture-output -n xmipp3 ./xmipp || {
+          echo "========== compilation.log =========="
+          find . -name compilation.log -exec cat {} \;
+          exit 1
+        }
+
+    - name: Link scipion-em-xmipp sources
+      working-directory: ${{ github.workspace }}/../xmipp-TestEnv/src
+      run: |
+        ln -s "${{ github.workspace }}" scipion-em-xmipp
+
+    - name: Install scipion-em-xmipp
+      working-directory: ${{ github.workspace }}/../xmipp-TestEnv/src
+      env:
+        XMIPP3_INSTALL_CONDA_DEPENDENCIES: "ON"
+      run: |
+        ../../scipion/scipion3 installp \
+          -p scipion-em-xmipp/ --devel
