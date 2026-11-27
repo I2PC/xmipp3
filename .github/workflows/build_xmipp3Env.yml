@@ -63,7 +63,7 @@ jobs:
           echo "========== compilation.log =========="
           find . -name compilation.log -exec cat {} \;
           exit 1
-        }
+        } 
 
     - name: Link scipion-em-xmipp sources
       working-directory: ${{ github.workspace }}/../xmipp-TestEnv/src
