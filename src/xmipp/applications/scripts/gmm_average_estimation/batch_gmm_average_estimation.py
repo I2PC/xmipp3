@@ -707,6 +707,8 @@ def process_class(
     images = read_images(data=class_data, device=pipeline_config.device)
     if images.isnan().any():
         raise ValueError(f"Found images with NaN values in class {class_id}")
+    else:
+        print(f"Class ID {class_id} contains no NaNs")
 
     mask_np = create_circular_mask(
         image_shape=tuple(images.shape[1:]),
