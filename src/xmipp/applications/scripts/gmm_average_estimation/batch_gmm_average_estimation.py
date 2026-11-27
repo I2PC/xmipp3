@@ -82,6 +82,7 @@ AVERAGE_STACK_OUTPUTS = (
 @dataclass
 class IOConfig:
     input_xmd: Path
+    base_xmd: Path
     out_star: Path | None = None
     out_corrected_avgs: Path | None = None
     out_original_avgs: Path | None = None
@@ -205,6 +206,16 @@ def build_argument_parser() -> argparse.ArgumentParser:
         help=(
             "Path to the .xmd file containing paths to the images and the "
             "classification info."
+        ),
+    )
+    io_group.add_argument(
+        "--base-xmd",
+        type=Path,
+        help=(
+            "Path to the base .xmd file the weights should be added to. "
+            "The original file will not be modified, but a new one will be "
+            "created with the same information plus the weights. "
+            "Defaults to --input-xmd if omitted."
         ),
     )
     io_group.add_argument(
@@ -411,6 +422,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
 def parse_pipeline_config(args: argparse.Namespace) -> PipelineConfig:
     io_cfg = IOConfig(
         input_xmd=args.input_xmd,
+        base_xmd=args.base_xmd or args.input_xmd,
         out_star=args.out_star,
         out_corrected_avgs=args.out_corrected_avgs,
         out_original_avgs=args.out_original_avgs,
@@ -770,7 +782,7 @@ def write_weights_to_dataframe(
     write_metadata: pd.DataFrame,
     robust_weights_np: np.ndarray,
     gmm_weights_np: np.ndarray | None,
-    row_index: pd.Index,
+    item_ids: np.ndarray,
     group_by_column: str,
     group_by_value: int,
     eps_std: float = 1.0e-6,
@@ -799,7 +811,54 @@ def write_weights_to_dataframe(
                 f"Group {group_by_value} produced nonfinite {column} values."
             )
 
-        write_metadata.loc[row_index, column] = values
+    primary_column = GMM_WEIGHT_COL if gmm_weights_np is not None else ROBUST_WEIGHT_COL
+    incoming = pd.DataFrame(weights_by_column, index=item_ids)
+    previous_primary = write_metadata.loc[incoming.index, primary_column]
+
+    better_group = previous_primary.isna() | (
+        incoming[primary_column] > previous_primary
+    )
+    winners = incoming.loc[better_group]
+
+    write_metadata.loc[winners.index, list(weights_by_column)] = winners
+    write_metadata.loc[winners.index, group_by_column] = group_by_value
+
+
+def prepare_output_metadata(
+    io_config: IOConfig,
+    input_metadata_df: pd.DataFrame,
+    weight_columns: Iterable[str],
+) -> pd.DataFrame | None:
+    if not io_config.out_star:
+        return None
+
+    # Metadata files can be large, avoid reading the same file twice if possible
+    if io_config.base_xmd != io_config.input_xmd:
+        write_metadata = pd.DataFrame(starfile.read(io_config.base_xmd))
+    else:
+        write_metadata = input_metadata_df.copy()
+
+    validate_item_ids(write_metadata, name="Base")
+
+    input_ids = pd.Index(input_metadata_df[MDL_ITEM_ID_COLUMN].unique())
+    base_ids = pd.Index(write_metadata[MDL_ITEM_ID_COLUMN])
+
+    missing_ids = input_ids.difference(base_ids)
+    if len(missing_ids):
+        raise ValueError(
+            f"{len(missing_ids)} input particles are absent from the base metadata."
+        )
+
+    # Filter out particles not present in input xmd
+    write_metadata = write_metadata.loc[
+        write_metadata[MDL_ITEM_ID_COLUMN].isin(input_ids)
+    ].set_index(MDL_ITEM_ID_COLUMN, drop=False)
+
+    # Initialize the weight to nan to later catch particles without weights
+    for column in weight_columns:
+        write_metadata[column] = np.nan
+    write_metadata[io_config.group_by_column] = UNASSIGNED_GROUP_VALUE
+    return write_metadata
 
 
 def allocate_average_stacks(
@@ -850,12 +909,11 @@ def main() -> None:
     groups = input_metadata_df.groupby(group_by_column, sort=True)
 
     weight_columns = get_weight_columns(pipeline_config)
-    out_md = None
-    if pipeline_config.io.out_star is not None:
-        out_md = input_metadata_df[[MDL_ITEM_ID_COLUMN, group_by_column]].copy()
-        for column in weight_columns:
-            out_md[column] = np.nan
-
+    out_md = prepare_output_metadata(
+        io_config=pipeline_config.io,
+        input_metadata_df=input_metadata_df,
+        weight_columns=weight_columns,
+    )
     average_stacks = allocate_average_stacks(
         io_config=pipeline_config.io,
         input_metadata_df=input_metadata_df,
@@ -876,7 +934,7 @@ def main() -> None:
                 group_by_column=group_by_column,
                 group_by_value=class_value,
                 write_metadata=out_md,
-                row_index=class_data.index,
+                item_ids=class_data[MDL_ITEM_ID_COLUMN].to_numpy(),
                 robust_weights_np=class_results.robust_weights,
                 gmm_weights_np=class_results.gmm_weights,
             )
